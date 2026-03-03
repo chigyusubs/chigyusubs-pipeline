@@ -1,26 +1,46 @@
+#!/usr/bin/env python3
+"""Build a structured glossary from OCR candidates via local OpenAI-compatible endpoint."""
+
 import argparse
 import json
 import os
 import re
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
-from typing import TypedDict
-
-from google import genai
-from google.genai import types
 
 from clean_candidates import clean_candidates
 
 
-class GlossaryEntry(TypedDict):
-    source: str
-    target: str
-    context: str
-    is_hotword: bool
-
-
-class GlossaryResponse(TypedDict):
-    entries: list[GlossaryEntry]
+RESPONSE_JSON_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "glossary",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "source": {"type": "string"},
+                            "target": {"type": "string"},
+                            "context": {"type": "string"},
+                            "is_hotword": {"type": "boolean"},
+                        },
+                        "required": ["source", "target", "context", "is_hotword"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["entries"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 
 def _load_raw_text(input_path: str) -> str:
@@ -39,7 +59,7 @@ def _strip_code_fences(text: str) -> str:
     return out.strip()
 
 
-def _extract_json(text: str) -> dict:
+def _extract_json_object(text: str) -> dict:
     cleaned = _strip_code_fences(text)
     try:
         parsed = json.loads(cleaned)
@@ -48,7 +68,6 @@ def _extract_json(text: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Fallback: pull the first object-like block.
     start = cleaned.find("{")
     end = cleaned.rfind("}")
     if start >= 0 and end > start:
@@ -66,6 +85,7 @@ def _normalize_entries(raw_entries: list, top_n: int) -> list[dict]:
     for item in raw_entries:
         if not isinstance(item, dict):
             continue
+
         source = str(item.get("source", "")).strip()
         target = str(item.get("target", "")).strip()
         context = str(item.get("context", "")).strip()
@@ -84,14 +104,12 @@ def _normalize_entries(raw_entries: list, top_n: int) -> list[dict]:
         if not context:
             context = "show-specific term"
 
-        normalized.append(
-            {
-                "source": source,
-                "target": target,
-                "context": context,
-                "is_hotword": is_hotword,
-            }
-        )
+        normalized.append({
+            "source": source,
+            "target": target,
+            "context": context,
+            "is_hotword": is_hotword,
+        })
         if len(normalized) >= top_n:
             break
 
@@ -137,69 +155,70 @@ def _cap_terms_by_budget(terms: list[str], max_terms: int, max_chars: int) -> li
     return out
 
 
+def _call_chat_completions(
+    url: str,
+    model: str,
+    system_instruction: str,
+    user_prompt: str,
+    temperature: float,
+    max_tokens: int,
+    use_schema: bool,
+) -> str:
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if use_schema:
+        payload["response_format"] = RESPONSE_JSON_SCHEMA
+
+    req = urllib.request.Request(
+        f"{url.rstrip('/')}/v1/chat/completions",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    return data["choices"][0]["message"]["content"]
+
+
 def _generate_with_retry(
-    client: genai.Client,
-    model_name: str,
-    contents: str,
-    config: types.GenerateContentConfig,
-):
-    max_retries = 10
-    response = None
+    url: str,
+    model: str,
+    system_instruction: str,
+    user_prompt: str,
+    temperature: float,
+    max_tokens: int,
+    use_schema: bool,
+) -> str:
+    max_retries = 6
     for attempt in range(max_retries):
         try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=config,
+            return _call_chat_completions(
+                url=url,
+                model=model,
+                system_instruction=system_instruction,
+                user_prompt=user_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                use_schema=use_schema,
             )
-            break
-        except Exception as e:
+        except urllib.error.URLError as e:
             if attempt < max_retries - 1:
-                msg = str(e).strip().splitlines()[0]
-                print(f"Vertex call failed (attempt {attempt + 1}/{max_retries}): {msg}")
-                print("Retrying immediately...")
+                print(f"Request failed (attempt {attempt + 1}/{max_retries}): {e}")
+                print("Retrying...")
                 continue
             raise
-    if response is None:
-        raise RuntimeError("Vertex request failed with no response.")
-    return response
-
-
-def _parse_response_payload(response) -> dict:
-    parsed_payload = getattr(response, "parsed", None)
-    if isinstance(parsed_payload, dict):
-        return parsed_payload
-    if parsed_payload is not None and hasattr(parsed_payload, "model_dump"):
-        return parsed_payload.model_dump()
-    return _extract_json(response.text or "")
-
-
-def _repair_json_payload(
-    client: genai.Client,
-    model_name: str,
-    raw_text: str,
-    top_n: int,
-) -> dict:
-    repair_prompt = (
-        f"Convert this malformed model output into valid JSON.\n"
-        f'Required schema: {{"entries":[{{"source":"...","target":"...","context":"...","is_hotword":true/false}}]}}\n'
-        f"Keep up to {top_n} entries.\n"
-        f"Output JSON only, no markdown.\n\n"
-        f"{raw_text}"
-    )
-    repair_config = types.GenerateContentConfig(
-        temperature=0.0,
-        response_mime_type="application/json",
-        response_schema=GlossaryResponse,
-        max_output_tokens=8192,
-    )
-    repair_response = _generate_with_retry(
-        client=client,
-        model_name=model_name,
-        contents=repair_prompt,
-        config=repair_config,
-    )
-    return _parse_response_payload(repair_response)
+        except Exception:
+            if attempt < max_retries - 1:
+                print(f"Request failed (attempt {attempt + 1}/{max_retries}). Retrying...")
+                continue
+            raise
+    raise RuntimeError("Request failed with no response.")
 
 
 def _build_system_instruction(top_n: int, hotwords_n: int, asr_max_term_len: int) -> str:
@@ -234,49 +253,56 @@ def _build_system_instruction(top_n: int, hotwords_n: int, asr_max_term_len: int
         "   only when frequently used alone on the show.\n"
         f"7) Keep source terms concise for ASR prompts (aim for <= {asr_max_term_len} chars);\n"
         "   if OCR text is longer, split into canonical sub-terms.\n"
-        "8) Fewer high-confidence entries is better than padding the list.\n"
+        "8) Fewer high-confidence entries is better than padding the list.\n\n"
+        "Return strict JSON only. No markdown.\n"
+        'Output schema: {"entries":[{"source":"...","target":"...","context":"...","is_hotword":true/false}]}'
     )
 
 
 def _generate_structured_glossary(
-    client: genai.Client,
-    model_name: str,
+    url: str,
+    model: str,
     raw_glossary: str,
     top_n: int,
     hotwords_n: int,
     asr_max_term_len: int,
 ) -> list[dict]:
     system_instruction = _build_system_instruction(top_n, hotwords_n, asr_max_term_len)
-
-    prompt = (
-        f"Extract up to {top_n} entries from this noisy OCR candidate dump:\n\n"
-        f"{raw_glossary}"
+    user_prompt = (
+        f"Extract up to {top_n} entries from this noisy OCR candidate dump:\n\n{raw_glossary}"
     )
 
-    config = types.GenerateContentConfig(
+    raw = _generate_with_retry(
+        url=url,
+        model=model,
         system_instruction=system_instruction,
-        temperature=0.1,
-        response_mime_type="application/json",
-        response_schema=GlossaryResponse,
-        max_output_tokens=8192,
-    )
-    response = _generate_with_retry(
-        client=client,
-        model_name=model_name,
-        contents=prompt,
-        config=config,
+        user_prompt=user_prompt,
+        temperature=0.0,
+        max_tokens=max(3000, top_n * 65),
+        use_schema=True,
     )
 
     try:
-        payload = _parse_response_payload(response)
+        payload = _extract_json_object(raw)
     except Exception:
-        print("Primary JSON parse failed. Running repair pass...")
-        payload = _repair_json_payload(
-            client=client,
-            model_name=model_name,
-            raw_text=response.text or "",
-            top_n=top_n,
+        repair_system = (
+            "You repair malformed JSON. Return strict JSON only, no markdown."
         )
+        repair_user = (
+            f"Convert this malformed output into valid JSON schema "
+            f'{{"entries":[{{"source":"...","target":"...","context":"...","is_hotword":true/false}}]}}. '
+            f"Keep up to {top_n} entries.\n\n{raw}"
+        )
+        repaired = _generate_with_retry(
+            url=url,
+            model=model,
+            system_instruction=repair_system,
+            user_prompt=repair_user,
+            temperature=0.0,
+            max_tokens=max(3000, top_n * 65),
+            use_schema=True,
+        )
+        payload = _extract_json_object(repaired)
 
     entries = payload.get("entries", [])
     if not isinstance(entries, list):
@@ -313,13 +339,9 @@ def _write_outputs(
     )
     hotwords_terms = _build_hotword_terms(entries)
 
-    # Comma-separated ASR prompt terms.
     out_prompt.write_text(", ".join(asr_terms), encoding="utf-8")
-
-    # Hotwords output: only LLM-flagged terms.
     out_hotwords.write_text(", ".join(hotwords_terms), encoding="utf-8")
 
-    # Translation glossary output.
     with out_tsv.open("w", encoding="utf-8") as f:
         f.write("source\ttarget\tcontext\n")
         for row in entries:
@@ -328,7 +350,6 @@ def _write_outputs(
             ctx = row["context"].replace("\t", " ").strip()
             f.write(f"{src}\t{tgt}\t{ctx}\n")
 
-    # Master structured output.
     payload = {
         "source_candidates": source_candidates,
         "model": model_name,
@@ -338,8 +359,7 @@ def _write_outputs(
         "hotwords_terms": hotwords_terms,
     }
     out_structured.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
 
@@ -349,6 +369,7 @@ def build_glossary(
     output_structured_path: str,
     output_translation_tsv_path: str,
     output_hotwords_path: str,
+    url: str,
     model_name: str,
     top_n: int,
     hotwords_n: int,
@@ -363,21 +384,18 @@ def build_glossary(
     candidates = clean_candidates(raw_glossary)
     source_candidates = len(candidates)
 
-    # Keep prompt size bounded for more stable structured generation.
     max_input_candidates = 900
     prompt_candidates = candidates[:max_input_candidates]
     prompt_blob = "\n".join(prompt_candidates)
+
     print(f"Cleaned to {source_candidates} candidates.")
     if source_candidates > max_input_candidates:
         print(f"Using first {max_input_candidates} candidates for prompting.")
 
-    print("Initializing Vertex AI Client...")
-    client = genai.Client()
-
-    print(f"Sending structured glossary request to {model_name}...")
+    print(f"Sending structured glossary request to {model_name} at {url}...")
     entries = _generate_structured_glossary(
-        client=client,
-        model_name=model_name,
+        url=url,
+        model=model_name,
         raw_glossary=prompt_blob,
         top_n=top_n,
         hotwords_n=hotwords_n,
@@ -408,7 +426,7 @@ def build_glossary(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Build a structured source/target/context glossary from OCR candidates via Vertex Gemini."
+        description="Build a structured source/target/context glossary via local OpenAI-compatible endpoint."
     )
     parser.add_argument(
         "--input",
@@ -417,28 +435,33 @@ def main():
     )
     parser.add_argument(
         "--out-prompt",
-        default="samples/whisper_prompt_condensed.txt",
+        default="samples/whisper_prompt_condensed_qwen.txt",
         help="Comma-separated ASR prompt output.",
     )
     parser.add_argument(
         "--out-structured",
-        default="samples/whisper_prompt_condensed_structured.json",
+        default="samples/whisper_prompt_condensed_qwen_structured.json",
         help="Structured glossary JSON output.",
     )
     parser.add_argument(
         "--out-translation",
-        default="samples/translation_glossary.tsv",
+        default="samples/translation_glossary_qwen.tsv",
         help="Translation glossary TSV output (source,target,context).",
     )
     parser.add_argument(
         "--out-hotwords",
-        default="samples/whisper_hotwords.txt",
+        default="samples/whisper_hotwords_qwen.txt",
         help="ASR hotwords output (comma-separated, LLM-selected terms only).",
     )
     parser.add_argument(
+        "--url",
+        default=os.environ.get("QWEN_URL", "http://127.0.0.1:8787"),
+        help="OpenAI-compatible base URL for llama.cpp server.",
+    )
+    parser.add_argument(
         "--model",
-        default=os.environ.get("GEMINI_MODEL", "gemini-3.1-pro-preview"),
-        help="Gemini model name.",
+        default=os.environ.get("QWEN_VISION_MODEL", "qwen3-vl"),
+        help="Model alias exposed by llama.cpp server.",
     )
     parser.add_argument(
         "--top-n",
@@ -478,6 +501,7 @@ def main():
         output_structured_path=args.out_structured,
         output_translation_tsv_path=args.out_translation,
         output_hotwords_path=args.out_hotwords,
+        url=args.url,
         model_name=args.model,
         top_n=args.top_n,
         hotwords_n=args.hotwords_n,
