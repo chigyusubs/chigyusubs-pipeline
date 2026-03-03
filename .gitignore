@@ -2,13 +2,35 @@
 __pycache__/
 *.pyc
 .venv/
+.venv-*/
+venv/
+
+# Env/config
+.env
+
+# JS/tooling
+node_modules/
+dist/
+coverage/
+*.coverage
+*.log
+.vite/
+.eslintcache
 
 # Local artifacts
 samples/
 outputs/
 logs/
 checkpoints/
+.cache/
+ctranslate2_issue_materials/
 
-# OS/editor
+# Workspace/editor
 .DS_Store
 .vscode/
+.claude/
+
+# Misc local files
+docs-backup-*.tar.gz
+structured_test_output.txt
+aligned.json
