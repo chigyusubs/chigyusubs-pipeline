@@ -6,6 +6,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -186,6 +187,11 @@ def _call_chat_completions(
     return data["choices"][0]["message"]["content"]
 
 
+def _backoff_delay(attempt: int, cap: float = 30.0, k: float = 2.0) -> float:
+    """Hyperbolic backoff: ramps fast, asymptotes to cap."""
+    return cap * attempt / (attempt + k)
+
+
 def _generate_with_retry(
     url: str,
     model: str,
@@ -195,7 +201,7 @@ def _generate_with_retry(
     max_tokens: int,
     use_schema: bool,
 ) -> str:
-    max_retries = 6
+    max_retries = 10
     for attempt in range(max_retries):
         try:
             return _call_chat_completions(
@@ -209,13 +215,17 @@ def _generate_with_retry(
             )
         except urllib.error.URLError as e:
             if attempt < max_retries - 1:
+                delay = _backoff_delay(attempt + 1)
                 print(f"Request failed (attempt {attempt + 1}/{max_retries}): {e}")
-                print("Retrying...")
+                print(f"Retrying in {delay:.0f}s...")
+                time.sleep(delay)
                 continue
             raise
         except Exception:
             if attempt < max_retries - 1:
-                print(f"Request failed (attempt {attempt + 1}/{max_retries}). Retrying...")
+                delay = _backoff_delay(attempt + 1)
+                print(f"Request failed (attempt {attempt + 1}/{max_retries}). Retrying in {delay:.0f}s...")
+                time.sleep(delay)
                 continue
             raise
     raise RuntimeError("Request failed with no response.")

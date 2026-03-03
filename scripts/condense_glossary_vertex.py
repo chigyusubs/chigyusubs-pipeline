@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from typing import TypedDict
 
@@ -137,6 +138,11 @@ def _cap_terms_by_budget(terms: list[str], max_terms: int, max_chars: int) -> li
     return out
 
 
+def _backoff_delay(attempt: int, cap: float = 30.0, k: float = 2.0) -> float:
+    """Hyperbolic backoff: ramps fast, asymptotes to cap."""
+    return cap * attempt / (attempt + k)
+
+
 def _generate_with_retry(
     client: genai.Client,
     model_name: str,
@@ -156,8 +162,10 @@ def _generate_with_retry(
         except Exception as e:
             if attempt < max_retries - 1:
                 msg = str(e).strip().splitlines()[0]
+                delay = _backoff_delay(attempt + 1)
                 print(f"Vertex call failed (attempt {attempt + 1}/{max_retries}): {msg}")
-                print("Retrying immediately...")
+                print(f"Retrying in {delay:.0f}s...")
+                time.sleep(delay)
                 continue
             raise
     if response is None:

@@ -31,6 +31,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -384,9 +385,18 @@ def _call_vertex(
     return response.text or ""
 
 
+def _backoff_delay(attempt: int, cap: float = 30.0, k: float = 2.0) -> float:
+    """Hyperbolic backoff: ramps fast, asymptotes to cap.
+
+    attempt 1 -> 10s, attempt 2 -> 15s, attempt 3 -> 18s,
+    attempt 5 -> 21s, attempt 10 -> 25s  (with cap=30, k=2)
+    """
+    return cap * attempt / (attempt + k)
+
+
 def _call_with_retry(
     call_fn,
-    max_retries: int = 6,
+    max_retries: int = 10,
     **kwargs,
 ) -> str:
     for attempt in range(max_retries):
@@ -395,8 +405,10 @@ def _call_with_retry(
         except Exception as e:
             if attempt < max_retries - 1:
                 msg = str(e).strip().splitlines()[0] if str(e).strip() else repr(e)
+                delay = _backoff_delay(attempt + 1)
                 print(f"  API call failed (attempt {attempt + 1}/{max_retries}): {msg}")
-                print("  Retrying...")
+                print(f"  Retrying in {delay:.0f}s...")
+                time.sleep(delay)
                 continue
             raise
     raise RuntimeError("API request failed with no response.")
