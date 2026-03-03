@@ -1,0 +1,129 @@
+import os
+import sys
+import re
+from google import genai
+from google.genai import types
+
+def parse_vtt(vtt_text):
+    """Simple VTT parser to break text into manageable chunks of cues."""
+    lines = vtt_text.strip().split('\n')
+    cues = []
+    current_cue = {"time": "", "text": []}
+    
+    for line in lines:
+        line = line.strip()
+        if not line or line == "WEBVTT":
+            continue
+        
+        # Match VTT timestamp line
+        if "-->" in line:
+            if current_cue["time"] and current_cue["text"]:
+                current_cue["text"] = " ".join(current_cue["text"])
+                cues.append(current_cue)
+            current_cue = {"time": line, "text": []}
+        else:
+            if current_cue["time"]:
+                # Strip out Whisper's word-level timing tags like <00:01.000>
+                clean_text = re.sub(r'<\d{2}:\d{2}\.\d{3}>', '', line)
+                if clean_text.strip():
+                    current_cue["text"].append(clean_text)
+                
+    if current_cue["time"] and current_cue["text"]:
+        current_cue["text"] = " ".join(current_cue["text"])
+        cues.append(current_cue)
+        
+    return cues
+
+def format_vtt_netflix(input_vtt_path: str, output_vtt_path: str):
+    if not os.path.exists(input_vtt_path):
+        print(f"Error: {input_vtt_path} not found.")
+        sys.exit(1)
+
+    print(f"Reading raw VTT from {input_vtt_path}...")
+    with open(input_vtt_path, 'r', encoding='utf-8') as f:
+        vtt_text = f.read()
+
+    cues = parse_vtt(vtt_text)
+    print(f"Parsed {len(cues)} subtitle cues.")
+
+    # Chunk the cues so we don't overwhelm the LLM (Process ~50 cues at a time for safety)
+    CHUNK_SIZE = 50
+    cue_chunks = [cues[i:i + CHUNK_SIZE] for i in range(0, len(cues), CHUNK_SIZE)]
+    
+    system_instruction = """You are an expert Japanese subtitle formatter strictly following Netflix standards.
+Your job is to take raw, fragmented Whisper VTT output and reformat it into clean, readable broadcast subtitles.
+
+STRICT NETFLIX RULES:
+1. MAX 2 LINES PER CUE: Never output more than two lines of text per timestamp block.
+2. THE HYPHEN RULE: If two DIFFERENT people speak in the same cue, or you merge rapid back-and-forth dialogue into one cue, start each line with a hyphen and a space ("- ").
+3. NO HYPHEN FOR ONE SPEAKER: If it is just one person speaking, do NOT use hyphens, even if it wraps to two lines.
+4. MERGE FRAGMENTS: Whisper often breaks a single Japanese sentence into 3 tiny timestamps. Merge them into a single, longer timestamp with a complete sentence if they are contiguous.
+5. DELETE FILLER: Aggressively delete standalone Aizuchi (filler words like "ええ", "なるほど", "ああ") if they clutter overlapping dialogue.
+6. PRESERVE TIMESTAMPS: You must keep the VTT timestamp format (HH:MM:SS.mmm --> HH:MM:SS.mmm).
+
+Input format will be:
+[START_TIME --> END_TIME]
+Raw Text
+
+Output format MUST be valid VTT:
+START_TIME --> END_TIME
+Formatted Text
+(blank line)"""
+
+    print("Initializing Vertex AI Client...")
+    client = genai.Client()
+    model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-pro")
+
+    formatted_cues = ["WEBVTT\n\n"]
+    
+    # We pass the last 2 formatted cues to the next chunk for context continuity
+    context_overlap = ""
+
+    for i, chunk in enumerate(cue_chunks):
+        print(f"Processing chunk {i+1}/{len(cue_chunks)}...")
+        
+        # Prepare the payload
+        chunk_text = ""
+        for cue in chunk:
+            chunk_text += f"[{cue['time']}]\n{cue['text']}\n\n"
+            
+        prompt = "Reformat the following raw VTT data according to the strict Netflix rules:\n\n"
+        if context_overlap:
+            prompt += f"CONTEXT FROM PREVIOUS CUES (Do not output these again):\n{context_overlap}\n\n"
+        prompt += f"DATA TO FORMAT:\n{chunk_text}"
+
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.1,
+            ),
+        )
+        
+        result_text = response.text.strip()
+        # Clean up markdown code blocks if present
+        if result_text.startswith("```"):
+            lines = result_text.split('\n')
+            if len(lines) >= 3:
+                result_text = '\n'.join(lines[1:-1]).strip()
+        
+        formatted_cues.append(result_text + "\n\n")
+        
+        # Save the last formatted block as context for the next chunk
+        blocks = result_text.split("\n\n")
+        if len(blocks) > 0:
+            context_overlap = "\n\n".join(blocks[-2:])
+
+    final_vtt = "".join(formatted_cues)
+    
+    with open(output_vtt_path, 'w', encoding='utf-8') as f:
+        f.write(final_vtt)
+        
+    print(f"\nSuccessfully wrote formatted VTT to {output_vtt_path}")
+
+if __name__ == "__main__":
+    # Point this to the output generated by Whisper
+    input_file = "samples/transcription_output/WEDNESDAY_DOWNTOWN_2024-01-24 _#363.vtt"
+    output_file = "samples/transcription_output/WEDNESDAY_DOWNTOWN_2024-01-24 _#363.netflix.vtt"
+    format_vtt_netflix(input_file, output_file)
