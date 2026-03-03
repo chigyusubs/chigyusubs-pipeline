@@ -1,24 +1,29 @@
 #!/usr/bin/env python3
 """Translate VTT/SRT subtitles using structured JSON via any OpenAI-compatible API.
 
-Mirrors the structured JSON translation approach from chigyusubs (browser app)
-but runs locally as a CLI tool.  Supports Vertex/Gemini, OpenAI, Anthropic,
-or any OpenAI-compatible endpoint (llama.cpp, vLLM, OpenRouter, etc.).
+Designed for Whisper-segmented Japanese subtitle output.  Sends the full
+transcript in a single pass by default (frontier models handle 45+ min
+episodes easily).  Falls back to chunked translation via --chunk-seconds
+if you hit output token limits.
 
 Usage:
-  # Vertex Gemini (uses GOOGLE_CLOUD_PROJECT env)
-  python scripts/translate_vtt.py --backend vertex \\
+  # Vertex Gemini
+  python scripts/translate_vtt.py --backend vertex \
     --input subs.vtt --output subs_en.vtt
 
   # OpenAI-compatible (local or remote)
-  python scripts/translate_vtt.py --backend openai \\
-    --url http://127.0.0.1:8787 --model qwen3-30b \\
+  python scripts/translate_vtt.py --backend openai \
+    --url http://127.0.0.1:8787 --model qwen3-30b \
     --input subs.vtt --output subs_en.vtt
 
   # With glossary and summary
-  python scripts/translate_vtt.py --backend vertex \\
-    --input subs.vtt --output subs_en.vtt \\
+  python scripts/translate_vtt.py --backend vertex \
+    --input subs.vtt --output subs_en.vtt \
     --glossary glossary.tsv --summary "A comedy variety show featuring..."
+
+  # Chunked mode for very long episodes or smaller models
+  python scripts/translate_vtt.py --backend openai \
+    --input subs.vtt --chunk-seconds 600
 """
 
 import argparse
@@ -33,7 +38,7 @@ from typing import Optional
 
 
 # ---------------------------------------------------------------------------
-# VTT / SRT parsing (matches chigyusubs src/lib/vtt.ts)
+# VTT / SRT parsing
 # ---------------------------------------------------------------------------
 
 _TIME_RE = re.compile(
@@ -143,7 +148,7 @@ def serialize_srt(cues: list[Cue]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Chunking (matches chigyusubs src/lib/chunker.ts)
+# Chunking (optional, for large episodes or small-context models)
 # ---------------------------------------------------------------------------
 
 class Chunk:
@@ -181,28 +186,21 @@ def chunk_cues(
 
 
 # ---------------------------------------------------------------------------
-# Prompt building (matches chigyusubs src/lib/structured/StructuredPrompt.ts)
+# Prompt building
 # ---------------------------------------------------------------------------
 
-SHORT_CUE_SECONDS = 1.5
-
 SYSTEM_PROMPT = (
-    "You are a subtitle translator tool. Your task is to translate subtitles into {target}.\n"
+    "You are a subtitle translator for Japanese variety and comedy shows.\n"
+    "Translate subtitles into {target}.\n"
     "\n"
     "Rules:\n"
-    '1. Output JSON with a "translations" array.\n'
-    '2. Each item: {{ "id": number, "text": string, "merge_with_next"?: boolean }}.\n'
-    "3. Keep IDs in order, one item per input cue. Do not drop or duplicate IDs.\n"
-    "4. You MAY merge very short adjacent cues: set merge_with_next=true on the first "
-    "cue of the merged group; later cues in that group can have empty text.\n"
-    "5. Never split a single cue across multiple outputs.\n"
-    "\n"
-    "Annotation handling (from Whisper/Gemini transcription):\n"
-    "- (--) speaker change: Remove or keep as -- (dash). Don't translate.\n"
-    "- (テロップ: ...) on-screen text: Translate content, keep format: (Caption: ...).\n"
-    "- (拍手), (笑い), (音楽): Translate to English: (applause), (laughter), (music).\n"
-    "- Keep comedic timing; prefer punchy phrasing over literal filler.\n"
-    "- Do not sanitize slang/humor; translate faithfully."
+    '1. Output JSON: {{ "translations": [ {{ "id": <number>, "text": "<translated>" }} ] }}\n'
+    "2. One output item per input cue. Keep IDs in order. Do not drop or duplicate IDs.\n"
+    "3. Do not merge, split, or reorder cues.\n"
+    "4. Keep comedic timing; prefer punchy phrasing over literal filler.\n"
+    "5. Do not sanitize slang or humor; translate faithfully.\n"
+    "6. Sound effects and annotations in parentheses: translate to English equivalents\n"
+    "   e.g. (拍手) -> (applause), (笑い) -> (laughter), (音楽) -> (music)."
 )
 
 
@@ -212,104 +210,40 @@ def _build_user_prompt(
     glossary: Optional[str],
     context_cues: list[Cue],
     summary: Optional[str],
-    hint_mode: str = "duration",
 ) -> str:
     lines: list[str] = []
 
-    # 1. Glossary
     if glossary and glossary.strip():
         lines.append("### GLOSSARY ###")
         lines.append(glossary.strip())
         lines.append("")
 
-    # 2. Summary
     if summary and summary.strip():
         lines.append("### GLOBAL SUMMARY ###")
         lines.append(summary.strip())
         lines.append("")
 
-    # 3. Previous context
     if context_cues:
-        lines.append("### PREVIOUS CONTEXT (REFERENCE ONLY) ###")
+        lines.append("### PREVIOUS CONTEXT (REFERENCE ONLY, DO NOT TRANSLATE) ###")
         for cue in context_cues:
             safe = cue.text.replace("\n", " ")
-            lines.append(
-                f"{_seconds_to_time(cue.start)} --> {_seconds_to_time(cue.end)} {safe}"
-            )
+            lines.append(f"{_seconds_to_time(cue.start)} --> {_seconds_to_time(cue.end)} {safe}")
         lines.append("")
 
-    # 4. Cues to translate
     lines.append("### CUES TO TRANSLATE ###")
-    if hint_mode == "short-tag":
-        lines.append("Format: [ID <id>][SHORT?] <start> --> <end> <source_text>")
-    else:
-        lines.append(
-            "Format: [ID <id>] <start> --> <end> (duration <seconds>s) <source_text>"
-        )
-    lines.append("---")
-
     for i, cue in enumerate(cues):
-        cue_id = i + 1
-        dur = cue.end - cue.start
-        start = _seconds_to_time(cue.start)
-        end = _seconds_to_time(cue.end)
         safe = cue.text.replace("\n", " ")
-        if hint_mode == "short-tag":
-            short = " [SHORT]" if dur < SHORT_CUE_SECONDS else ""
-            lines.append(f"[ID {cue_id}]{short} {start} --> {end} {safe}")
-        else:
-            lines.append(
-                f"[ID {cue_id}] {start} --> {end} (duration {dur:.2f}s) {safe}"
-            )
+        lines.append(f"[{i + 1}] {safe}")
 
-    lines.append("---")
-    lines.append(f"Task: Translate the above cues into {target_lang}.")
     lines.append("")
-    lines.append("Rules (keep it minimal):")
-    lines.append('1. Output a JSON object with a "translations" array.')
-    lines.append(
-        '2. Each item must have "id" (number) and "text" (string). '
-        'Optional: "merge_with_next": true to merge with the next cue.'
-    )
-    if hint_mode == "short-tag":
-        lines.append(
-            "3. Only merge when a cue is marked [SHORT] and clearly flows into the "
-            'next cue; set merge_with_next: true on that cue and return "" for the '
-            "next cue's text."
-        )
-    else:
-        lines.append(
-            "3. You MAY merge very short adjacent cues; set merge_with_next: true on "
-            "the first cue of the merged group; later cues in that group can have "
-            "empty text."
-        )
-    lines.append(
-        "4. Keep cues in order. Do NOT drop or duplicate any IDs. "
-        "One output item per input ID."
-    )
-    lines.append("5. Do NOT split a single cue across multiple outputs.")
-    lines.append("")
-    lines.append("Example Output:")
-    lines.append("{")
-    lines.append('  "translations": [')
-    lines.append(
-        '    { "id": 1, "text": "Translated text...", "merge_with_next": false },'
-    )
-    lines.append(
-        '    { "id": 2, "text": "Combined with next", "merge_with_next": true },'
-    )
-    lines.append('    { "id": 3, "text": "" }')
-    lines.append("  ]")
-    lines.append("}")
+    lines.append(f"Translate all cues into {target_lang}. Output JSON only.")
 
     return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
 # Structured output validation & VTT reconstruction
-# (matches chigyusubs StructuredOutput.ts + VttReconstructor.ts)
 # ---------------------------------------------------------------------------
-
 
 def _validate_structured_output(data: dict) -> list[dict]:
     if not isinstance(data, dict):
@@ -330,18 +264,16 @@ def _validate_structured_output(data: dict) -> list[dict]:
             text = ""
         if not isinstance(text, str):
             raise ValueError(f"Item at index {i} has invalid 'text'")
-        merge = item.get("merge_with_next", False)
-        if not isinstance(merge, bool):
-            raise ValueError(f"Item at index {i} has invalid 'merge_with_next'")
-        validated.append({"id": int(cue_id), "text": text, "merge_with_next": merge})
+        validated.append({"id": int(cue_id), "text": text})
     return validated
 
 
-def _reconstruct_vtt(translations: list[dict], original_cues: list[Cue]) -> tuple[list[Cue], list[str]]:
+def _reconstruct_vtt(
+    translations: list[dict], original_cues: list[Cue]
+) -> tuple[list[Cue], list[str]]:
     warnings: list[str] = []
     n = len(original_cues)
 
-    # Build lookup, detect dupes/invalid
     seen: set[int] = set()
     items: dict[int, dict] = {}
     for item in translations:
@@ -356,44 +288,19 @@ def _reconstruct_vtt(translations: list[dict], original_cues: list[Cue]) -> tupl
         items[cid] = item
 
     new_cues: list[Cue] = []
-    i = 1
-    while i <= n:
+    for i in range(1, n + 1):
         item = items.get(i)
         if not item:
             warnings.append(f"Missing translation for cue {i}; dropping cue.")
-            i += 1
             continue
+        text = (item["text"] or "").strip()
+        orig = original_cues[i - 1]
+        new_cues.append(Cue(orig.start, orig.end, text))
 
-        group_text = (item["text"] or "").strip()
-        group_start_idx = i
-        group_end_idx = i
-        merge_next = item["merge_with_next"]
-
-        while merge_next and group_end_idx < n:
-            next_id = group_end_idx + 1
-            next_item = items.get(next_id)
-            if not next_item:
-                warnings.append(
-                    f"merge_with_next=true on cue {group_end_idx} but cue {next_id} is missing; stopping merge."
-                )
-                break
-            next_text = (next_item["text"] or "").strip()
-            if next_text:
-                group_text = f"{group_text} {next_text}" if group_text else next_text
-            group_end_idx = next_id
-            merge_next = next_item["merge_with_next"]
-
-        start = original_cues[group_start_idx - 1].start
-        end = original_cues[group_end_idx - 1].end
-        new_cues.append(Cue(start, end, group_text))
-        i = group_end_idx + 1
-
-    # Warn about missing IDs
     missing = [cid for cid in range(1, n + 1) if cid not in items]
     if missing:
         warnings.append(f"Input cues not returned: {', '.join(map(str, missing))}")
 
-    new_cues.sort(key=lambda c: c.start)
     return new_cues, warnings
 
 
@@ -410,13 +317,11 @@ def _strip_code_fences(text: str) -> str:
 
 
 def _parse_json_response(raw: str) -> dict:
-    """Parse JSON from LLM response, handling code fences."""
     cleaned = _strip_code_fences(raw)
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         pass
-    # Fallback: extract first JSON object
     start = cleaned.find("{")
     end = cleaned.rfind("}")
     if start >= 0 and end > start:
@@ -469,7 +374,7 @@ def _call_vertex(
         system_instruction=system_prompt,
         temperature=temperature,
         response_mime_type="application/json",
-        max_output_tokens=8192,
+        max_output_tokens=65536,
     )
     response = client.models.generate_content(
         model=model,
@@ -501,24 +406,23 @@ def _call_with_retry(
 # Translation pipeline
 # ---------------------------------------------------------------------------
 
-def translate_chunk(
+def _translate_cues(
     cues: list[Cue],
     context_cues: list[Cue],
     target_lang: str,
     glossary: Optional[str],
     summary: Optional[str],
-    hint_mode: str,
     backend: str,
     model: str,
     temperature: float,
     url: Optional[str],
     api_key: Optional[str],
 ) -> tuple[list[Cue], list[str]]:
-    """Translate a single chunk of cues. Returns (translated_cues, warnings)."""
+    """Translate a list of cues. Returns (translated_cues, warnings)."""
 
     system_prompt = SYSTEM_PROMPT.format(target=target_lang)
     user_prompt = _build_user_prompt(
-        cues, target_lang, glossary, context_cues, summary, hint_mode
+        cues, target_lang, glossary, context_cues, summary
     )
 
     if backend == "vertex":
@@ -558,7 +462,6 @@ def translate_subtitles(
     summary: Optional[str],
     chunk_seconds: float,
     overlap_cues: int,
-    hint_mode: str,
     output_format: str,
 ):
     # Load input
@@ -580,58 +483,77 @@ def translate_subtitles(
         glossary = Path(glossary_path).read_text(encoding="utf-8").strip()
         print(f"Loaded glossary from {glossary_path}")
 
-    # Chunk
-    chunks = chunk_cues(cues, target_seconds=chunk_seconds, overlap_cues=overlap_cues)
-    print(f"Split into {len(chunks)} chunk(s) ({chunk_seconds}s target)")
+    # Decide: single-pass or chunked
+    total_duration = cues[-1].end - cues[0].start
+    use_chunking = chunk_seconds > 0 and total_duration > chunk_seconds
 
-    # Translate each chunk
-    all_translated: list[Cue] = []
-    all_warnings: list[str] = []
+    if use_chunking:
+        chunks = chunk_cues(cues, target_seconds=chunk_seconds, overlap_cues=overlap_cues)
+        print(f"Chunked mode: {len(chunks)} chunks ({chunk_seconds:.0f}s target)")
 
-    for chunk in chunks:
-        label = f"Chunk {chunk.idx + 1}/{len(chunks)}"
-        cue_range = (
-            f"{_seconds_to_time(chunk.cues[0].start)} - "
-            f"{_seconds_to_time(chunk.cues[-1].end)}"
-        )
-        print(f"[{label}] Translating {len(chunk.cues)} cues ({cue_range})...")
+        all_translated: list[Cue] = []
+        all_warnings: list[str] = []
 
-        translated, warnings = translate_chunk(
-            cues=chunk.cues,
-            context_cues=chunk.prev_context,
+        for chunk in chunks:
+            label = f"Chunk {chunk.idx + 1}/{len(chunks)}"
+            cue_range = (
+                f"{_seconds_to_time(chunk.cues[0].start)} - "
+                f"{_seconds_to_time(chunk.cues[-1].end)}"
+            )
+            print(f"[{label}] Translating {len(chunk.cues)} cues ({cue_range})...")
+
+            translated, warnings = _translate_cues(
+                cues=chunk.cues,
+                context_cues=chunk.prev_context,
+                target_lang=target_lang,
+                glossary=glossary,
+                summary=summary,
+                backend=backend,
+                model=model,
+                temperature=temperature,
+                url=url,
+                api_key=api_key,
+            )
+            all_translated.extend(translated)
+            if warnings:
+                for w in warnings:
+                    print(f"  Warning: {w}")
+                all_warnings.extend(warnings)
+            print(f"  -> {len(translated)} output cues")
+
+        all_translated.sort(key=lambda c: c.start)
+        translated_cues = all_translated
+        warnings = all_warnings
+    else:
+        print(f"Single-pass mode ({len(cues)} cues, {total_duration:.0f}s)")
+        translated_cues, warnings = _translate_cues(
+            cues=cues,
+            context_cues=[],
             target_lang=target_lang,
             glossary=glossary,
             summary=summary,
-            hint_mode=hint_mode,
             backend=backend,
             model=model,
             temperature=temperature,
             url=url,
             api_key=api_key,
         )
-        all_translated.extend(translated)
         if warnings:
             for w in warnings:
                 print(f"  Warning: {w}")
-            all_warnings.extend(warnings)
-
-        print(f"  -> {len(translated)} output cues")
-
-    # Sort by start time (chunks are sequential but just in case)
-    all_translated.sort(key=lambda c: c.start)
 
     # Write output
     if output_format == "srt":
-        out_text = serialize_srt(all_translated)
+        out_text = serialize_srt(translated_cues)
     else:
-        out_text = serialize_vtt(all_translated)
+        out_text = serialize_vtt(translated_cues)
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     Path(output_path).write_text(out_text, encoding="utf-8")
 
-    print(f"\nWrote {len(all_translated)} translated cues to {output_path}")
-    if all_warnings:
-        print(f"Total warnings: {len(all_warnings)}")
+    print(f"\nWrote {len(translated_cues)} translated cues to {output_path}")
+    if warnings:
+        print(f"Total warnings: {len(warnings)}")
 
 
 def main():
@@ -640,7 +562,7 @@ def main():
     )
     parser.add_argument("--input", required=True, help="Input VTT or SRT file.")
     parser.add_argument(
-        "--output", default="", help="Output file. Defaults to <input>_<lang>.vtt"
+        "--output", default="", help="Output file. Defaults to <input>_<lang>.<ext>"
     )
     parser.add_argument(
         "--target-lang", default="English", help="Target language (default: English)."
@@ -674,31 +596,25 @@ def main():
     parser.add_argument(
         "--summary",
         default="",
-        help="Global summary text to provide context for translation.",
+        help="Optional summary to provide context (e.g. show premise, segment theme).",
     )
     parser.add_argument(
         "--chunk-seconds",
         type=float,
-        default=600,
-        help="Target chunk duration in seconds (default: 600).",
+        default=0,
+        help="Enable chunked mode with this target duration (0 = single-pass, default).",
     )
     parser.add_argument(
         "--overlap-cues",
         type=int,
         default=2,
-        help="Number of context cues from previous chunk (default: 2).",
+        help="Context cues from previous chunk in chunked mode (default: 2).",
     )
     parser.add_argument(
         "--temperature",
         type=float,
         default=0.2,
         help="LLM temperature (default: 0.2).",
-    )
-    parser.add_argument(
-        "--hint-mode",
-        default="duration",
-        choices=["duration", "short-tag"],
-        help="Cue hint mode: 'duration' (show seconds) or 'short-tag' (mark short cues).",
     )
     parser.add_argument(
         "--format",
@@ -739,7 +655,6 @@ def main():
         summary=args.summary or None,
         chunk_seconds=args.chunk_seconds,
         overlap_cues=args.overlap_cues,
-        hint_mode=args.hint_mode,
         output_format=output_format,
     )
 
