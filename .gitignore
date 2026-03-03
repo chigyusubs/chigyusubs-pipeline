@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Local artifacts
+samples/
+outputs/
+logs/
+checkpoints/
+
+# OS/editor
+.DS_Store
+.vscode/
