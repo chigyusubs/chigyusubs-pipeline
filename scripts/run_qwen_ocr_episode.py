@@ -3,13 +3,13 @@
 
 Usage:
   # Stage 1: OCR all frames (resume-safe)
-  python pipeline/scripts/run_qwen_ocr_episode.py ocr \
+  python scripts/run_qwen_ocr_episode.py ocr \
     --episode-dir samples/episodes/wednesday_downtown_2025-02-05_406 \
     --url http://127.0.0.1:8787 \
-    --model qwen3-vl
+    --model qwen3.5-9b
 
   # Stage 2: Build glossary from OCR results
-  python pipeline/scripts/run_qwen_ocr_episode.py filter \
+  python scripts/run_qwen_ocr_episode.py filter \
     --episode-dir samples/episodes/wednesday_downtown_2025-02-05_406 \
     --chunk-sec 30 \
     --top-global 80 \
@@ -19,6 +19,7 @@ Usage:
 import argparse
 import base64
 import json
+import os
 import re
 import unicodedata
 import urllib.error
@@ -418,7 +419,11 @@ def main():
     p_ocr.add_argument("--frames-dir", default="", help="Defaults to <episode>/frames/workdir or <episode>/frames/raw_2s")
     p_ocr.add_argument("--out-jsonl", default="", help="Defaults to <episode>/ocr/qwen_ocr_results.jsonl")
     p_ocr.add_argument("--url", default="http://127.0.0.1:8787")
-    p_ocr.add_argument("--model", default="qwen3-vl")
+    p_ocr.add_argument(
+        "--model",
+        default=os.environ.get("QWEN_VISION_MODEL", "qwen3.5-9b"),
+        help="Model/alias served by llama.cpp (env: QWEN_VISION_MODEL)",
+    )
     p_ocr.add_argument("--max-tokens", type=int, default=768)
     p_ocr.add_argument("--frame-step-sec", type=float, default=2.0, help="0.5 fps => 2.0 sec/frame")
     p_ocr.add_argument("--progress-every", type=int, default=25)

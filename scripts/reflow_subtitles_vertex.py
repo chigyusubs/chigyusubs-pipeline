@@ -23,6 +23,11 @@ def write_vtt_chunk(cues, output_path: str, is_first: bool):
             f.write(f"{start} --> {end}\n")
             f.write(f"{cue['text'].strip()}\n\n")
 
+
+def write_vtt(cues, output_path: str):
+    """Write all cues to a single VTT file."""
+    write_vtt_chunk(cues, output_path, is_first=True)
+
 def chunk_words(words, max_words=100):
     """Chunks the word list into manageable blocks for the LLM context window."""
     chunks = []

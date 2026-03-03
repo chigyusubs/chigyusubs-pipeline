@@ -2,7 +2,7 @@
 """Reflow word-level timestamps into subtitle cues using a local LLM (llama.cpp server).
 
 Usage:
-    python pipeline/scripts/reflow_subtitles_local.py \
+    python scripts/reflow_subtitles_local.py \
         --input samples/transcription_output/WEDNESDAY_DOWNTOWN_faster_word_timestamps_words.json \
         --out samples/transcription_output/WEDNESDAY_DOWNTOWN_local_reflowed.vtt \
         --url http://localhost:8787

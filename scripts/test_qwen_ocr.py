@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Test Qwen3-VL vision for OCR on Japanese variety show frames.
+"""Test local Qwen vision model OCR on Japanese variety show frames.
 
 Compares against EasyOCR results from ocr_results.jsonl.
 Uses llama.cpp server with OpenAI-compatible API.
 
 Usage:
-    python pipeline/scripts/test_qwen_ocr.py
-    python pipeline/scripts/test_qwen_ocr.py --frames frame_0004.jpg frame_0009.jpg
-    python pipeline/scripts/test_qwen_ocr.py --all
-    python pipeline/scripts/test_qwen_ocr.py --url http://localhost:8787
+    python scripts/test_qwen_ocr.py
+    python scripts/test_qwen_ocr.py --frames frame_0004.jpg frame_0009.jpg
+    python scripts/test_qwen_ocr.py --all
+    python scripts/test_qwen_ocr.py --url http://localhost:8787
 """
 
 import argparse
 import base64
 import json
+import os
 import time
 import urllib.request
 from pathlib import Path
@@ -53,11 +54,11 @@ def image_to_data_url(path: Path) -> str:
     return f"data:{mime};base64,{b64}"
 
 
-def call_vision(image_path: Path, url: str) -> str:
+def call_vision(image_path: Path, url: str, model: str) -> str:
     data_url = image_to_data_url(image_path)
 
     payload = json.dumps({
-        "model": "qwen3-vl",
+        "model": model,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
@@ -88,6 +89,7 @@ def main():
     parser.add_argument("--frames", nargs="+", default=None)
     parser.add_argument("--all", action="store_true")
     parser.add_argument("--url", default="http://localhost:8080")
+    parser.add_argument("--model", default=os.environ.get("QWEN_VISION_MODEL", "qwen3.5-9b"))
     args = parser.parse_args()
 
     if args.all:
@@ -118,12 +120,12 @@ def main():
         else:
             print(f"EasyOCR:  (no text detected)")
 
-        # Qwen3-VL vision
+        # Qwen vision model
         t0 = time.time()
         try:
-            result = call_vision(frame_path, args.url)
+            result = call_vision(frame_path, args.url, args.model)
             elapsed = time.time() - t0
-            print(f"Qwen3VL: {result}")
+            print(f"Qwen: {result}")
             print(f"Time: {elapsed:.1f}s")
         except Exception as e:
             print(f"ERROR: {e}")

@@ -2,6 +2,7 @@ import json
 import argparse
 from faster_whisper.utils import format_timestamp
 
+
 def smart_chunk_vtt(json_path, output_path, max_pause=0.3):
     with open(json_path, 'r', encoding='utf-8') as f:
         segments = json.load(f)
@@ -47,19 +48,15 @@ def smart_chunk_vtt(json_path, output_path, max_pause=0.3):
 
     # Write to VTT
     with open(output_path, 'w', encoding='utf-8') as f:
-        f.write("WEBVTT
-
-")
+        f.write("WEBVTT\n\n")
         for cue in cues:
             # Skip empty cues
-            if not cue["text"]: continue
+            if not cue["text"]:
+                continue
             start = format_timestamp(cue["start"])
             end = format_timestamp(cue["end"])
-            f.write(f"{start} --> {end}
-")
-            f.write(f"{cue['text']}
-
-")
+            f.write(f"{start} --> {end}\n")
+            f.write(f"{cue['text']}\n\n")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

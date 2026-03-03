@@ -2,9 +2,9 @@
 """Compare llama.cpp/Qwen output reliability: json_schema vs prompt JSON vs comma list.
 
 Usage:
-    python pipeline/scripts/test_qwen_json_schema.py
-    python pipeline/scripts/test_qwen_json_schema.py --runs 12 --url http://127.0.0.1:8787
-    python pipeline/scripts/test_qwen_json_schema.py --input samples/whisper_prompt.txt
+    python scripts/test_qwen_json_schema.py
+    python scripts/test_qwen_json_schema.py --runs 12 --url http://127.0.0.1:8787
+    python scripts/test_qwen_json_schema.py --input samples/whisper_prompt.txt
 """
 
 import argparse

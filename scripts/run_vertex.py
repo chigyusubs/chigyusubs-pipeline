@@ -20,7 +20,7 @@ except ImportError:
 def main():
     parser = argparse.ArgumentParser(
         description="Utility to easily call Vertex AI Gemini models using google-genai.",
-        epilog="Examples:\n  python pipeline/scripts/run_vertex.py --prompt \"Tell me a joke\"\n  cat prompt.txt | python pipeline/scripts/run_vertex.py",
+        epilog="Examples:\n  python scripts/run_vertex.py --prompt \"Tell me a joke\"\n  cat prompt.txt | python scripts/run_vertex.py",
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument("--prompt", type=str, help="The prompt to send. If not provided, reads from standard input (stdin).")
