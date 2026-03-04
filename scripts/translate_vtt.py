@@ -201,8 +201,25 @@ SYSTEM_PROMPT = (
     "4. Keep comedic timing; prefer punchy phrasing over literal filler.\n"
     "5. Do not sanitize slang or humor; translate faithfully.\n"
     "6. Sound effects and annotations in parentheses: translate to English equivalents\n"
-    "   e.g. (拍手) -> (applause), (笑い) -> (laughter), (音楽) -> (music)."
+    "   e.g. (拍手) -> (applause), (笑い) -> (laughter), (音楽) -> (music).\n"
+    "{speaker_instruction}"
 )
+
+SPEAKER_INSTRUCTION = (
+    "7. Speaker labels (Name: text) are provided. Preserve them in the output as-is.\n"
+    "   Maintain consistent voice characterization per speaker."
+)
+
+# Pattern: Japanese/English name followed by colon at start of cue text.
+_SPEAKER_RE = re.compile(r"^[\w\u3000-\u9fff\uff00-\uffef]+:\s")
+
+
+def _has_speaker_labels(cues: list[Cue]) -> bool:
+    """Check if cues contain speaker prefix labels (e.g. 'フジモン: ...')."""
+    if not cues:
+        return False
+    labeled = sum(1 for c in cues if _SPEAKER_RE.match(c.text))
+    return labeled / len(cues) > 0.2
 
 
 def _build_user_prompt(
@@ -432,7 +449,12 @@ def _translate_cues(
 ) -> tuple[list[Cue], list[str]]:
     """Translate a list of cues. Returns (translated_cues, warnings)."""
 
-    system_prompt = SYSTEM_PROMPT.format(target=target_lang)
+    speaker_instruction = ""
+    if _has_speaker_labels(cues):
+        speaker_instruction = SPEAKER_INSTRUCTION
+    system_prompt = SYSTEM_PROMPT.format(
+        target=target_lang, speaker_instruction=speaker_instruction
+    )
     user_prompt = _build_user_prompt(
         cues, target_lang, glossary, context_cues, summary
     )
