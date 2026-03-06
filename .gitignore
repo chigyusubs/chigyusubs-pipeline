@@ -30,6 +30,16 @@ ctranslate2_issue_materials/
 .vscode/
 .claude/
 
+# Experiment archive
+_archive/
+
+# NeMo outputs
+nemo_output*/
+nemo_manifest.json
+
+# Audio samples
+*.wav
+
 # Misc local files
 docs-backup-*.tar.gz
 structured_test_output.txt
