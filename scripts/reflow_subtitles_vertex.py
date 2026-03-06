@@ -5,11 +5,15 @@ import time
 from google import genai
 from google.genai import types
 from google.genai import errors
-from faster_whisper.utils import format_timestamp
+def format_timestamp(seconds: float) -> str:
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{secs:06.3f}"
 
 # Using the genai SDK as requested
 client = genai.Client()
-MODEL_ID = os.environ.get("GEMINI_MODEL", "gemini-2.5-pro") # Good default for complex reasoning tasks
+MODEL_ID = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite-preview") # Good default for complex reasoning tasks
 
 def write_vtt_chunk(cues, output_path: str, is_first: bool):
     """Appends reflowed cues to the VTT file."""
@@ -116,7 +120,7 @@ def reflow_subtitles(input_json, output_vtt):
     print(f"Total words to process: {len(all_words)}")
     
     # Process in chunks of ~80 words to keep context tight and reduce JSON schema breakage
-    word_chunks = chunk_words(all_words, max_words=80)
+    word_chunks = chunk_words(all_words, max_words=250)
     
     print(f"Initializing genai client with model: {MODEL_ID}...")
     

@@ -268,7 +268,7 @@ def _validate_structured_output(data: dict) -> list[dict]:
         raise ValueError("Output is not a valid JSON object")
     translations = data.get("translations")
     if not isinstance(translations, list):
-        raise ValueError("Missing or invalid 'translations' array")
+        print(f"RAW PARSED JSON: {data}"); raise ValueError("Missing or invalid 'translations' array")
 
     validated = []
     for i, item in enumerate(translations):
@@ -344,7 +344,8 @@ def _parse_json_response(raw: str) -> dict:
     end = cleaned.rfind("}")
     if start >= 0 and end > start:
         return json.loads(cleaned[start : end + 1])
-    raise ValueError("Failed to parse JSON from model response")
+    if not raw.strip(): return {"translations": []}
+    raise ValueError(f"Failed to parse JSON from model response: {raw}")
 
 
 def _call_openai_compatible(
