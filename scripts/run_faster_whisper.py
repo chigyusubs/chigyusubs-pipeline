@@ -2,17 +2,14 @@ import os
 import json
 import argparse
 from pathlib import Path
-from episode_paths import find_latest_episode_video, infer_episode_dir_from_video
-from reflow_words import reflow_words
+
+from chigyusubs.paths import find_latest_episode_video, infer_episode_dir_from_video
+from chigyusubs.reflow import reflow_words
+from chigyusubs.vtt import write_standard_vtt, write_word_timestamps_json
+
 
 def split_long_segments(segments, max_duration: float = 10.0):
-    """Split segments longer than max_duration using word timestamps.
-
-    Finds the word boundary closest to the midpoint of each over-length
-    chunk and splits there, repeating until every piece is within budget.
-    Returns a list of dicts with keys: start, end, text, words.
-    """
-    # Normalise incoming segments (faster-whisper objects or dicts).
+    """Split segments longer than max_duration using word timestamps."""
     normalised = []
     for seg in segments:
         if isinstance(seg, dict):
@@ -36,8 +33,6 @@ def split_long_segments(segments, max_duration: float = 10.0):
         if dur <= max_duration or len(words) < 2:
             result.append(seg)
             continue
-        # Greedy: find the last word boundary that keeps the first
-        # chunk within max_duration from the segment start.
         cut = seg["start"] + max_duration
         best_idx = 0
         for i in range(1, len(words)):
@@ -45,7 +40,6 @@ def split_long_segments(segments, max_duration: float = 10.0):
                 best_idx = i
             else:
                 break
-        # Ensure we make progress (at least one word in the left half).
         if best_idx == 0:
             best_idx = 1
         left_words = words[:best_idx]
@@ -62,61 +56,9 @@ def split_long_segments(segments, max_duration: float = 10.0):
             "text": "".join(w["word"] for w in right_words).strip(),
             "words": right_words,
         }
-        # Re-queue both halves so they get split further if still too long.
         queue.insert(0, right)
         queue.insert(0, left)
     return result
-
-
-def _seg_get(seg, key):
-    """Access a segment field whether it's a dict or an object."""
-    return seg[key] if isinstance(seg, dict) else getattr(seg, key)
-
-
-def _format_ts(seconds: float) -> str:
-    """Format seconds as VTT timestamp MM:SS.mmm."""
-    mins, secs = divmod(seconds, 60)
-    hours, mins = divmod(mins, 60)
-    if hours:
-        return f"{int(hours):02d}:{int(mins):02d}:{secs:06.3f}"
-    return f"{int(mins):02d}:{secs:06.3f}"
-
-
-def write_standard_vtt(segments, output_path: str):
-    """Writes a standard VTT file from segment dicts or faster-whisper objects."""
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write("WEBVTT\n\n")
-        for seg in segments:
-            start = _format_ts(_seg_get(seg, "start"))
-            end = _format_ts(_seg_get(seg, "end"))
-            text = _seg_get(seg, "text").strip()
-            f.write(f"{start} --> {end}\n")
-            f.write(f"{text}\n\n")
-
-
-def write_word_timestamps_json(segments, output_path: str):
-    """Writes detailed word timestamps to a JSON file."""
-    data = []
-    for seg in segments:
-        words_raw = _seg_get(seg, "words") or []
-        words_out = []
-        for w in words_raw:
-            if isinstance(w, dict):
-                words_out.append(w)
-            else:
-                words_out.append({
-                    "start": w.start, "end": w.end,
-                    "word": w.word, "probability": w.probability,
-                })
-        data.append({
-            "start": _seg_get(seg, "start"),
-            "end": _seg_get(seg, "end"),
-            "text": _seg_get(seg, "text"),
-            "words": words_out,
-        })
-
-    with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
 
 def run_faster_whisper(
     video_path: str,

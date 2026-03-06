@@ -21,50 +21,19 @@ import argparse
 import json
 import os
 import re
-import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Optional
+
+from chigyusubs.audio import extract_audio_chunk, get_duration
+from chigyusubs.chunking import find_chunk_boundaries
+from chigyusubs.glossary import load_glossary_names
 
 
 def _backoff_delay(attempt: int, cap: float = 60.0, k: float = 2.0) -> float:
     """Hyperbolic backoff: ramps fast, asymptotes to cap."""
     return cap * attempt / (attempt + k)
-
-
-def get_duration(path: str) -> float:
-    """Get audio/video duration in seconds via ffprobe."""
-    result = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
-         "-of", "csv=p=0", path],
-        capture_output=True, text=True, check=True,
-    )
-    return float(result.stdout.strip())
-
-
-def extract_audio_chunk(
-    video_path: str, output_path: str,
-    start_s: float = 0, duration_s: Optional[float] = None,
-):
-    """Extract mono MP3 audio chunk from video."""
-    cmd = ["ffmpeg", "-y", "-ss", str(start_s), "-i", video_path]
-    if duration_s is not None:
-        cmd += ["-t", str(duration_s)]
-    cmd += ["-vn", "-ac", "1", "-ab", "64k", "-f", "mp3", output_path]
-    subprocess.run(cmd, capture_output=True, check=True)
-
-
-def load_glossary_names(glossary_path: str) -> list[str]:
-    """Extract names/terms from glossary TSV for the prompt."""
-    entries = []
-    with open(glossary_path, "r", encoding="utf-8") as f:
-        for line in f:
-            parts = line.strip().split("\t")
-            if len(parts) >= 2 and parts[0] != "source":
-                entries.append(f"{parts[0]} ({parts[1]})")
-    return entries
 
 
 def build_prompt(
@@ -244,70 +213,6 @@ def transcribe_chunk(
             raise
 
     raise RuntimeError("Transcription request failed with no response.")
-
-
-def find_chunk_boundaries(
-    rttm_segments: list[dict],
-    total_duration: float,
-    target_chunk_s: float = 600,
-    min_gap_s: float = 2.0,
-) -> list[tuple[float, float]]:
-    """Find chunk boundaries at natural silence gaps from RTTM segments.
-
-    Returns list of (start_s, end_s) tuples for each chunk, splitting at
-    silence gaps >= min_gap_s that fall nearest to target_chunk_s intervals.
-    """
-    if not rttm_segments:
-        return [(0, total_duration)]
-
-    # Build sorted list of silence gaps between speech segments
-    sorted_segs = sorted(rttm_segments, key=lambda s: s["start"])
-    gaps = []
-    for i in range(1, len(sorted_segs)):
-        gap_start = sorted_segs[i - 1]["end"]
-        gap_end = sorted_segs[i]["start"]
-        gap_dur = gap_end - gap_start
-        if gap_dur >= min_gap_s:
-            # Split point is the midpoint of the gap
-            gaps.append({
-                "time": (gap_start + gap_end) / 2,
-                "gap_start": gap_start,
-                "gap_end": gap_end,
-                "duration": gap_dur,
-            })
-
-    # Greedily pick split points near target boundaries
-    boundaries: list[tuple[float, float]] = []
-    chunk_start = 0.0
-
-    while chunk_start < total_duration:
-        target_end = chunk_start + target_chunk_s
-        if target_end >= total_duration - target_chunk_s * 0.3:
-            # Remaining content is less than 30% of target — don't split
-            boundaries.append((chunk_start, total_duration))
-            break
-
-        # Find the gap closest to target_end
-        best_gap = None
-        best_dist = float("inf")
-        for g in gaps:
-            if g["time"] <= chunk_start:
-                continue
-            dist = abs(g["time"] - target_end)
-            # Only consider gaps within 40% of target chunk duration
-            if dist < target_chunk_s * 0.4 and dist < best_dist:
-                best_dist = dist
-                best_gap = g
-
-        if best_gap:
-            boundaries.append((chunk_start, best_gap["gap_start"]))
-            chunk_start = best_gap["gap_end"]
-        else:
-            # No suitable gap — just use target_end
-            boundaries.append((chunk_start, min(target_end, total_duration)))
-            chunk_start = target_end
-
-    return boundaries
 
 
 def transcribe_full(

@@ -28,17 +28,14 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+from chigyusubs.audio import extract_audio_chunk, get_duration
+from chigyusubs.chunking import find_chunk_boundaries
+from chigyusubs.glossary import load_glossary_names
+from chigyusubs.reflow import reflow_words
+from chigyusubs.vad import run_silero_vad
 
-from transcribe_gemini import (
-    build_prompt,
-    extract_audio_chunk,
-    find_chunk_boundaries,
-    get_duration,
-    load_glossary_names,
-    transcribe_chunk,
-)
-from reflow_words import reflow_words
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from transcribe_gemini import build_prompt, transcribe_chunk
 
 
 def log(msg: str = ""):
@@ -50,64 +47,6 @@ def phase_header(n: int, title: str):
     log("=" * 60)
     log(f"PHASE {n}: {title}")
     log("=" * 60)
-
-
-# ---------------------------------------------------------------------------
-# Phase 1: Silero VAD
-# ---------------------------------------------------------------------------
-
-def _extract_16k_wav(input_path: str, output_path: str):
-    """Extract 16kHz mono WAV via ffmpeg."""
-    import subprocess
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", input_path,
-         "-vn", "-ac", "1", "-ar", "16000", "-f", "wav", output_path],
-        capture_output=True, check=True,
-    )
-
-
-def run_silero_vad(audio_path: str, work_dir: str | None = None) -> list[dict]:
-    """Run Silero VAD on audio file, return speech segments as list of {start, end}."""
-    log("  Loading Silero VAD model...")
-    import torch
-
-    model, utils = torch.hub.load(
-        "snakers4/silero-vad", "silero_vad", trust_repo=True,
-    )
-    get_speech_timestamps = utils[0]
-
-    # Extract 16kHz mono WAV via ffmpeg (avoids torchaudio/torchcodec issues)
-    if work_dir:
-        wav_path = os.path.join(work_dir, "vad_16k.wav")
-    else:
-        wav_path = audio_path + ".vad_16k.wav"
-    log(f"  Extracting 16kHz WAV from {audio_path}...")
-    _extract_16k_wav(audio_path, wav_path)
-
-    log(f"  Loading WAV: {wav_path}")
-    # Read raw WAV with torch — 16-bit PCM, skip 44-byte header
-    import struct
-    with open(wav_path, "rb") as f:
-        raw = f.read()
-    # Parse WAV header for sample count
-    n_samples = (len(raw) - 44) // 2
-    samples = struct.unpack(f"<{n_samples}h", raw[44:44 + n_samples * 2])
-    wav = torch.tensor(samples, dtype=torch.float32) / 32768.0
-    sr = 16000
-    log(f"  Audio: {len(wav) / sr:.1f}s @ {sr}Hz, mono")
-
-    log("  Running VAD inference...")
-    timestamps = get_speech_timestamps(
-        wav, model,
-        sampling_rate=sr,
-        threshold=0.5,
-        min_speech_duration_ms=250,
-        min_silence_duration_ms=100,
-    )
-
-    segments = [{"start": ts["start"] / sr, "end": ts["end"] / sr} for ts in timestamps]
-    log(f"  Found {len(segments)} speech segments")
-    return segments
 
 
 # ---------------------------------------------------------------------------
@@ -164,32 +103,11 @@ def attach_speakers(cues: list[dict], gemini_timed: list[dict]) -> list[dict]:
     return cues
 
 
-# ---------------------------------------------------------------------------
-# Output formatting
-# ---------------------------------------------------------------------------
-
-def _format_ts(seconds: float) -> str:
-    total_ms = round(seconds * 1000)
-    h = total_ms // 3600000
-    mi = (total_ms % 3600000) // 60000
-    s = (total_ms % 60000) // 1000
-    ms = total_ms % 1000
-    return f"{h:02d}:{mi:02d}:{s:02d}.{ms:03d}"
+from chigyusubs.vtt import write_vtt as _write_vtt_basic
 
 
 def write_vtt(cues: list[dict], output_path: str):
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("WEBVTT\n\n")
-        for cue in cues:
-            start = _format_ts(cue["start"])
-            end = _format_ts(cue["end"])
-            f.write(f"{start} --> {end}\n")
-            speaker = cue.get("speaker", "")
-            text = cue["text"]
-            if speaker:
-                f.write(f"{speaker}: {text}\n\n")
-            else:
-                f.write(f"{text}\n\n")
+    _write_vtt_basic(cues, output_path, include_speaker=True)
 
 
 # ---------------------------------------------------------------------------

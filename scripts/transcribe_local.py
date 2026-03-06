@@ -25,23 +25,17 @@ Usage:
 import argparse
 import json
 import os
-import re
 import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from episode_paths import find_latest_episode_video, infer_episode_dir_from_video
-from reflow_words import reflow_words
-from run_faster_whisper import write_standard_vtt, write_word_timestamps_json
-from transcribe_gemini import extract_audio_chunk, find_chunk_boundaries, get_duration
-from transcribe_gemini_raw import (
-    filter_ocr_terms_with_llm,
-    get_ocr_context_for_chunk,
-    load_ocr_data,
-)
-from transcribe_pipeline import run_silero_vad
+from chigyusubs.audio import extract_audio_chunk, get_duration
+from chigyusubs.chunking import find_chunk_boundaries
+from chigyusubs.ocr import filter_ocr_terms_with_llm, get_ocr_context_for_chunk, load_ocr_data
+from chigyusubs.paths import find_latest_episode_video, infer_episode_dir_from_video
+from chigyusubs.reflow import reflow_words
+from chigyusubs.vad import run_silero_vad
+from chigyusubs.vtt import write_standard_vtt, write_word_timestamps_json
 
 
 def log(msg: str = "", end="\n"):

@@ -28,7 +28,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 
-from episode_paths import find_episode_dir_from_path, find_latest_episode_dir
+from chigyusubs.paths import find_episode_dir_from_path, find_latest_episode_dir
 
 
 OCR_SYSTEM_PROMPT = """\

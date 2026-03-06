@@ -2,7 +2,7 @@ import os
 import subprocess
 import argparse
 from pathlib import Path
-from episode_paths import find_latest_episode_video, infer_episode_dir_from_video
+from chigyusubs.paths import find_latest_episode_video, infer_episode_dir_from_video
 
 def run_whisper_with_glossary(video_path: str, glossary_path: str, output_dir: str):
     """

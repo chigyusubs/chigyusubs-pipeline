@@ -10,6 +10,7 @@ from typing import TypedDict
 from google import genai
 from google.genai import types
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from clean_candidates import clean_candidates
 
 

@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 """Deterministic pre-filter for noisy OCR candidate terms.
 
-Removes obvious noise (broadcast chrome, dates, currency, structural junk)
-without any editorial judgment.  The goal is to reduce input tokens for the
-LLM condensation step without losing any term the LLM would have kept.
-
 Usable as a CLI tool or as an importable module:
 
     python scripts/clean_candidates.py --input raw.txt --output cleaned.txt
@@ -62,48 +58,22 @@ BROADCAST_NOISE: set[str] = {
     "ALL RIGHTS RESERVED",
 }
 
-# Pre-compute lowercase for case-insensitive matching.
 _BROADCAST_NOISE_LOWER: set[str] = {t.lower() for t in BROADCAST_NOISE}
 
-# ---------------------------------------------------------------------------
-# Regex patterns for structural noise
-# ---------------------------------------------------------------------------
-
-# Pure punctuation / symbols (no actual word characters or kana/kanji).
 _RE_PURE_PUNCT = re.compile(r"^[^\w\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]+$")
-
-# Pure digits (timestamps, counters, years standing alone).
 _RE_PURE_DIGITS = re.compile(r"^\d+$")
-
-# Repeated single character (ーーー, ///, ===, ・・・, etc.).
 _RE_REPEATED_CHAR = re.compile(r"^(.)\1{2,}$")
-
-# Date patterns: 2024年, 1月24日, 2024年1月24日, 2024/01/24
 _RE_DATE = re.compile(
     r"^\d{2,4}年(\d{1,2}月(\d{1,2}日)?)?$"
     r"|^\d{1,2}月\d{1,2}日$"
     r"|^\d{2,4}[/\-]\d{1,2}([/\-]\d{1,2})?$"
 )
-
-# Time patterns: 20:00, 8時30分
 _RE_TIME = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$|^\d{1,2}時(\d{1,2}分)?$")
-
-# Currency: ¥1,000,000 or 1000円 or ￥500
 _RE_CURRENCY = re.compile(r"^[¥￥]\s?[\d,]+$|^[\d,]+円$")
-
-# 第N回, 第N話 (episode/round counters)
 _RE_COUNTER = re.compile(r"^第\d+[回話]$")
-
-# URL fragments
 _RE_URL = re.compile(r"https?://|www\.|\.com|\.jp|\.co\.jp", re.IGNORECASE)
-
-# Copyright lines
 _RE_COPYRIGHT = re.compile(r"^[©◎]\s*\d{4}", re.IGNORECASE)
-
-# Short pure-ASCII fragments (2 chars or less).
 _RE_SHORT_ASCII = re.compile(r"^[A-Za-z0-9]{1,2}$")
-
-# Leading/trailing punctuation to strip.
 _RE_EDGE_PUNCT = re.compile(
     r"^[\s\u3000\-\−\—\―\─\–\"\'「」『』【】（）\(\)\[\]《》〈〉・、。,.!！?？:：;；~〜…♪★☆●○◆◇▶▷◀◁△▽→←↑↓※♥❤️\#＃]+|"
     r"[\s\u3000\-\−\—\―\─\–\"\'「」『』【】（）\(\)\[\]《》〈〉・、。,.!！?？:：;；~〜…♪★☆●○◆◇▶▷◀◁△▽→←↑↓※♥❤️\#＃]+$"
@@ -111,7 +81,6 @@ _RE_EDGE_PUNCT = re.compile(
 
 
 def _normalize(text: str) -> str:
-    """NFKC normalize and collapse whitespace."""
     t = unicodedata.normalize("NFKC", text)
     t = t.replace("\u3000", " ")
     t = re.sub(r"\s+", " ", t).strip()
@@ -123,7 +92,6 @@ def _strip_edge_punct(text: str) -> str:
 
 
 def _is_structural_noise(term: str) -> bool:
-    """Return True if the term is obviously not a glossary candidate."""
     if not term or len(term) <= 1:
         return True
     if _RE_PURE_PUNCT.match(term):
@@ -154,8 +122,6 @@ def _is_broadcast_noise(term: str) -> bool:
 
 
 def _substring_collapse(terms: list[str]) -> list[str]:
-    """Remove terms that are a substring of another kept term."""
-    # Process longer terms first so shorter substrings get absorbed.
     ordered = sorted(terms, key=len, reverse=True)
     kept: list[str] = []
     for t in ordered:
@@ -166,11 +132,7 @@ def _substring_collapse(terms: list[str]) -> list[str]:
 
 
 def clean_candidates(raw_text: str) -> list[str]:
-    """Clean raw OCR candidate text and return deduplicated terms.
-
-    Accepts newline-delimited and/or comma-delimited input (including 、).
-    Returns a list of cleaned terms in input order, deduplicated.
-    """
+    """Clean raw OCR candidate text and return deduplicated terms."""
     normalized = raw_text.replace("、", ",")
     terms: list[str] = []
     seen: set[str] = set()
@@ -192,7 +154,6 @@ def clean_candidates(raw_text: str) -> list[str]:
                 continue
             if _is_broadcast_noise(term):
                 continue
-            # Catch long sentence-like noise (keep generous — 48 chars).
             if len(term) > 48:
                 continue
 
