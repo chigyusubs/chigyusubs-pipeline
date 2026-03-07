@@ -4,10 +4,16 @@ based on natural speech pauses rather than arbitrary duration splits.
 
 Standalone CLI + importable function.
 
-Usage:
+Usage (line-level, recommended for CTC alignment):
   python scripts/reflow_words.py \
-    --input episode/transcription/406_faster_v2_words.json \
-    --output episode/transcription/406_reflow.vtt \
+    --input episode/transcription/ctc_words.json \
+    --output episode/transcription/reflow.vtt \
+    --line-level --stats
+
+Usage (word-level, legacy for stable-ts):
+  python scripts/reflow_words.py \
+    --input episode/transcription/words.json \
+    --output episode/transcription/reflow.vtt \
     --pause-ms 300 --max-cue-s 10 --min-cue-s 0.3
 """
 
@@ -17,7 +23,7 @@ import sys
 from pathlib import Path
 
 
-from chigyusubs.reflow import reflow_words  # noqa: F401
+from chigyusubs.reflow import reflow_lines, reflow_words  # noqa: F401
 from chigyusubs.vtt import format_ts as _format_ts, write_vtt as write_vtt  # noqa: F401
 
 
@@ -27,23 +33,33 @@ def main():
     )
     parser.add_argument(
         "--input", required=True,
-        help="Word timestamps JSON file (faster-whisper format).",
+        help="Word timestamps JSON file (CTC or faster-whisper format).",
     )
     parser.add_argument(
         "--output", default="",
         help="Output VTT path. Defaults to <input_stem>_reflow.vtt.",
     )
     parser.add_argument(
+        "--line-level", action="store_true",
+        help="Use line-level reflow (recommended for CTC alignment output). "
+             "Treats each transcript line as atomic — never splits mid-word.",
+    )
+    parser.add_argument(
         "--pause-ms", type=int, default=300,
-        help="Pause threshold in ms to trigger cue break (default: 300).",
+        help="Pause threshold in ms for word-level reflow (default: 300). "
+             "Ignored with --line-level.",
     )
     parser.add_argument(
-        "--max-cue-s", type=float, default=10.0,
-        help="Maximum cue duration in seconds (default: 10).",
+        "--max-cue-s", type=float, default=7.0,
+        help="Maximum cue duration in seconds (default: 7).",
     )
     parser.add_argument(
-        "--min-cue-s", type=float, default=0.3,
-        help="Minimum cue duration in seconds; shorter cues merge (default: 0.3).",
+        "--max-cue-chars", type=int, default=45,
+        help="Maximum characters per cue (default: 45). Only used with --line-level.",
+    )
+    parser.add_argument(
+        "--min-cue-s", type=float, default=1.0,
+        help="Minimum cue duration in seconds; shorter cues merge (default: 1.0).",
     )
     parser.add_argument(
         "--stats", action="store_true",
@@ -62,23 +78,37 @@ def main():
     if not args.output:
         args.output = str(input_path.parent / f"{input_path.stem}_reflow.vtt")
 
-    cues = reflow_words(
-        segments,
-        pause_threshold=args.pause_ms / 1000.0,
-        max_cue_s=args.max_cue_s,
-        min_cue_s=args.min_cue_s,
-    )
+    if args.line_level:
+        cues = reflow_lines(
+            segments,
+            max_cue_s=args.max_cue_s,
+            max_cue_chars=args.max_cue_chars,
+            min_cue_s=args.min_cue_s,
+        )
+    else:
+        cues = reflow_words(
+            segments,
+            pause_threshold=args.pause_ms / 1000.0,
+            max_cue_s=args.max_cue_s,
+            min_cue_s=args.min_cue_s,
+        )
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     write_vtt(cues, args.output)
 
-    total_words = sum(len(c["words"]) for c in cues)
     durations = [c["end"] - c["start"] for c in cues]
-    print(f"Reflowed {total_words} words into {len(cues)} cues -> {args.output}")
+    chars = [len(c["text"].replace(" ", "").replace("\n", "")) for c in cues]
+    cpss = [ch / max(d, 0.001) for ch, d in zip(chars, durations)]
+
+    print(f"Reflowed into {len(cues)} cues -> {args.output}")
 
     if args.stats and durations:
-        avg = sum(durations) / len(durations)
-        print(f"  Duration: min={min(durations):.2f}s  avg={avg:.2f}s  max={max(durations):.2f}s")
+        avg_dur = sum(durations) / len(durations)
+        short = sum(1 for d in durations if d < 1.0)
+        print(f"  Duration: min={min(durations):.2f}s  avg={avg_dur:.2f}s  max={max(durations):.2f}s")
+        print(f"  Chars/cue: avg={sum(chars)/len(chars):.0f}  max={max(chars)}")
+        print(f"  CPS: avg={sum(cpss)/len(cpss):.1f}  max={max(cpss):.1f}  >20: {sum(1 for c in cpss if c > 20)}")
+        print(f"  <1s cues: {short} ({short*100//len(cues)}%)")
         over_max = sum(1 for d in durations if d > args.max_cue_s)
         if over_max:
             print(f"  Warning: {over_max} cues still exceed --max-cue-s {args.max_cue_s}")
