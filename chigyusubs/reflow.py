@@ -203,6 +203,9 @@ def reflow_lines(
     # Phase 7: Enforce max_lines — trim cues bloated by zero-duration attachment
     _enforce_max_lines(cues, max_lines=max_lines)
 
+    # Phase 8: Remove overlaps — snap start of each cue to prev cue's end
+    _remove_overlaps(cues)
+
     return cues
 
 
@@ -430,6 +433,13 @@ def _enforce_max_lines(cues: list[dict], *, max_lines: int):
         if len(lines) <= max_lines:
             continue
         cue["text"] = "\n".join(lines[:max_lines])
+
+
+def _remove_overlaps(cues: list[dict]):
+    """Snap cue starts forward to eliminate small overlaps from CTC alignment."""
+    for i in range(1, len(cues)):
+        if cues[i]["start"] < cues[i - 1]["end"]:
+            cues[i]["start"] = cues[i - 1]["end"]
 
 
 def _clamp_sparse_cues(cues: list[dict], *, max_cue_s: float, target_cps: float):
