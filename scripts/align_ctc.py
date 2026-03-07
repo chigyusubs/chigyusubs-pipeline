@@ -148,15 +148,41 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> l
             "score": round(span.score, 4),
         })
 
-    # Reconstruct segments from the original lines
+    # Reconstruct segments from the original lines with character-level words
     segments = []
     char_idx = 0
     for line in lines:
-        line_chars = []
+        # First pass: match aligned chars and mark unaligned ones
+        raw_entries = []
         for ch in line:
             if char_idx < len(char_timestamps) and char_timestamps[char_idx]["char"] == ch:
-                line_chars.append(char_timestamps[char_idx])
+                raw_entries.append(("aligned", char_timestamps[char_idx]))
                 char_idx += 1
+            else:
+                raw_entries.append(("unaligned", ch))
+
+        # Second pass: attach unaligned chars to nearest aligned char
+        # Prefer attaching to previous (e.g. 、。?! after a character)
+        line_chars = []
+        for kind, val in raw_entries:
+            if kind == "aligned":
+                line_chars.append({**val})
+            else:
+                if line_chars:
+                    line_chars[-1]["char"] += val
+                else:
+                    # Leading unaligned — will prepend to next aligned char
+                    pass
+
+        # Handle leading unaligned chars by prepending to first aligned char
+        leading = []
+        for kind, val in raw_entries:
+            if kind == "unaligned":
+                leading.append(val)
+            else:
+                break
+        if leading and line_chars:
+            line_chars[0]["char"] = "".join(leading) + line_chars[0]["char"]
 
         if not line_chars:
             segments.append({
@@ -170,12 +196,14 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> l
         seg_start = line_chars[0]["start"]
         seg_end = line_chars[-1]["end"]
 
-        words = [{
-            "start": seg_start,
-            "end": seg_end,
-            "word": line,
-            "probability": sum(c["score"] for c in line_chars) / len(line_chars),
-        }]
+        words = []
+        for c in line_chars:
+            words.append({
+                "start": c["start"],
+                "end": c["end"],
+                "word": c["char"],
+                "probability": c["score"],
+            })
 
         segments.append({
             "start": seg_start,
