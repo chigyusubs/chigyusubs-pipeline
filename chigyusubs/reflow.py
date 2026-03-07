@@ -118,6 +118,7 @@ def reflow_lines(
     segments: list[dict],
     max_cue_s: float = 7.0,
     max_cue_chars: int = 45,
+    max_lines: int = 2,
     min_cue_s: float = 1.0,
     target_cps: float = _TARGET_CPS,
 ) -> list[dict]:
@@ -130,6 +131,7 @@ def reflow_lines(
         segments: CTC alignment output (list of segment dicts with start/end/text).
         max_cue_s: Split cues longer than this at sentence boundaries.
         max_cue_chars: Split cues with more characters than this.
+        max_lines: Maximum number of lines per cue (default: 2, subtitle standard).
         min_cue_s: Merge lines shorter than this into neighbors.
         target_cps: Target CPS for boundary expansion.
     """
@@ -167,7 +169,7 @@ def reflow_lines(
         merged_chars = sum(len(ln["text"]) for ln in current_lines) + len(curr["text"])
 
         # Break conditions
-        if merged_dur > max_cue_s or merged_chars > max_cue_chars:
+        if merged_dur > max_cue_s or merged_chars > max_cue_chars or len(current_lines) >= max_lines:
             cues.append(_lines_to_cue(current_lines))
             current_lines = [curr]
         elif gap > max_cue_s * 0.5:
@@ -181,11 +183,11 @@ def reflow_lines(
         cues.append(_lines_to_cue(current_lines))
 
     # Phase 2: Merge short cues into neighbors
-    _merge_short_cues(cues, min_cue_s=min_cue_s, max_cue_s=max_cue_s, max_cue_chars=max_cue_chars)
+    _merge_short_cues(cues, min_cue_s=min_cue_s, max_cue_s=max_cue_s, max_cue_chars=max_cue_chars, max_lines=max_lines)
 
     # Phase 3: Split oversized cues at sentence-ending punctuation.
     # First try splitting at line boundaries, then within lines at punctuation.
-    cues = _split_long_cues(cues, max_cue_s=max_cue_s, max_cue_chars=max_cue_chars)
+    cues = _split_long_cues(cues, max_cue_s=max_cue_s, max_cue_chars=max_cue_chars, max_lines=max_lines)
     cues = _split_long_single_lines(cues, segments, max_cue_s=max_cue_s, max_cue_chars=max_cue_chars)
 
     # Phase 4: Clamp overlong cues where text is too short for the duration
@@ -197,6 +199,9 @@ def reflow_lines(
     # Phase 6: Attach zero-duration lines
     if zero_lines:
         _attach_zero_duration_segments(cues, zero_lines)
+
+    # Phase 7: Enforce max_lines — trim cues bloated by zero-duration attachment
+    _enforce_max_lines(cues, max_lines=max_lines)
 
     return cues
 
@@ -215,12 +220,17 @@ def _cue_text_chars(cue: dict) -> int:
     return len(cue["text"].replace("\n", "").replace(" ", ""))
 
 
+def _cue_line_count(cue: dict) -> int:
+    return cue["text"].count("\n") + 1
+
+
 def _merge_short_cues(
     cues: list[dict],
     *,
     min_cue_s: float,
     max_cue_s: float,
     max_cue_chars: int,
+    max_lines: int = 2,
 ):
     """Merge cues that are too short into the best neighbor."""
     changed = True
@@ -240,9 +250,10 @@ def _merge_short_cues(
             for j in [i - 1, i + 1]:
                 if j < 0 or j >= len(cues):
                     continue
+                merged_lines = _cue_line_count(cues[i]) + _cue_line_count(cues[j])
                 merged_dur = max(cues[i]["end"], cues[j]["end"]) - min(cues[i]["start"], cues[j]["start"])
                 merged_chars = _cue_text_chars(cues[i]) + _cue_text_chars(cues[j])
-                if merged_dur > max_cue_s or merged_chars > max_cue_chars:
+                if merged_dur > max_cue_s or merged_chars > max_cue_chars or merged_lines > max_lines:
                     continue
                 # Prefer smaller resulting cue, prefer right neighbor for fragments
                 score = merged_dur + (0 if j == i + 1 else 0.1)
@@ -277,6 +288,7 @@ def _split_long_cues(
     *,
     max_cue_s: float,
     max_cue_chars: int,
+    max_lines: int = 2,
 ) -> list[dict]:
     """Split cues that exceed limits at sentence-ending punctuation."""
     result: list[dict] = []
@@ -284,8 +296,9 @@ def _split_long_cues(
         dur = cue["end"] - cue["start"]
         chars = _cue_text_chars(cue)
         lines = cue.get("lines", [])
+        needs_split = dur > max_cue_s or chars > max_cue_chars or len(lines) > max_lines
 
-        if (dur <= max_cue_s and chars <= max_cue_chars) or len(lines) < 2:
+        if not needs_split or len(lines) < 2:
             result.append(cue)
             continue
 
@@ -319,8 +332,8 @@ def _split_long_cues(
             left_cue = _lines_to_cue(lines[: best_split + 1])
             right_cue = _lines_to_cue(lines[best_split + 1 :])
             # Recursively split if still too long
-            result.extend(_split_long_cues([left_cue], max_cue_s=max_cue_s, max_cue_chars=max_cue_chars))
-            result.extend(_split_long_cues([right_cue], max_cue_s=max_cue_s, max_cue_chars=max_cue_chars))
+            result.extend(_split_long_cues([left_cue], max_cue_s=max_cue_s, max_cue_chars=max_cue_chars, max_lines=max_lines))
+            result.extend(_split_long_cues([right_cue], max_cue_s=max_cue_s, max_cue_chars=max_cue_chars, max_lines=max_lines))
         else:
             result.append(cue)
 
@@ -408,6 +421,15 @@ def _split_long_single_lines(
         result.extend(_split_long_single_lines([right_cue], segments, max_cue_s=max_cue_s, max_cue_chars=max_cue_chars))
 
     return result
+
+
+def _enforce_max_lines(cues: list[dict], *, max_lines: int):
+    """Trim cues that exceed max_lines, keeping only the first max_lines lines."""
+    for cue in cues:
+        lines = cue["text"].split("\n")
+        if len(lines) <= max_lines:
+            continue
+        cue["text"] = "\n".join(lines[:max_lines])
 
 
 def _clamp_sparse_cues(cues: list[dict], *, max_cue_s: float, target_cps: float):

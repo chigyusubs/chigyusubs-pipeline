@@ -58,6 +58,10 @@ def main():
         help="Maximum characters per cue (default: 45). Only used with --line-level.",
     )
     parser.add_argument(
+        "--max-lines", type=int, default=2,
+        help="Maximum lines per cue (default: 2). Only used with --line-level.",
+    )
+    parser.add_argument(
         "--min-cue-s", type=float, default=1.0,
         help="Minimum cue duration in seconds; shorter cues merge (default: 1.0).",
     )
@@ -83,6 +87,7 @@ def main():
             segments,
             max_cue_s=args.max_cue_s,
             max_cue_chars=args.max_cue_chars,
+            max_lines=args.max_lines,
             min_cue_s=args.min_cue_s,
         )
     else:
