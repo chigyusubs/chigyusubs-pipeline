@@ -2,35 +2,44 @@
 
 This file documents every script under `scripts/`.
 
+For the current artifact-level architecture, see `docs/current-architecture.md`.
+For validated findings and remaining issues from real episode runs, see `docs/lessons-learned.md`.
+
 ## Pipelines
 
-There are two transcription paths. Both share the OCR and glossary stages.
+There are two transcription paths. Both now share the same reusable OCR and VAD artifact stages.
 
 ### Path A: Gemini (recommended)
 
 Best quality. Requires Vertex AI access. Local LLM handles OCR filtering.
 
-```
-Silero VAD -> chunk-wise OCR filter (local Gemma 27B) -> Gemini transcription
-  -> stable-ts alignment -> reflow -> translation
+```text
+Qwen OCR -> OCR spans -> OCR context
+Silero VAD -> VAD chunk boundaries
+  -> Gemini transcription
+  -> CTC forced alignment (wav2vec2-ja)
+  -> reflow
+  -> translation
 ```
 
-1. `run_qwen_ocr_episode.py ocr` + `filter` — OCR frames, build glossary candidates
-2. `condense_glossary_vertex.py` — structure glossary with Gemini
-3. `transcribe_gemini_raw.py` — VAD-chunked Gemini transcription with local OCR filter
-4. `align_chunkwise.py` — chunk-wise stable-ts forced alignment
-5. `reflow_words.py` (via pipeline) — pause-based reflow into subtitle cues
-6. `translate_vtt.py` — LLM translation to English
+1. `run_qwen_ocr_episode.py ocr` — frame OCR
+2. `run_qwen_ocr_episode.py spans` — OCR span building
+3. `run_qwen_ocr_episode.py context` or `classify_ocr_spans_local.py` — OCR context derivation
+4. `run_vad_episode.py` — reusable Silero VAD
+5. `build_vad_chunks.py` — reusable chunk boundaries
+6. `transcribe_pipeline.py` — Gemini transcription + alignment + reflow
+7. `translate_vtt.py` — LLM translation to English
 
-Or use `transcribe_pipeline.py` which chains steps 3-5 automatically.
+`transcribe_pipeline.py` can now consume the saved VAD/chunk/OCR artifacts instead of recomputing them.
 
 ### Path B: Local (faster-whisper)
 
 Fully local, no API calls. Lower quality but zero cost.
 
-1. `run_qwen_ocr_episode.py ocr` + `filter`
-2. `transcribe_local.py` — Silero VAD + local OCR filter + faster-whisper with hotwords
-3. `translate_vtt.py`
+1. `run_qwen_ocr_episode.py ocr` + `spans` + `context`
+2. `run_vad_episode.py` + `build_vad_chunks.py`
+3. `transcribe_local.py` — local ASR path
+4. `translate_vtt.py`
 
 ## Episode Layout
 
@@ -52,20 +61,25 @@ samples/episodes/<episode_slug>/
 | Script | Purpose | Status |
 |---|---|---|
 | `episode_paths.py` | Shared path inference helpers for episode-aware defaults | Maintained |
-| `transcribe_pipeline.py` | Integrated 4-phase pipeline: Silero VAD -> Gemini -> stable-ts -> reflow | Maintained |
+| `transcribe_pipeline.py` | Integrated 4-phase pipeline: Silero VAD -> Gemini -> chunked stable-ts -> reflow | Maintained |
 | `transcribe_gemini_raw.py` | Gemini raw text transcription with chunk-wise local OCR filtering | Maintained |
 | `transcribe_gemini.py` | Gemini transcription (JSON schema mode, used by pipeline) | Maintained |
 | `transcribe_local.py` | Fully local pipeline: Silero VAD + local OCR filter + faster-whisper | Maintained |
-| `align_chunkwise.py` | Chunk-wise stable-ts forced alignment from `_chunks.json` | Maintained |
-| `align_stable_ts.py` | Global stable-ts alignment (single pass, simpler) | Maintained |
+| `align_ctc.py` | CTC forced alignment using `NTQAI/wav2vec2-large-japanese` + `torchaudio.functional.forced_align`. 0.3% zero-duration words vs 13.4% with stable-ts on `dmm`. Runs on system python3.12 with ROCm GPU. | Maintained |
+| `align_chunkwise.py` | Chunk-wise stable-ts forced alignment from `_chunks.json` | Legacy |
+| `align_qwen_forced.py` | Chunk-wise Qwen forced-alignment benchmark via `py-qwen3-asr-cpp` GGUF backend | Archived |
+| `align_qwen_forced_hf.py` | Chunk-wise Qwen forced-alignment benchmark via official `qwen-asr` on system Python / ROCm | Archived |
+| `align_stable_ts.py` | Global stable-ts alignment (single pass) | Legacy |
 | `reflow_words.py` | Pause-based reflow of word timestamps into subtitle cues | Maintained |
 | `translate_vtt.py` | LLM translation of Japanese VTT to English (Vertex or local) | Maintained |
+| `init_episode_from_media.py` | Create episode workspace from media, optionally extracting fixed-rate frames | Maintained |
 
 ### OCR & Glossary
 
 | Script | Purpose | Status |
 |---|---|---|
-| `run_qwen_ocr_episode.py` | Qwen-VL OCR over frames + frequency/run-length glossary filter | Maintained |
+| `run_qwen_ocr_episode.py` | Qwen-VL OCR over frames + frequency/run-length glossary filter, with per-run metadata sidecars | Maintained |
+| `classify_ocr_spans_local.py` | Local Gemma OCR-span cleanup/classification into reusable chunk context | Maintained |
 | `condense_glossary_vertex.py` | Build structured glossary with Gemini on Vertex | Maintained |
 | `condense_glossary_qwen.py` | Build structured glossary with local Qwen | Maintained |
 | `condense_glossary_llm.py` | Older local LLM condensation via OpenAI-compatible endpoint | Legacy |
@@ -78,6 +92,10 @@ samples/episodes/<episode_slug>/
 | `run_faster_whisper.py` | faster-whisper ASR (ROCm/CUDA), initial prompt + hotwords | Maintained |
 | `run_whisper_cpp.py` | whisper.cpp ASR via `whisper-cli` | Maintained |
 | `run_local_whisper.py` | OpenAI Whisper Python package ASR | Maintained |
+| `start_qwen_ocr_server.sh` | Start llama-server for Qwen OCR with recommended deterministic settings | Maintained |
+| `start_gemma_ocr_filter_server.sh` | Start llama-server for local Gemma OCR cleanup/classification | Maintained |
+| `run_vad_episode.py` | Standalone reusable Silero VAD artifact builder | Maintained |
+| `build_vad_chunks.py` | Build reusable chunk boundaries from saved VAD | Maintained |
 
 ### Subtitle Post-processing
 
@@ -133,11 +151,17 @@ Older Kotoba-whisper and NeMo diarization experiments.
 ```bash
 # 1. OCR
 python scripts/run_qwen_ocr_episode.py ocr \
-  --episode-dir samples/episodes/<slug>
+  --episode-dir samples/episodes/<slug> \
+  --url http://127.0.0.1:8787 \
+  --model qwen3.5-9b \
+  --server-settings '{"quant":"Q6_K","ctx_size":8192,"seed":3407,"temp":0,"top_p":0.9,"top_k":20,"thinking":false}'
 
 # 2. Filter OCR into glossary candidates
 python scripts/run_qwen_ocr_episode.py filter \
   --episode-dir samples/episodes/<slug>
+
+# `ocr`, `filter`, and the maintained transcription/alignment scripts emit
+# `*.meta.json` sidecars recording invocation details, settings, and run timing.
 
 # 3. Condense glossary
 python scripts/condense_glossary_vertex.py \
@@ -152,15 +176,26 @@ python scripts/transcribe_gemini_raw.py \
   --ocr-filter-url http://127.0.0.1:8080 \
   --ocr-filter-model gemma3-27b
 
-# 5. Align chunk-wise
-python scripts/align_chunkwise.py \
-  --chunks-json samples/episodes/<slug>/transcription/raw_chunks.json \
-  --video samples/episodes/<slug>/source/video.mp4
+# 5. CTC forced alignment (recommended)
+python3.12 scripts/align_ctc.py \
+  --video samples/episodes/<slug>/source/video.mp4 \
+  --chunks samples/episodes/<slug>/transcription/<stem>_gemini_raw.json \
+  --output-words samples/episodes/<slug>/transcription/<stem>_ctc_words.json
+
+# Uses NTQAI/wav2vec2-large-japanese + torchaudio CTC forced alignment.
+# Runs on system python3.12 with ROCm GPU.
+# 0.3% zero-duration words vs 13.4% with stable-ts on dmm.
 
 # 6. Translate
 python scripts/translate_vtt.py \
   --input samples/episodes/<slug>/transcription/raw_aligned.vtt \
-  --glossary samples/episodes/<slug>/glossary/translation_glossary.tsv
+  --glossary samples/episodes/<slug>/glossary/translation_glossary.tsv \
+  --batch-cues 12 \
+  --batch-seconds 45
+
+# `translate_vtt.py` now translates in local cue batches, preserves cue timings,
+# targets readable English subtitle CPS, retries overlong batches once, and
+# writes `<output>.diagnostics.json`.
 ```
 
 ### Local Pipeline

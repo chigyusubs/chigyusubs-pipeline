@@ -1,0 +1,356 @@
+# Lessons Learned
+
+This document records what the repo has actually taught us so far, based on real runs against:
+
+- `samples/episodes/great_escape1`
+- `samples/episodes/dmm`
+
+It is intentionally operational. The goal is to capture what worked, what did not, and what still needs to be fixed.
+
+## Current Conclusions
+
+### 1. Reusable artifacts were the right architectural move
+
+Saving OCR, VAD, chunk boundaries, alignment outputs, and diagnostics as separate artifacts is materially better than recomputing them inside one monolithic script.
+
+What this unlocked:
+
+- rerunning OCR filtering without rerunning OCR
+- rerunning translation without rerunning alignment
+- comparing video-only vs OCR-assisted transcription on the same episode
+- inspecting failures at the artifact boundary instead of guessing
+
+### 2. CTC forced alignment replaced stable-ts and nearly eliminated stranded words
+
+stable-ts uses Whisper's cross-attention for alignment, which is a byproduct of the generative model. This caused 13.4% of words to get zero-duration timestamps on `dmm`, even with chunked alignment.
+
+CTC forced alignment (`scripts/align_ctc.py`) uses `NTQAI/wav2vec2-large-japanese` with `torchaudio.functional.forced_align`. This is a dedicated alignment mechanism — it finds the optimal path through frame-level character probabilities via Viterbi decoding.
+
+Results on `dmm`:
+
+| | stable-ts (chunked) | CTC wav2vec2-ja |
+|---|---|---|
+| Zero-duration segments | 42 (3.8%) | 3 (0.3%) |
+| Zero-duration words | 947 (13.4%) | 3 (0.3%) |
+
+The 3 remaining zero-duration segments are non-Japanese text (`Shit!`, `30?`, `50。`) with no characters in the model's Japanese vocabulary. These are trivially fixable.
+
+Key properties of CTC alignment:
+
+- errors are local — one bad region does not cascade and collapse a whole tail
+- works at the character level, so even short utterances get placed
+- deterministic given the audio features, no autoregressive drift
+- runs on GPU via system python3.12 with ROCm
+
+Model selection matters: `facebook/mms-1b-all` was tested first but had 10.8% character vocabulary gaps on real Japanese text (missing common kanji like `鬼`, `凄`, `喋`, plus all punctuation). `NTQAI/wav2vec2-large-japanese` has a proper Japanese vocabulary with 2174 tokens covering kanji, hiragana, and katakana.
+
+CTC forced alignment is now the recommended default for alignment.
+
+### 3. Chunked alignment is much more robust than whole-episode alignment
+
+Whole-episode `stable-ts` alignment is too fragile. One bad transcript section can collapse a large tail of the episode to the final timestamp.
+
+Chunked alignment fixed the major failure mode on `dmm`:
+
+- whole-episode alignment collapsed a large late tail to `2442.51`
+- chunked alignment removed the end-of-file collapse
+- only local zero-duration alignment misses remained
+
+Chunked alignment should remain the default. CTC forced alignment (lesson 2) also uses chunked alignment.
+
+### 4. Zero-duration alignment misses should not be dropped blindly
+
+With CTC alignment, zero-duration segments are now rare (0.3% on `dmm`) and limited to non-Japanese text. But the principle still holds: do not drop them blindly.
+
+The zero-duration segments from earlier stable-ts runs were not mostly garbage. Many were real short utterances or chunk-edge dialogue blocks.
+
+Dropping them would make later English translation worse. The current reflow step preserves their text by merging them into nearby timed cues.
+
+This is the correct default for a translation-first pipeline, even if the repaired Japanese cue timing is imperfect.
+
+### 5. Video-only Gemini is a serious path, not just an experiment
+
+For both `great_escape1` and `dmm`, direct video transcription with Gemini was viable.
+
+Why it matters:
+
+- it removes the entire OCR preprocessing cost from the cloud path
+- it naturally sees mission cards, question text, premise cards, counters, and subtitle-like telops
+- it may be good enough often enough that OCR should become optional instead of mandatory for Gemini workflows
+
+The main lesson:
+
+- OCR is still useful
+- but Gemini video-only is strong enough that it must be treated as a first-class baseline
+
+### 6. Shorter video chunks were a big win
+
+The first video-only trial on `great_escape1` used long fixed chunks and was too verbose and more failure-prone.
+
+Switching to shorter chunks improved behavior substantially:
+
+- less drift
+- less visual over-description
+- fewer repetition failures
+- better local scene focus
+
+Using VAD-derived chunk boundaries for video-only transcription worked better than naive long fixed chunks.
+
+### 7. Bracketed visual context is the right output shape for video-only transcription
+
+The best video-only prompt shape so far was:
+
+- spoken text as `-- ...`
+- visual-only context as `[画面: ...]`
+
+This was better than forcing Gemini to mix spoken and visual information into one transcript.
+
+Why:
+
+- spoken text remains alignable
+- visual scene/rule/question context is preserved
+- `[画面: ...]` lines can be stripped before alignment
+
+This format worked well on `great_escape1` and `dmm`.
+
+### 8. OCR-first filtering became too conservative when it focused mainly on names
+
+The initial OCR cleanup/classification work improved safety, but it over-optimized for name/entity anchors.
+
+This was not enough for these shows.
+
+What the examples showed:
+
+- focused board questions are useful
+- room/mission text is useful
+- subtitle-like reaction telops are useful
+- state readouts can matter when the scene depends on them
+
+What is less useful on its own:
+
+- only preserving performer names
+
+The OCR filtering layer should keep more local semantic telop content, not just names.
+
+### 9. OCR still varies too much across show formats to over-classify early
+
+`great_escape1` and `dmm` share some properties, but the visual presentation differs a lot.
+
+Examples:
+
+- `great_escape1`: puzzle boards, focused question frames, counters, rules
+- `dmm`: location cards, cast intros, premise cards, subtitle-like captions, constant service watermark
+
+This argues against a heavy semantic classifier early in the OCR pipeline.
+
+Better approach:
+
+- keep OCR extraction relatively dumb
+- keep filtering simple and local
+- only strip obvious junk
+- preserve a few useful local lines and keywords
+
+### 10. Translation should be subtitle editing, not literal translation
+
+The new `translate_vtt.py` direction is correct:
+
+- translate in local cue batches
+- preserve cue count/timing
+- target readable English subtitle CPS
+- allow local redistribution of meaning across adjacent target cues
+
+The partial `dmm` English results are already much better than literal cue-by-cue translation would be.
+
+Examples:
+
+- `何これ?` -> `What's this?`
+- `なんだよこのナレ。 ひでえな。` -> `What's with this narration? That's awful.`
+- `「あの車に乗れ」言ってたぞ。` -> `He said, "Get in the car."`
+
+The translation step is now behaving like subtitle editing, which is what this repo needs.
+
+## Episode-Specific Findings
+
+### `great_escape1`
+
+What worked:
+
+- video-only Gemini with `[画面: ...]` lines captured useful mission/question text
+- shorter video chunks were substantially better than the first long-chunk run
+- alignment was mostly good before the bad repeated-line failure
+
+Main failure:
+
+- one repeated `見、見、見...` line near the end poisoned tail alignment
+
+Lesson:
+
+- chunk-local loop detection/retry is necessary
+- one localized failure can still ruin whole-episode alignment if not isolated
+
+### `dmm`
+
+What worked:
+
+- OCR quality was generally usable on large telops
+- VAD-based video-only transcription worked well
+- chunked alignment fixed the major tail-collapse issue
+- translation output is already reasonably natural in English
+
+Main caveats:
+
+- persistent overlay text like `DMM TV` / `月額550円` still needs explicit stripping in OCR-based paths
+- some visual captions are editorial and not spoken
+- transcript fragmentation still leaks into later translation and subtitle output
+
+## Problems Still Open
+
+### 1. Translation checkpointing exists, and it was necessary
+
+The translator now checkpoints per batch to:
+
+- `<output>.checkpoint.json`
+
+That solved the resumability problem.
+
+What is still open:
+
+- `gemini-2.5-pro` still hits intermittent `429 RESOURCE_EXHAUSTED` depending on region
+- the diagnostics need better cost/token accounting and less noisy short-cue CPS review logic
+
+### 2. CPS validation is still too strict for very short cues
+
+Some “hard CPS violations” are not real quality failures.
+
+Examples:
+
+- `What's this?`
+- `A special.`
+
+These only fail because the cue duration is tiny.
+
+What should change:
+
+- treat very short cue durations differently in translation diagnostics
+- do not overcount these as meaningful readability failures
+
+### 3. Reflow still needs split-word / split-phrase repair
+
+The worst current translation oddity:
+
+- `高野の監禁脱出地`
+- `獄。いうことで、`
+
+becoming:
+
+- `Takano's Confinement Escape He-`
+- `-ll. And with that,`
+
+This is not a translation problem. It is an upstream cue-boundary problem caused by alignment/reflow preserving a broken split inside `地獄`.
+
+What is still needed:
+
+- a reflow repair pass for broken compound splits across adjacent cues
+- especially for:
+  - split words
+  - split names
+  - split titles
+  - split phrase starts like `オ` / `ムツ`
+
+### 4. OCR context selection is still unresolved for the Gemini path
+
+We learned that:
+
+- names alone are not enough
+- whole dense dumps are too much
+
+What remains unclear is the best simple middle ground.
+
+Most likely direction:
+
+- local `line_hints`
+- local `keyword_hints`
+- narrow time locality
+- minimal role classification
+
+This still needs a concrete simplification pass before it should be treated as the stable OCR-assisted default.
+
+### 5. Video-only transcription still needs automatic loop recovery baked into the maintained pipeline
+
+The retry logic exists in the dedicated video script experiments, but the broader maintained path still needs a fully settled policy.
+
+Current best behavior:
+
+- detect loop-like output per chunk
+- retry only the failed chunk
+- slightly higher temperature on retry
+- no rolling context on retry
+
+This should become standard for video-only Gemini transcription.
+
+### 6. Translation is now local-batch aware, but subtitle polishing is not finished
+
+The English translation quality is already promising, but still incomplete:
+
+- awkward source fragmentation still leaks through
+- some lines are slightly too written or too literal
+- diagnostics need one more pass to distinguish:
+  - true bad subtitles
+  - acceptable short-cue CPS spikes
+
+### 7. CTC wav2vec2 alignment outperformed both stable-ts and Qwen forced alignment
+
+Three alignment approaches were benchmarked:
+
+- `stable-ts` (Whisper cross-attention): 13.4% zero-duration words on `dmm`
+- `Qwen/Qwen3-ForcedAligner-0.6B`: high zero-duration word count in smoke test, not obviously better than stable-ts
+- `NTQAI/wav2vec2-large-japanese` CTC: 0.3% zero-duration words on `dmm`
+
+CTC forced alignment is the clear winner. The Qwen and stable-ts aligners remain as archived benchmarks.
+
+## Current Best Practical Defaults
+
+### For transcription experiments
+
+Use video-only Gemini as a real baseline:
+
+- Silero VAD
+- VAD chunk boundaries
+- Gemini video-only transcription
+- spoken text as `-- ...`
+- visual-only text as `[画面: ...]`
+- strip `[画面: ...]` before alignment
+- use chunked `stable-ts` alignment
+
+### For OCR-assisted experiments
+
+Keep OCR reusable and local:
+
+- Qwen OCR JSONL
+- OCR spans
+- light local filtering/classification
+- do not overfit the classifier to one show
+
+### For alignment
+
+- CTC forced alignment (`align_ctc.py`) is the new default
+- uses `NTQAI/wav2vec2-large-japanese` + `torchaudio.functional.forced_align`
+- runs on system python3.12 with ROCm GPU
+- chunked: aligns per-chunk from Gemini raw transcription JSON
+- keep per-chunk diagnostics
+- preserve zero-duration segment text for translation support (rare with CTC, but still applies to non-Japanese text)
+
+### For translation
+
+- batch-based subtitle editing
+- preserve cue count/timing
+- enforce CPS-aware diagnostics
+- checkpoint after every batch
+
+## Next High-Value Work
+
+1. Finish one full `dmm` translation run with checkpointing.
+2. Add reflow repair for split-word/split-title boundaries across adjacent cues.
+3. Make translation diagnostics less noisy on very short cues.
+4. Decide whether Gemini video-only becomes the default cloud path.
+5. Simplify OCR context selection into a stable local `line_hints + keyword_hints` model if OCR remains part of the Gemini path.
