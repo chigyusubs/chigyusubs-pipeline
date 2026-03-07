@@ -19,6 +19,7 @@ Silero VAD -> VAD chunk boundaries
   -> Gemini transcription
   -> CTC forced alignment (wav2vec2-ja)
   -> reflow
+  -> optional local cue repair
   -> translation
 ```
 
@@ -28,7 +29,8 @@ Silero VAD -> VAD chunk boundaries
 4. `run_vad_episode.py` — reusable Silero VAD
 5. `build_vad_chunks.py` — reusable chunk boundaries
 6. `transcribe_pipeline.py` — Gemini transcription + alignment + reflow
-7. `translate_vtt.py` — LLM translation to English
+7. `repair_vtt_local.py` — optional local Gemma cue-boundary repair on reflowed VTT
+8. `translate_vtt.py` — LLM translation to English
 
 `transcribe_pipeline.py` can now consume the saved VAD/chunk/OCR artifacts instead of recomputing them.
 
@@ -70,7 +72,8 @@ samples/episodes/<episode_slug>/
 | `align_qwen_forced.py` | Chunk-wise Qwen forced-alignment benchmark via `py-qwen3-asr-cpp` GGUF backend | Archived |
 | `align_qwen_forced_hf.py` | Chunk-wise Qwen forced-alignment benchmark via official `qwen-asr` on system Python / ROCm | Archived |
 | `align_stable_ts.py` | Global stable-ts alignment (single pass) | Legacy |
-| `reflow_words.py` | Pause-based reflow of word timestamps into subtitle cues | Maintained |
+| `reflow_words.py` | Reflow word/line timestamps into subtitle cues. `--line-level` (default for CTC) treats lines as atomic, preventing mid-word splits. Includes comma-fallback splitting and sparse-cue clamping for CTC artifacts. | Maintained |
+| `repair_vtt_local.py` | Repair an existing reflowed VTT using aligned words + local Gemma as a constrained merge/split/extend chooser. Writes repaired VTT plus decisions/checkpoint JSON. | Maintained |
 | `translate_vtt.py` | LLM translation of Japanese VTT to English (Vertex or local) | Maintained |
 | `init_episode_from_media.py` | Create episode workspace from media, optionally extracting fixed-rate frames | Maintained |
 
@@ -94,6 +97,8 @@ samples/episodes/<episode_slug>/
 | `run_local_whisper.py` | OpenAI Whisper Python package ASR | Maintained |
 | `start_qwen_ocr_server.sh` | Start llama-server for Qwen OCR with recommended deterministic settings | Maintained |
 | `start_gemma_ocr_filter_server.sh` | Start llama-server for local Gemma OCR cleanup/classification | Maintained |
+| `start_gemma_cue_repair_server.sh` | Start llama-server for local Gemma cue-boundary repair decisions. Defaults to port `8082`, larger context, and thinking disabled via `--reasoning-budget 0`. | Maintained |
+| `start_qwen_cue_repair_server.sh` | Start llama-server for Qwen3.5-35B-A3B cue-boundary repair decisions. Defaults to port `8083`, larger context, and thinking disabled via `--reasoning-budget 0`. | Maintained |
 | `run_vad_episode.py` | Standalone reusable Silero VAD artifact builder | Maintained |
 | `build_vad_chunks.py` | Build reusable chunk boundaries from saved VAD | Maintained |
 
@@ -186,7 +191,32 @@ python3.12 scripts/align_ctc.py \
 # Runs on system python3.12 with ROCm GPU.
 # 0.3% zero-duration words vs 13.4% with stable-ts on dmm.
 
-# 6. Translate
+# 6. Reflow (line-level, recommended for CTC output)
+PYTHONPATH=. python3 scripts/reflow_words.py \
+  --input samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
+  --output samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
+  --line-level --stats
+
+# 7. Translate
+# Optional repair pass between reflow and translation:
+scripts/start_gemma_cue_repair_server.sh
+
+python scripts/repair_vtt_local.py \
+  --input-vtt samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
+  --input-words samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
+  --url http://127.0.0.1:8082 \
+  --model gemma3-27b
+
+# Qwen3.5-35B-A3B alternative:
+scripts/start_qwen_cue_repair_server.sh
+
+python scripts/repair_vtt_local.py \
+  --input-vtt samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
+  --input-words samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
+  --url http://127.0.0.1:8083 \
+  --model qwen3.5-35b-a3b
+
+# 8. Translate
 python scripts/translate_vtt.py \
   --input samples/episodes/<slug>/transcription/raw_aligned.vtt \
   --glossary samples/episodes/<slug>/glossary/translation_glossary.tsv \

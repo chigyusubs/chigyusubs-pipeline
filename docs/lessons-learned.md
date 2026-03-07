@@ -234,28 +234,21 @@ What should change:
 - treat very short cue durations differently in translation diagnostics
 - do not overcount these as meaningful readability failures
 
-### 3. Reflow still needs split-word / split-phrase repair
+### 3. Line-level reflow eliminated split-word artifacts
 
-The worst current translation oddity:
+The worst translation artifact was mid-word splits across adjacent cues (`地` / `獄` → `He-` / `-ll.`). This was caused by character-level reflow splitting at inter-character gaps within words.
 
-- `高野の監禁脱出地`
-- `獄。いうことで、`
+Line-level reflow (`reflow_words.py --line-level`) solved this by treating each Gemini transcript line as an atomic unit. Lines are never split mid-word.
 
-becoming:
+Additional fixes in the line-level reflow:
+- Comma-based fallback splitting for long lines without sentence-ending punctuation
+- Sparse-cue clamping: shrinks cues where CTC spreads few characters across disproportionately long audio windows (e.g., `なんなの!` spanning 10.8s → clamped to 7.0s)
 
-- `Takano's Confinement Escape He-`
-- `-ll. And with that,`
+Results after line-level reflow:
+- ge1: 0 overlong cues (was 9 with character-level), max 7.0s, 0 >20 CPS
+- dmm: 0 overlong cues (was 21), max 7.0s, 1 >20 CPS (real fast exchange)
 
-This is not a translation problem. It is an upstream cue-boundary problem caused by alignment/reflow preserving a broken split inside `地獄`.
-
-What is still needed:
-
-- a reflow repair pass for broken compound splits across adjacent cues
-- especially for:
-  - split words
-  - split names
-  - split titles
-  - split phrase starts like `オ` / `ムツ`
+The LLM-based `repair_vtt_local.py` is no longer needed in the default path. It solved symptoms (split words) that line-level reflow prevents at the source.
 
 ### 4. OCR context selection is still unresolved for the Gemini path
 
@@ -320,7 +313,8 @@ Use video-only Gemini as a real baseline:
 - spoken text as `-- ...`
 - visual-only text as `[画面: ...]`
 - strip `[画面: ...]` before alignment
-- use chunked `stable-ts` alignment
+- CTC forced alignment
+- line-level reflow (`--line-level`)
 
 ### For OCR-assisted experiments
 
@@ -350,7 +344,6 @@ Keep OCR reusable and local:
 ## Next High-Value Work
 
 1. Finish one full `dmm` translation run with checkpointing.
-2. Add reflow repair for split-word/split-title boundaries across adjacent cues.
-3. Make translation diagnostics less noisy on very short cues.
-4. Decide whether Gemini video-only becomes the default cloud path.
-5. Simplify OCR context selection into a stable local `line_hints + keyword_hints` model if OCR remains part of the Gemini path.
+2. Make translation diagnostics less noisy on very short cues.
+3. Decide whether Gemini video-only becomes the default cloud path.
+4. Simplify OCR context selection into a stable local `line_hints + keyword_hints` model if OCR remains part of the Gemini path.
