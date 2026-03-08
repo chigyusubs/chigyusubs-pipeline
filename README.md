@@ -157,13 +157,15 @@ use the maintained repo scripts and review logic consistently.
   - reflows aligned Japanese subtitle artifacts with the maintained line-level
     path
   - reviews the resulting VTT for translation-risk issues
-  - optionally runs local cue repair when the VTT is structurally valid but weak
+  - optionally runs Codex-interactive cue repair when the VTT is structurally valid but weak
     for translation
+  - uses deterministic review metrics and recommends one Japanese handoff path for translation
 - `subtitle-translation`
   - translates a Japanese VTT/SRT into English with Codex itself as the subtitle
     editor
   - uses the maintained `translate_vtt_codex.py` helper for checkpointed,
     one-episode-at-a-time batch translation
+  - supports clean restarts with `prepare --force`, which resets stale session and diagnostics state
 
 Typical use:
 

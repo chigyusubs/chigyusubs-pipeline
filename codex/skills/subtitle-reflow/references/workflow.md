@@ -9,7 +9,7 @@ This reference captures the repo-specific expectations for Codex-interactive Jap
 - use `scripts/reflow_words.py --line-level` for CTC output
 - prefer `transcription/<stem>_reflow.vtt` as the default reflow artifact
 - keep original and repaired artifacts separate
-- treat repair as fallback, not the default path
+- treat Codex-interactive repair as fallback, not the default path
 - optimize for translation readiness
 
 ## Default Commands
@@ -23,22 +23,27 @@ PYTHONPATH=. python3 scripts/reflow_words.py \
   --line-level --stats
 ```
 
-### Optional local repair
-
-Expected server:
+### Optional Codex-interactive repair
 
 ```bash
-scripts/start_gemma_cue_repair_server.sh
+python3 scripts/repair_vtt_codex.py prepare \
+  --input samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
+  --words samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
+  --output samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt
 ```
 
-Repair command:
+Then iterate:
 
 ```bash
-python3 scripts/repair_vtt_local.py \
-  --input-vtt samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
-  --input-words samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
-  --output-vtt samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt \
-  --output-decisions samples/episodes/<slug>/transcription/<stem>_reflow_repaired.decisions.json
+python3 scripts/repair_vtt_codex.py next-region \
+  --session samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt.checkpoint.json
+
+python3 scripts/repair_vtt_codex.py apply-region \
+  --session samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt.checkpoint.json \
+  --repair-json /tmp/<stem>_repair_region.json
+
+python3 scripts/repair_vtt_codex.py finalize \
+  --session samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt.checkpoint.json
 ```
 
 ## Review Gates
@@ -49,7 +54,7 @@ python3 scripts/repair_vtt_local.py \
 - any cue overlap
 - obviously corrupt or nonsensical VTT output
 
-On `red`, stop. Do not run local cue repair.
+On `red`, stop. Do not run repair in this workflow.
 
 ### Yellow
 
@@ -59,7 +64,7 @@ Use `yellow` when the file is structurally valid but clearly weak for translatio
 - a visible pattern of very short fragment cues
 - localized pathological regions that would clearly damage translation
 
-On `yellow`, run repair if the aligned words and local server are available. If they are not available, report that repair is indicated but unavailable.
+On `yellow`, use `repair_vtt_codex.py` and keep the repair local to the flagged regions. Preserve the full source text of each region and let the helper rebuild timings deterministically inside the region span.
 
 ### Green
 
@@ -78,6 +83,11 @@ Check all of:
 - opening sample
 - middle sample
 - ending sample
+- deterministic helper metrics:
+  - negative durations / overlaps
+  - short cues under `0.8s` and `1.0s`
+  - tiny cues (`<=4` chars)
+  - flagged region ranges and sampled previews
 
 The purpose is not exhaustive QA. The purpose is to decide whether the VTT is safe to hand to translation.
 
@@ -93,6 +103,7 @@ Keep the summary short and explicit:
 
 - structural status
 - repair status
+- before/after deterministic metrics if repair ran
 - translation readiness
 
 ## Trigger Phrases

@@ -217,6 +217,7 @@ What is still open:
 
 - `gemini-2.5-pro` still hits intermittent `429 RESOURCE_EXHAUSTED` depending on region
 - the diagnostics need better cost/token accounting and less noisy short-cue CPS review logic
+- Codex-interactive translation restarts should clear stale session/output/diagnostics history when intentionally restarted from a clean base
 
 ### 2. CPS validation is still too strict for very short cues
 
@@ -308,7 +309,33 @@ Current practical default for the Codex-interactive path:
 
 This is now embodied in the maintained `translate_vtt_codex.py` workflow instead of relying on ad hoc chat-only checkpoint edits.
 
-### 8. CTC wav2vec2 alignment outperformed both stable-ts and Qwen forced alignment
+Follow-up correction:
+
+- minimum-tier `yellow` batches should remain resumable when the only issue is hard CPS pressure
+- short-cue CPS warnings are still too noisy to justify auto-stopping a full Codex-interactive episode run on their own
+- in the Codex-interactive translation helper, `yellow` should be a continue-with-warning state; only structural errors or an explicit `red` should stop the run
+- deterministic diagnostics are still useful, but they need a compact rollup so QA can distinguish:
+  - warning-only batches
+  - real structural blockers
+  - obsolete history from a superseded session
+
+### 8. Codex-interactive reflow repair should be the default skill fallback, not local LLM repair
+
+After running the Codex repair path on weak reflowed VTTs:
+
+- line-level deterministic reflow remains the right default producer
+- Codex-interactive `repair_vtt_codex.py` is the right fallback for structurally valid but translation-hostile files
+- local LLM cue-repair remains useful only as an alternative benchmark path, not the default workflow
+
+What turned out to matter most in practice:
+
+- exact flagged cue-id ranges
+- before/after counts for short cues and tiny cues
+- one recommended Japanese VTT handoff path for translation
+
+So the useful next step is better deterministic review diagnostics, not putting a local server back into the default skill path.
+
+### 9. CTC wav2vec2 alignment outperformed both stable-ts and Qwen forced alignment
 
 Three alignment approaches were benchmarked:
 

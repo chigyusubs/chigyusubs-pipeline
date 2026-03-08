@@ -8,6 +8,8 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from chigyusubs.translation import (
     Cue,
     batch_cues,
@@ -135,6 +137,18 @@ def _save_session(path_value: Path, session: dict) -> None:
     write_json_atomic(path_value, session)
 
 
+def _remove_if_exists(path_value: Path) -> None:
+    if path_value.exists():
+        path_value.unlink()
+
+
+def _cleanup_prepare_outputs(session_path: Path, output_path: Path) -> None:
+    _remove_if_exists(session_path)
+    _remove_if_exists(output_path)
+    _remove_if_exists(_partial_output_path(output_path))
+    _remove_if_exists(_diagnostics_path(output_path))
+
+
 def _sorted_completed(session: dict) -> set[int]:
     return {int(idx) for idx in session.get("completed_batches", [])}
 
@@ -229,6 +243,25 @@ def _render_final(session: dict, cues: list[Cue]) -> list[Cue]:
 def _session_diagnostics(session: dict, cues: list[Cue]) -> dict:
     translations = _translated_map(session)
     completed = len(translations)
+    batch_diags = sorted(
+        session.get("batch_diagnostics", {}).values(),
+        key=lambda item: int(item.get("batch_index", 0)),
+    )
+    batch_review_counts: dict[str, int] = {}
+    hard_cps_total = 0
+    line_violations_total = 0
+    structural_red_batches = 0
+    warning_batches = 0
+    for batch in batch_diags:
+        review = str(batch.get("review", "green"))
+        batch_review_counts[review] = batch_review_counts.get(review, 0) + 1
+        hard_cps_total += int(batch.get("hard_cps_violations", 0))
+        line_violations_total += int(batch.get("line_violations", 0))
+        warning_batches += int(review == "yellow")
+        structural_red_batches += int(
+            review == "red"
+            and str(batch.get("auto_reason", "")).startswith("structural")
+        )
     return {
         "mode": session["mode"],
         "status": session["status"],
@@ -245,7 +278,14 @@ def _session_diagnostics(session: dict, cues: list[Cue]) -> dict:
         "completed_cues": completed,
         "total_cues": len(cues),
         "completed_batches": len(session.get("completed_batches", [])),
-        "batch_diagnostics": list(session.get("batch_diagnostics", {}).values()),
+        "batch_summary": {
+            "review_counts": batch_review_counts,
+            "warning_batches": warning_batches,
+            "structural_red_batches": structural_red_batches,
+            "hard_cps_violations_total": hard_cps_total,
+            "line_violations_total": line_violations_total,
+        },
+        "batch_diagnostics": batch_diags,
         "preflight": session.get("preflight", {}),
     }
 
@@ -263,15 +303,13 @@ def _review_rank(review: str) -> int:
     return {"green": 0, "yellow": 1, "red": 2}[review]
 
 
-def _merge_review(user_review: str, *, hard_cps_violations: int, line_violations: int, structural_error: bool, at_min_tier: bool) -> tuple[str, str]:
+def _merge_review(user_review: str, *, hard_cps_violations: int, line_violations: int, structural_error: bool) -> tuple[str, str]:
     if structural_error:
         return "red", "structural validation failed"
     objective = "green"
     if hard_cps_violations or line_violations:
         objective = "yellow"
     final = user_review if _review_rank(user_review) >= _review_rank(objective) else objective
-    if final == "yellow" and at_min_tier and (hard_cps_violations >= 3 or line_violations >= 1):
-        return "red", "quality threshold failed at minimum tier"
     if final == "yellow" and objective == "yellow":
         return "yellow", "objective subtitle constraints exceeded"
     return final, ""
@@ -290,6 +328,8 @@ def cmd_prepare(args) -> int:
     if session_path.exists() and not args.force:
         print(f"Session already exists: {session_path}", file=sys.stderr)
         return 1
+    if args.force:
+        _cleanup_prepare_outputs(session_path, output_path)
 
     session = _initial_session(args, input_path, output_path, cues)
     _save_session(session_path, session)
@@ -330,8 +370,8 @@ def cmd_next_batch(args) -> int:
         "summary": _load_text_blob(session.get("summary_path", "")),
         "review_policy": {
             "allowed_reviews": ["green", "yellow", "red"],
-            "green": "keep current tier",
-            "yellow": "apply batch and reduce next tier",
+            "green": "apply batch and continue",
+            "yellow": "apply batch, warn, and continue",
             "red": "apply batch and stop episode",
         },
     }
@@ -391,13 +431,11 @@ def cmd_apply_batch(args) -> int:
         translated_batch.append(translated)
         translations[cue_id] = text
 
-    at_min_tier = int(session["current_batch_tier"]) == int(session["batch_tiers"][-1])
     final_review, auto_reason = _merge_review(
         user_review,
         hard_cps_violations=hard_cps_violations,
         line_violations=line_violations,
         structural_error=False,
-        at_min_tier=at_min_tier,
     )
 
     batch_index = batch["batch_index"]

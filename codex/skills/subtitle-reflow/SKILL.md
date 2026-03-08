@@ -1,6 +1,6 @@
 ---
 name: subtitle-reflow
-description: Reflow aligned Japanese subtitle artifacts into translation-ready VTTs using the maintained line-level path, review the output for translation-risk issues, and optionally run the local cue-repair workflow when the reflowed VTT is weak but structurally valid. Use when the user wants Codex to prepare or review a Japanese subtitle file between CTC alignment and translation.
+description: Reflow aligned Japanese subtitle artifacts into translation-ready VTTs using the maintained line-level path, review the output for translation-risk issues, and use the Codex-interactive repair workflow when the reflowed VTT is weak but structurally valid. Use when the user wants Codex to prepare or review a Japanese subtitle file between CTC alignment and translation.
 ---
 
 # Subtitle Reflow
@@ -10,14 +10,14 @@ Use this skill when Codex should prepare or evaluate the Japanese subtitle artif
 Default maintained tools:
 
 - `scripts/reflow_words.py`
-- `scripts/repair_vtt_local.py`
+- `scripts/repair_vtt_codex.py`
 
 Do not default to experimental reflow scripts when the maintained line-level path is available.
 
 ## Core Rules
 
 - Prefer `reflow_words.py --line-level` for CTC alignment output.
-- Treat line-level reflow as the default path and local cue repair as conditional fallback.
+- Treat line-level reflow as the default path and Codex-interactive repair as conditional fallback.
 - Preserve the original reflow artifact if repair is run.
 - Stop on structural timing blockers instead of trying to LLM-repair them.
 - Optimize for translation readiness, not perfect Japanese subtitle polish.
@@ -60,6 +60,7 @@ Review should combine:
 
 - objective file-level checks
 - spot-checks from early, middle, and late regions
+- deterministic diagnostics from the helper, including flagged region ranges and short/tiny cue counts
 
 ### 3. Decision
 
@@ -71,25 +72,27 @@ Use this policy:
 
 ### 4. Optional Repair
 
-Only run local repair on `yellow`.
+Only run repair on `yellow`.
 
 Repair requirements:
 
 - input VTT exists
 - aligned `*_ctc_words.json` exists
-- local cue-repair server is reachable
 
 Default repair stack:
 
-- server: `scripts/start_gemma_cue_repair_server.sh`
-- client: `scripts/repair_vtt_local.py`
+- prepare: `scripts/repair_vtt_codex.py prepare`
+- region loop: `next-region` -> Codex repair -> `apply-region`
+- finalize: `scripts/repair_vtt_codex.py finalize`
 
 Default repair output naming:
 
 - VTT: `<stem>_reflow_repaired.vtt`
-- decisions: `<stem>_reflow_repaired.decisions.json`
+- session: `<stem>_reflow_repaired.vtt.checkpoint.json`
 
 Do not overwrite the original reflow VTT.
+
+When repair runs, rely on the helper's deterministic before/after diagnostics and one recommended translation-input path. Do not fall back to a local model server in the normal skill path.
 
 ### 5. Handoff
 
@@ -105,3 +108,4 @@ End by naming the single recommended Japanese VTT path for translation and summa
 - Do not use cue repair to hide negative durations or overlaps.
 - Do not silently proceed to translation when review found a real blocker.
 - Do not discard the original reflow artifact when a repaired artifact is created.
+- Do not depend on a local model server for the default repair path.

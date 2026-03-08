@@ -15,6 +15,9 @@ Use `scripts/translate_vtt_codex.py` as the maintained helper workflow:
 - `status`
 - `finalize`
 
+If you need to restart a translation from a clean base, use `prepare --force`.
+That should be treated as a fresh session reset, not a resume.
+
 ## Core Rules
 
 - Preserve cue count, cue order, and cue timings exactly.
@@ -107,6 +110,7 @@ If one cue is semantically weak in isolation, use adjacent cues to distribute me
 - Save progress after every batch through `apply-batch`.
 - Let the helper regenerate the partial VTT and diagnostics.
 - Keep reruns resumable from the last completed batch.
+- If you intentionally restart with `prepare --force`, expect the helper to clear the old session, partial output, final output, and diagnostics so stale batch history does not leak into the new run.
 - After each `apply-batch`, immediately loop back to `next-batch` — do not pause or summarize between batches.
 
 ### 6. Review
@@ -114,7 +118,7 @@ If one cue is semantically weak in isolation, use adjacent cues to distribute me
 After translation:
 
 - verify cue count/order/timings still match
-- review hard CPS outliers
+- review the helper's deterministic batch summary and hard CPS outliers
 - review very short cues that became awkward in English
 - review named entities and recurring terms
 - summarize any risky regions for the user

@@ -180,7 +180,7 @@ VAD chunks + OCR context + episode memory + bounded rolling transcript history
   -> Gemini or local transcription
   -> alignment
   -> reflow
-  -> optional local cue repair
+  -> optional Codex-interactive cue repair
   -> subtitle output
   -> CPS-aware English subtitle editing/translation
 ```
@@ -241,10 +241,10 @@ Transcription and alignment:
 - `scripts/align_qwen_forced.py` — Qwen forced alignment benchmark (archived)
 - `scripts/align_qwen_forced_hf.py` — Qwen HF forced alignment benchmark (archived)
 - `scripts/align_stable_ts.py` — global stable-ts alignment (legacy)
-- `scripts/start_gemma_cue_repair_server.sh` — llama-server wrapper for local Gemma cue repair decisions
-- `scripts/repair_vtt_local.py` — local Gemma cue-boundary repair on top of a reflowed VTT + aligned words
+- `scripts/repair_vtt_codex.py` — Codex-interactive region-based reflow repair helper with session/checkpoint state and deterministic validation/final assembly
+- `scripts/repair_vtt_local.py` — local Gemma cue-boundary repair on top of a reflowed VTT + aligned words (alternative path, no longer the default skill fallback)
 - `scripts/translate_vtt.py`
-- `scripts/translate_vtt_codex.py` — Codex-interactive one-episode translation helper with session/checkpoint, partial VTT assembly, and automatic batch-tier fallback
+- `scripts/translate_vtt_codex.py` — Codex-interactive one-episode translation helper with session/checkpoint, deterministic batch diagnostics, clean restart via `prepare --force`, partial VTT assembly, and automatic batch-tier fallback
 - `scripts/translate_vtt_mistral.py` — experimental translation benchmark using the same batch/checkpoint flow against the Mistral API
 
 ## Recommended Operational Default
@@ -270,7 +270,7 @@ Gemini transcription
 
   -> CTC forced alignment (wav2vec2-ja)
   -> reflow
-  -> optional local Gemma cue repair
+  -> optional Codex-interactive cue repair
   -> batch-based CPS-aware English subtitle editing
 ```
 
@@ -288,3 +288,17 @@ reflowed VTT
 ```
 
 This mode is one episode at a time, stores preferences like `preferred_model=gpt-5.4` as metadata only, and uses an automatic batch-tier policy of `84 -> 60 -> 48`.
+
+There is now a matching Codex-interactive repair mode for weak-but-structurally-valid Japanese reflowed VTTs:
+
+```text
+reflowed VTT
+  -> repair_vtt_codex.py prepare
+  -> Codex-interactive region repair
+  -> repair_vtt_codex.py apply-region
+  -> partial repaired VTT in transcription/
+  -> finalize to repaired Japanese VTT
+```
+
+This mode is region-based, preserves source text coverage inside each repaired region, and rebuilds timings deterministically inside the original region span.
+Its diagnostics now include deterministic before/after cue metrics, sampled flagged regions, and one recommended Japanese VTT handoff path for translation.

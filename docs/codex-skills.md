@@ -46,7 +46,7 @@ Purpose:
 
 - prepare a Japanese subtitle artifact for translation
 - keep the default path deterministic
-- only escalate to local cue repair when the reflowed VTT is weak enough to hurt
+- only escalate to Codex-interactive cue repair when the reflowed VTT is weak enough to hurt
   translation
 
 Default behavior:
@@ -71,25 +71,34 @@ PYTHONPATH=. python3 scripts/reflow_words.py \
 3. Decide:
 
 - `green`: recommend the reflowed VTT for translation
-- `yellow`: run local cue repair if available
+- `yellow`: run Codex-interactive cue repair
 - `red`: stop and report the blocker
 
 Optional repair path:
 
 ```bash
-scripts/start_gemma_cue_repair_server.sh
+python3 scripts/repair_vtt_codex.py prepare \
+  --input samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
+  --words samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
+  --output samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt
 
-python3 scripts/repair_vtt_local.py \
-  --input-vtt samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
-  --input-words samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
-  --output-vtt samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt \
-  --output-decisions samples/episodes/<slug>/transcription/<stem>_reflow_repaired.decisions.json
+python3 scripts/repair_vtt_codex.py next-region \
+  --session samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt.checkpoint.json
+
+python3 scripts/repair_vtt_codex.py apply-region \
+  --session samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt.checkpoint.json \
+  --repair-json /tmp/<stem>_repair_region.json
+
+python3 scripts/repair_vtt_codex.py finalize \
+  --session samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt.checkpoint.json
 ```
 
 Important:
 
 - line-level reflow is still the default
 - cue repair is conditional fallback, not the default path on every episode
+- the default repair path is Codex-interactive and does not require a local model server
+- the repair helper now writes deterministic before/after metrics, sampled flagged regions, and one recommended Japanese VTT path for translation
 - the original reflow VTT should be preserved if repair runs
 
 Example invocation in Codex:
@@ -128,7 +137,11 @@ The maintained helper automatically:
 - preserves cue count, order, and timings
 - writes a checkpoint/session JSON
 - writes a partial VTT in `translation/`
+- writes a deterministic batch summary in diagnostics
 - uses the `84 -> 60 -> 48` batch-tier fallback
+- keeps minimum-tier CPS overruns as diagnostics/warnings instead of auto-stopping the whole run
+- continues through `yellow` batches by default; only structural errors or explicit `red` stop the session
+- clears old session/output/partial/diagnostics artifacts when restarted with `prepare --force`
 
 Example invocation in Codex:
 
@@ -161,7 +174,7 @@ The skills are interactive Codex workflows, not callable model backends.
 That means:
 
 - they help Codex perform the work here in-session
-- they do not replace `translate_vtt.py` or `repair_vtt_local.py` as local
+- they do not replace `translate_vtt.py` or `repair_vtt_codex.py` as local
   libraries
 - model/thinking/temperature settings in the Codex-interactive path are working
   preferences unless the product runtime exposes hard controls

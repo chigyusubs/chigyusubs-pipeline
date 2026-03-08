@@ -19,7 +19,7 @@ Silero VAD -> VAD chunk boundaries
   -> Gemini transcription
   -> CTC forced alignment (wav2vec2-ja)
   -> reflow
-  -> optional local cue repair
+  -> optional cue repair
   -> translation
 ```
 
@@ -29,7 +29,7 @@ Silero VAD -> VAD chunk boundaries
 4. `run_vad_episode.py` — reusable Silero VAD
 5. `build_vad_chunks.py` — reusable chunk boundaries
 6. `transcribe_pipeline.py` — Gemini transcription + alignment + reflow
-7. `repair_vtt_local.py` — optional local Gemma cue-boundary repair on reflowed VTT
+7. `repair_vtt_codex.py` — optional Codex-interactive cue-boundary repair on reflowed VTT
 8. `translate_vtt.py` — LLM translation to English
 9. `translate_vtt_mistral.py` — experimental Mistral translation benchmark
 
@@ -75,9 +75,10 @@ samples/episodes/<episode_slug>/
 | `align_qwen_forced_hf.py` | Chunk-wise Qwen forced-alignment benchmark via official `qwen-asr` on system Python / ROCm | Archived |
 | `align_stable_ts.py` | Global stable-ts alignment (single pass) | Legacy |
 | `reflow_words.py` | Reflow word/line timestamps into subtitle cues. `--line-level` (default for CTC) treats lines as atomic, preventing mid-word splits. Includes comma-fallback splitting and sparse-cue clamping for CTC artifacts. | Maintained |
-| `repair_vtt_local.py` | Repair an existing reflowed VTT using aligned words + local Gemma as a constrained merge/split/extend chooser. Writes repaired VTT plus decisions/checkpoint JSON. | Maintained |
+| `repair_vtt_codex.py` | Codex-interactive reflow review/repair helper. Prepares flagged cue regions, checkpoints progress, validates region repairs, regenerates a partial repaired VTT, and finalizes a repaired Japanese VTT with deterministic before/after diagnostics and one recommended translation-input path. | Maintained |
+| `repair_vtt_local.py` | Repair an existing reflowed VTT using aligned words + local Gemma as a constrained merge/split/extend chooser. Optional legacy/benchmark alternative to the default Codex-interactive repair path. | Alternative |
 | `translate_vtt.py` | LLM translation of Japanese VTT to English (Vertex or local) | Maintained |
-| `translate_vtt_codex.py` | Codex-interactive translation helper with session/checkpoint state, partial VTT assembly, and automatic `84 -> 60 -> 48` batch-tier fallback for one episode at a time | Maintained |
+| `translate_vtt_codex.py` | Codex-interactive translation helper with session/checkpoint state, deterministic batch diagnostics, clean restart via `prepare --force`, partial VTT assembly, and automatic `84 -> 60 -> 48` batch-tier fallback for one episode at a time | Maintained |
 | `translate_vtt_mistral.py` | Mistral API translation benchmark. Keeps the same batch/checkpoint/diagnostics flow as `translate_vtt.py`, but targets Mistral chat completions directly. | Experimental |
 | `init_episode_from_media.py` | Create episode workspace from media, optionally extracting fixed-rate frames | Maintained |
 
@@ -101,8 +102,8 @@ samples/episodes/<episode_slug>/
 | `run_local_whisper.py` | OpenAI Whisper Python package ASR | Maintained |
 | `start_qwen_ocr_server.sh` | Start llama-server for Qwen OCR with recommended deterministic settings | Maintained |
 | `start_gemma_ocr_filter_server.sh` | Start llama-server for local Gemma OCR cleanup/classification | Maintained |
-| `start_gemma_cue_repair_server.sh` | Start llama-server for local Gemma cue-boundary repair decisions. Defaults to port `8082`, larger context, and thinking disabled via `--reasoning-budget 0`. | Maintained |
-| `start_qwen_cue_repair_server.sh` | Start llama-server for Qwen3.5-35B-A3B cue-boundary repair decisions. Defaults to port `8083`, larger context, and thinking disabled via `--reasoning-budget 0`. | Maintained |
+| `start_gemma_cue_repair_server.sh` | Start llama-server for local Gemma cue-boundary repair decisions. Not part of the default Codex skill path. | Alternative |
+| `start_qwen_cue_repair_server.sh` | Start llama-server for Qwen3.5-35B-A3B cue-boundary repair decisions. Not part of the default Codex skill path. | Alternative |
 | `run_vad_episode.py` | Standalone reusable Silero VAD artifact builder | Maintained |
 | `build_vad_chunks.py` | Build reusable chunk boundaries from saved VAD | Maintained |
 
@@ -201,24 +202,21 @@ PYTHONPATH=. python3 scripts/reflow_words.py \
   --output samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
   --line-level --stats
 
-# 7. Translate
-# Optional repair pass between reflow and translation:
-scripts/start_gemma_cue_repair_server.sh
+# 7. Optional Codex-interactive repair pass between reflow and translation:
+python3 scripts/repair_vtt_codex.py prepare \
+  --input samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
+  --words samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
+  --output samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt
 
-python scripts/repair_vtt_local.py \
-  --input-vtt samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
-  --input-words samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
-  --url http://127.0.0.1:8082 \
-  --model gemma3-27b
+python3 scripts/repair_vtt_codex.py next-region \
+  --session samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt.checkpoint.json
 
-# Qwen3.5-35B-A3B alternative:
-scripts/start_qwen_cue_repair_server.sh
+python3 scripts/repair_vtt_codex.py apply-region \
+  --session samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt.checkpoint.json \
+  --repair-json /tmp/<stem>_repair_region.json
 
-python scripts/repair_vtt_local.py \
-  --input-vtt samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
-  --input-words samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
-  --url http://127.0.0.1:8083 \
-  --model qwen3.5-35b-a3b
+python3 scripts/repair_vtt_codex.py finalize \
+  --session samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt.checkpoint.json
 
 # 8. Translate
 # dmm example from the current CTC + reflow path
@@ -253,8 +251,10 @@ python scripts/translate_vtt_codex.py apply-batch \
   --translations-json /tmp/batch.json
 
 # `translate_vtt_codex.py` writes a session/checkpoint JSON, a partial VTT in
-# `translation/`, and automatically reduces the batch tier 84 -> 60 -> 48 when
-# a batch is reviewed as yellow.
+# `translation/`, a deterministic diagnostics rollup, and automatically reduces
+# the batch tier 84 -> 60 -> 48 when a batch is reviewed as yellow.
+# Restart with `prepare --force` to clear stale session/output/diagnostics
+# artifacts before beginning a fresh run.
 
 # Experimental Mistral benchmark with the same cue-preserving translation flow.
 # dmm

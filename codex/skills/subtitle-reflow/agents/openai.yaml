@@ -1,4 +1,4 @@
 interface:
   display_name: "Subtitle Reflow"
-  short_description: "Prepare Japanese VTTs for translation via line-level reflow and optional cue repair"
-  default_prompt: "Use $subtitle-reflow to create or review a Japanese reflowed subtitle artifact, prefer line-level reflow, and only run local cue repair when the VTT is structurally valid but weak for translation."
+  short_description: "Prepare Japanese VTTs for translation via line-level reflow and optional Codex-interactive cue repair"
+  default_prompt: "Use $subtitle-reflow to create or review a Japanese reflowed subtitle artifact, prefer line-level reflow, and use the Codex-interactive repair helper when the VTT is structurally valid but weak for translation."
