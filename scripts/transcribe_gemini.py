@@ -1,20 +1,9 @@
 #!/usr/bin/env python3
 """Transcribe audio using Gemini's multimodal audio understanding.
 
-Sends audio chunks + glossary to Gemini and gets back structured JSON with
-speaker labels. No timestamps — those are recovered via forced alignment.
-
-Output JSON format per utterance:
-  {"speaker": "フジモン", "text": "みなさんよろしくお願いします!", "type": "speech"}
-  {"speaker": "", "text": "(拍手)", "type": "sfx"}
-
-Usage:
-  python scripts/transcribe_gemini.py \
-    --video samples/episodes/.../source/video.mp4 \
-    --glossary samples/episodes/.../glossary/translation_glossary_v2.tsv \
-    --output samples/episodes/.../transcription/406_gemini_transcript.json \
-    --model gemini-3.1-pro-preview \
-    --chunk-minutes 10
+The maintained path returns plain Japanese transcript text only.
+Speaker turns are indicated with a leading `-- ` marker so they can be stripped
+before alignment and restored later.
 """
 
 import argparse
@@ -38,56 +27,68 @@ def _backoff_delay(attempt: int, cap: float = 60.0, k: float = 2.0) -> float:
 
 def build_prompt(
     glossary_entries: list[str],
-    prev_context: list[dict] | None = None,
+    episode_memory: list[str] | None = None,
+    ocr_chunk_terms: list[str] | None = None,
+    prev_context: str | None = None,
+    include_visual_brackets: bool = False,
 ) -> str:
-    """Build the transcription prompt with JSON output format."""
+    """Build the plain-text transcription prompt."""
     lines = [
-        "You are transcribing a Japanese variety/comedy show (水曜日のダウンタウン / Wednesday Downtown).",
+        "You are transcribing a Japanese variety/comedy show.",
         "",
         "Instructions:",
         "1. Transcribe ALL spoken Japanese dialogue faithfully.",
-        "2. Identify speakers using the glossary. If unsure, use generic labels (Speaker A, etc.).",
-        "3. Output a JSON array of objects. Each object has:",
-        '   - "speaker": speaker name (empty string for non-speech)',
-        '   - "text": the spoken text or sound effect description',
-        '   - "type": "speech" for dialogue, "sfx" for sound effects/music',
-        "4. Example output:",
-        '   [',
-        '     {"speaker": "浜田", "text": "皆さんよろしくお願いします", "type": "speech"},',
-        '     {"speaker": "", "text": "拍手", "type": "sfx"},',
-        '     {"speaker": "小峠", "text": "バイきんぐ小峠でございます", "type": "speech"}',
-        '   ]',
-        "5. Do NOT add timestamps.",
-        "6. Do NOT translate — keep everything in Japanese.",
-        "7. Do NOT skip or summarize — transcribe every utterance, even short reactions.",
-        "8. For overlapping speech, list each speaker's line separately.",
-        "9. Output ONLY the JSON array, no markdown fences or other text.",
+        "2. Output ONLY plain text. Do NOT use JSON, markdown, or commentary.",
+        "3. Do NOT add speaker names or speaker labels.",
+        "4. Indicate a speaker turn by starting the line with exactly `-- `.",
+        "5. Output one utterance per line.",
+        "6. Keep normal Japanese punctuation (、。！？).",
+        "7. Do NOT translate.",
+        "8. Do NOT summarize or skip short reactions.",
+        "9. If audio is only silence, music, or ambience, output nothing for that moment.",
+        "10. Do NOT get stuck repeating laughter or a short phrase indefinitely.",
         "",
     ]
 
+    if include_visual_brackets:
+        lines.extend([
+            "11. Transcribe only what is actually spoken as `-- ...` lines.",
+            "12. If important on-screen text is relevant but not spoken aloud, put it on its own line as `[画面: ...]`.",
+            "13. Keep `[画面: ...]` lines selective and short. Do not dump every visible word.",
+            "14. Do NOT merge on-screen text into spoken lines unless it is clearly read aloud.",
+            "",
+        ])
+
     if glossary_entries:
-        lines.append("### GLOSSARY (names and terms) ###")
+        lines.append("### GLOSSARY ###")
         for entry in glossary_entries:
             lines.append(f"- {entry}")
         lines.append("")
 
-    if prev_context:
-        lines.append("### PREVIOUS CONTEXT (last lines from previous chunk — do NOT repeat) ###")
-        for u in prev_context[-8:]:
-            if u["type"] == "speech":
-                lines.append(f'{u["speaker"]}: {u["text"]}')
-            else:
-                lines.append(f'({u["text"]})')
-        lines.append("")
-        lines.append("Continue transcribing from where this left off. Do not repeat the context lines.")
+    if episode_memory:
+        lines.append("### EPISODE MEMORY ###")
+        for entry in episode_memory[:30]:
+            lines.append(f"- {entry}")
         lines.append("")
 
-    lines.append("Transcribe the audio now. Output the JSON array only.")
+    if ocr_chunk_terms:
+        lines.append("### LOCAL ON-SCREEN TEXT CONTEXT ###")
+        lines.append("Use these only as spelling or topic hints for this chunk.")
+        lines.append("Do not assume every line was spoken aloud.")
+        for entry in ocr_chunk_terms[:20]:
+            lines.append(f"- {entry}")
+        lines.append("")
+
+    if prev_context:
+        lines.append("### PREVIOUS CONTEXT (for continuity only; do not repeat) ###")
+        lines.append(prev_context[-1200:])
+        lines.append("")
+
+    lines.append("Transcribe the audio now.")
     return "\n".join(lines)
 
 
-def _strip_json_fences(text: str) -> str:
-    """Remove markdown code fences from JSON response."""
+def _strip_text_fences(text: str) -> str:
     out = text.strip()
     if out.startswith("```"):
         out = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", out)
@@ -95,26 +96,23 @@ def _strip_json_fences(text: str) -> str:
     return out.strip()
 
 
-def _parse_utterances(raw: str) -> list[dict]:
-    """Parse Gemini's JSON response into utterance dicts."""
-    cleaned = _strip_json_fences(raw)
-    # Find the JSON array
-    start = cleaned.find("[")
-    end = cleaned.rfind("]")
-    if start >= 0 and end > start:
-        cleaned = cleaned[start : end + 1]
-    data = json.loads(cleaned)
-    if not isinstance(data, list):
-        raise ValueError("Expected JSON array")
-
-    utterances = []
-    for item in data:
-        utterances.append({
-            "speaker": str(item.get("speaker", "")),
-            "text": str(item.get("text", "")),
-            "type": str(item.get("type", "speech")),
-        })
-    return utterances
+def _normalize_transcript_text(raw: str) -> str:
+    text = _strip_text_fences(raw)
+    lines = []
+    for line in text.splitlines():
+        t = line.strip()
+        if not t:
+            continue
+        if t.startswith("- ") and not t.startswith("-- "):
+            t = "-- " + t[2:].lstrip()
+        if re.match(r"^speaker\s+[a-z0-9]+:\s*", t, flags=re.I):
+            t = "-- " + re.sub(r"^speaker\s+[a-z0-9]+:\s*", "", t, flags=re.I)
+        if t.startswith("[画面"):
+            m = re.match(r"^\[画面[:：]\s*(.*?)\s*\]?$", t)
+            if m:
+                t = f"[画面: {m.group(1).strip()}]"
+        lines.append(t)
+    return "\n".join(lines).strip()
 
 
 def _countdown(seconds: float):
@@ -132,22 +130,25 @@ def transcribe_chunk(
     audio_bytes: bytes,
     prompt: str,
     model: str,
+    location: str,
     max_retries: int = 10,
-) -> list[dict]:
-    """Send audio chunk to Gemini via streaming, return list of utterance dicts."""
+    temperature: float = 0.1,
+    mime_type: str = "audio/mpeg",
+) -> str:
+    """Send a media chunk to Gemini via streaming, return plain transcript text."""
     from google import genai
     from google.genai import types
 
-    client = genai.Client()
+    client = genai.Client(vertexai=True, location=location)
 
-    audio_part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/mpeg")
+    audio_part = types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
     text_part = types.Part.from_text(text=prompt)
 
     config = types.GenerateContentConfig(
-        temperature=0.1,
-        response_mime_type="application/json",
+        temperature=temperature,
+        response_mime_type="text/plain",
         max_output_tokens=65536,
-        httpOptions=types.HttpOptions(timeout=180_000),  # 180s
+        httpOptions=types.HttpOptions(timeout=180_000),
     )
 
     for attempt in range(max_retries):
@@ -156,7 +157,6 @@ def transcribe_chunk(
             print(f"  {attempt_label} Requesting...", end="", flush=True)
             t0 = time.time()
 
-            # Stream response for faster feedback and fewer timeouts
             chunks: list[str] = []
             char_count = 0
             first_chunk = True
@@ -165,39 +165,27 @@ def transcribe_chunk(
                 contents=[audio_part, text_part],
                 config=config,
             ):
-                if first_chunk:
-                    ttfb = time.time() - t0
-                    print(f" first token in {ttfb:.1f}s, streaming",
-                          end="", flush=True)
-                    first_chunk = False
                 text = chunk.text or ""
+                if first_chunk and text:
+                    ttfb = time.time() - t0
+                    print(f" first token in {ttfb:.1f}s, streaming", end="", flush=True)
+                    first_chunk = False
                 chunks.append(text)
                 char_count += len(text)
-                # Dot every ~1k chars
                 if char_count % 1000 < len(text):
                     print(".", end="", flush=True)
 
             elapsed = time.time() - t0
             raw = "".join(chunks)
-            print(f" {len(raw)} chars in {elapsed:.1f}s", flush=True)
-            return _parse_utterances(raw)
-        except json.JSONDecodeError as e:
-            elapsed = time.time() - t0
-            print(flush=True)  # newline after partial output
-            if attempt < max_retries - 1:
-                delay = _backoff_delay(attempt + 1)
-                print(f"  {attempt_label} JSON parse failed after {elapsed:.0f}s: {e}",
-                      flush=True)
-                _countdown(delay)
-                continue
-            raise
+            normalized = _normalize_transcript_text(raw)
+            print(f" {len(normalized)} chars in {elapsed:.1f}s", flush=True)
+            return normalized
         except Exception as e:
             elapsed = time.time() - t0
-            print(flush=True)  # newline after partial output
+            print(flush=True)
             if attempt < max_retries - 1:
                 msg = str(e).strip().splitlines()[0] if str(e).strip() else repr(e)
                 delay = _backoff_delay(attempt + 1)
-                # Classify error for clearer display
                 if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
                     err_type = "RATE LIMITED"
                 elif "499" in msg or "CANCELLED" in msg:
@@ -206,8 +194,7 @@ def transcribe_chunk(
                     err_type = "SERVER ERROR"
                 else:
                     err_type = "ERROR"
-                print(f"  {attempt_label} {err_type} after {elapsed:.0f}s: {msg}",
-                      flush=True)
+                print(f"  {attempt_label} {err_type} after {elapsed:.0f}s: {msg}", flush=True)
                 _countdown(delay)
                 continue
             raise
@@ -221,17 +208,17 @@ def transcribe_full(
     model: str,
     chunk_minutes: float,
 ) -> list[dict]:
-    """Transcribe full video in chunks, return all utterances."""
+    """Transcribe full video in chunks, return chunk texts."""
     duration = get_duration(video_path)
     chunk_s = chunk_minutes * 60
-    overlap_s = 5.0  # 5s audio overlap for continuity
+    overlap_s = 5.0
 
     n_chunks = max(1, int((duration - overlap_s) / (chunk_s - overlap_s)) + 1)
     print(f"Duration: {duration:.0f}s ({duration/60:.1f} min)")
     print(f"Chunks: {n_chunks} x {chunk_minutes:.0f} min (with {overlap_s:.0f}s overlap)")
 
-    all_utterances: list[dict] = []
-    prev_context: list[dict] | None = None
+    all_chunks: list[dict] = []
+    prev_context: str | None = None
 
     with tempfile.TemporaryDirectory() as tmpdir:
         for i in range(n_chunks):
@@ -250,55 +237,32 @@ def transcribe_full(
             m_end = (start + chunk_dur) / 60
             print(f"\n[{label}] {m_start:.1f}-{m_end:.1f} min ({chunk_mb:.1f} MB)")
 
-            prompt = build_prompt(glossary_entries, prev_context)
-            utterances = transcribe_chunk(chunk_bytes, prompt, model)
+            prompt = build_prompt(glossary_entries, prev_context=prev_context)
+            text = transcribe_chunk(chunk_bytes, prompt, model, os.environ.get("GOOGLE_CLOUD_LOCATION", "global"))
+            all_chunks.append({"chunk": i, "chunk_start_s": start, "text": text})
+            prev_context = text
 
-            speech_count = sum(1 for u in utterances if u["type"] == "speech")
-            sfx_count = sum(1 for u in utterances if u["type"] == "sfx")
-            print(f"  -> {speech_count} speech + {sfx_count} sfx utterances")
-
-            # Tag utterances with chunk info for debugging
-            for u in utterances:
-                u["chunk"] = i
-                u["chunk_start_s"] = start
-
-            all_utterances.extend(utterances)
-            prev_context = utterances
-
-    return all_utterances
+    return all_chunks
 
 
-def write_outputs(utterances: list[dict], output_path: str):
-    """Write JSON and plain text transcript."""
-    # JSON output
+def write_outputs(chunks: list[dict], output_path: str):
+    """Write chunk JSON and plain text transcript."""
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(utterances, f, ensure_ascii=False, indent=2)
+        json.dump(chunks, f, ensure_ascii=False, indent=2)
 
-    # Also write plain text for alignment (speech only, no speaker labels)
-    txt_path = output_path.replace(".json", "_speech.txt")
+    txt_path = output_path.replace(".json", "_text.txt")
     with open(txt_path, "w", encoding="utf-8") as f:
-        for u in utterances:
-            if u["type"] == "speech" and u["text"].strip():
-                f.write(u["text"] + "\n")
-
-    # And a labeled version for reference
-    labeled_path = output_path.replace(".json", "_labeled.txt")
-    with open(labeled_path, "w", encoding="utf-8") as f:
-        for u in utterances:
-            if u["type"] == "sfx":
-                f.write(f"({u['text']})\n")
-            elif u["speaker"]:
-                f.write(f"{u['speaker']}: {u['text']}\n")
-            else:
-                f.write(f"{u['text']}\n")
-
-    return txt_path, labeled_path
+        for chunk in chunks:
+            text = chunk.get("text", "").strip()
+            if text:
+                f.write(text + "\n\n")
+    return txt_path
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Transcribe audio with Gemini (structured JSON, chunked)."
+        description="Transcribe audio with Gemini (plain text, turn markers)."
     )
     parser.add_argument("--video", required=True, help="Input video file.")
     parser.add_argument(
@@ -327,32 +291,21 @@ def main():
         out_dir = Path(video_path).parent.parent / "transcription"
         args.output = str(out_dir / f"{stem}_gemini_transcript.json")
 
-    # Load glossary
     glossary_entries = []
     if args.glossary and os.path.exists(args.glossary):
         glossary_entries = load_glossary_names(args.glossary)
         print(f"Loaded {len(glossary_entries)} glossary entries")
 
-    # Transcribe
-    utterances = transcribe_full(
+    chunks = transcribe_full(
         video_path=video_path,
         glossary_entries=glossary_entries,
         model=args.model,
         chunk_minutes=args.chunk_minutes,
     )
 
-    # Write outputs
-    txt_path, labeled_path = write_outputs(utterances, args.output)
-
-    speech = [u for u in utterances if u["type"] == "speech"]
-    sfx = [u for u in utterances if u["type"] == "sfx"]
-    speakers = set(u["speaker"] for u in speech if u["speaker"])
-
-    print(f"\nWrote {len(utterances)} utterances to {args.output}")
-    print(f"  Speech: {len(speech)}, SFX: {len(sfx)}")
-    print(f"  Speakers: {', '.join(sorted(speakers)) or '(none)'}")
-    print(f"  Speech text: {txt_path}")
-    print(f"  Labeled text: {labeled_path}")
+    txt_path = write_outputs(chunks, args.output)
+    print(f"\nWrote {len(chunks)} chunks to {args.output}")
+    print(f"  Plain text: {txt_path}")
 
 
 if __name__ == "__main__":

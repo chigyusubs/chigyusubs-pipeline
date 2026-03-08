@@ -1,8 +1,12 @@
 import os
 import json
 import argparse
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
 from chigyusubs.paths import find_latest_episode_video, infer_episode_dir_from_video
 from chigyusubs.reflow import reflow_words
 from chigyusubs.vtt import write_standard_vtt, write_word_timestamps_json
@@ -75,6 +79,7 @@ def run_faster_whisper(
     reflow_pause_ms: int = 300,
     reflow_min_cue_s: float = 0.3,
 ):
+    run = start_run("run_faster_whisper")
     from faster_whisper import WhisperModel
     from faster_whisper.utils import format_timestamp
 
@@ -123,6 +128,7 @@ def run_faster_whisper(
     for segment in segments:
         segment_list.append(segment)
         print(f"[{format_timestamp(segment.start)} -> {format_timestamp(segment.end)}] {segment.text}")
+    initial_segment_count = len(segment_list)
 
     # Always write word timestamps JSON first (before any splitting/reflow).
     json_output_path = output_path.replace('.vtt', '_words.json')
@@ -165,6 +171,38 @@ def run_faster_whisper(
     print(f"\nWriting standard VTT to {output_path}...")
     write_standard_vtt(segment_list, output_path)
 
+    metadata = finish_run(
+        run,
+        episode_dir=str(infer_episode_dir_from_video(Path(video_path))),
+        inputs={
+            "video": video_path,
+            "glossary": glossary_path if os.path.exists(glossary_path) else None,
+            "hotwords_file": hotwords_file if hotwords_file and os.path.exists(hotwords_file) else None,
+        },
+        outputs={
+            "vtt": output_path,
+            "words_json": json_output_path,
+        },
+        settings={
+            "model": model_name,
+            "compute_type": compute_type,
+            "hotwords_inline": bool(hotwords_text and hotwords),
+            "min_silence_ms": min_silence_ms,
+            "max_speech_s": max_speech_s,
+            "max_cue_s": max_cue_s,
+            "reflow": reflow,
+            "reflow_pause_ms": reflow_pause_ms,
+            "reflow_min_cue_s": reflow_min_cue_s,
+        },
+        stats={
+            "segments_before_postprocess": initial_segment_count,
+            "cues_written": len(segment_list),
+            "language": info.language,
+            "language_probability": round(info.language_probability, 4),
+        },
+    )
+    write_metadata(output_path, metadata)
+    print(f"Metadata written: {metadata_path(output_path)}")
     print("Done!")
 
 if __name__ == "__main__":

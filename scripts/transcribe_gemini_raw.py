@@ -11,15 +11,18 @@ Saves a .txt file for review and a _chunks.json file for chunk-wise alignment.
 import argparse
 import json
 import os
-import sys
 import tempfile
 import time
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chigyusubs.audio import extract_audio_chunk, get_duration
 from chigyusubs.chunking import find_chunk_boundaries
 from chigyusubs.glossary import load_glossary_names
+from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
 from chigyusubs.ocr import (
     filter_ocr_terms_with_llm,
     get_ocr_context_for_chunk,
@@ -141,6 +144,7 @@ def transcribe_raw_chunk(
 
 
 def main():
+    run = start_run("transcribe_gemini_raw")
     parser = argparse.ArgumentParser(description="Raw text Gemini transcription.")
     parser.add_argument("--video", required=True, help="Input video/audio file.")
     parser.add_argument("--output", required=True, help="Output TXT path.")
@@ -266,6 +270,34 @@ def main():
 
     log(f"\nFinished! Output saved to {output_path}")
     log(f"Chunks JSON saved to {chunks_json_path}")
+    metadata = finish_run(
+        run,
+        inputs={
+            "video": args.video,
+            "glossary": args.glossary or None,
+            "ocr_jsonl": args.ocr_jsonl or None,
+        },
+        outputs={
+            "text": str(output_path),
+            "chunks_json": str(chunks_json_path),
+        },
+        settings={
+            "model": args.model,
+            "chunk_minutes": args.chunk_minutes,
+            "ocr_filter_url": args.ocr_filter_url or None,
+            "ocr_filter_model": args.ocr_filter_model or None,
+        },
+        stats={
+            "duration_seconds": round(duration, 3),
+            "glossary_entries": len(glossary_entries),
+            "ocr_frames_loaded": len(ocr_frames),
+            "chunks": len(chunk_bounds),
+            "text_chunks_written": len(chunks_data),
+            "characters_written": sum(len(t) for t in all_text),
+        },
+    )
+    write_metadata(output_path, metadata)
+    log(f"Metadata written: {metadata_path(output_path)}")
 
 if __name__ == "__main__":
     main()

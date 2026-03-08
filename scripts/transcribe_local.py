@@ -29,8 +29,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from chigyusubs.audio import extract_audio_chunk, get_duration
 from chigyusubs.chunking import find_chunk_boundaries
+from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
 from chigyusubs.ocr import filter_ocr_terms_with_llm, get_ocr_context_for_chunk, load_ocr_data
 from chigyusubs.paths import find_latest_episode_video, infer_episode_dir_from_video
 from chigyusubs.reflow import reflow_words
@@ -87,6 +90,7 @@ def build_hotwords(ocr_terms: list[str]) -> str:
 
 
 def main():
+    run = start_run("transcribe_local")
     parser = argparse.ArgumentParser(
         description="Fully local transcription: Silero VAD + OCR filter + faster-whisper."
     )
@@ -274,6 +278,39 @@ def main():
     else:
         write_standard_vtt(all_segments, args.output)
 
+    metadata = finish_run(
+        run,
+        episode_dir=str(episode_dir),
+        inputs={
+            "video": args.video,
+            "ocr_jsonl": args.ocr_jsonl or None,
+            "glossary": args.glossary or None,
+        },
+        outputs={
+            "vtt": args.output,
+            "words_json": json_path,
+        },
+        settings={
+            "model": args.model,
+            "compute_type": args.compute_type,
+            "llm_url": args.llm_url,
+            "llm_model": args.llm_model or None,
+            "chunk_minutes": args.chunk_minutes,
+            "reflow": args.reflow,
+            "reflow_pause_ms": args.reflow_pause_ms,
+            "max_cue_s": args.max_cue_s,
+        },
+        stats={
+            "duration_seconds": round(duration, 3),
+            "ocr_frames_loaded": len(ocr_frames),
+            "vad_segments": len(vad_segments),
+            "chunks": len(chunk_bounds),
+            "segments": len(all_segments),
+            "cues_written": len(cues) if args.reflow else len(all_segments),
+        },
+    )
+    write_metadata(args.output, metadata)
+    log(f"Metadata written: {metadata_path(args.output)}")
     log(f"VTT written: {args.output}")
     log("\nDone!")
 

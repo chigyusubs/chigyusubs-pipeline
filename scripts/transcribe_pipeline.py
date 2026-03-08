@@ -2,13 +2,9 @@
 """Silero VAD + Gemini + stable-ts transcription pipeline.
 
 Phase 1: Silero VAD → speech/silence boundaries (for chunk splitting)
-Phase 2: Gemini transcription (chunked at VAD silence gaps) → JSON with speaker + text
+Phase 2: Gemini transcription (chunked at VAD silence gaps) → plain text with `-- ` turn markers
 Phase 3: stable-ts forced alignment (Whisper cross-attention) → word-level timestamps
-Phase 4: Reflow + speaker labels → final VTT
-
-Speaker identification is done by Gemini in Phase 2 — it returns a "speaker" field
-per utterance. These labels are carried through to the final VTT by estimating each
-utterance's temporal position within its chunk.
+Phase 4: Reflow → final VTT
 
 Usage:
   python3.12 scripts/transcribe_pipeline.py \
@@ -25,12 +21,15 @@ import json
 import os
 import sys
 import tempfile
-from collections import Counter
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chigyusubs.audio import extract_audio_chunk, get_duration
 from chigyusubs.chunking import find_chunk_boundaries
 from chigyusubs.glossary import load_glossary_names
+from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
+from chigyusubs.paths import infer_episode_dir_from_video
 from chigyusubs.reflow import reflow_words
 from chigyusubs.vad import run_silero_vad
 
@@ -49,65 +48,106 @@ def phase_header(n: int, title: str):
     log("=" * 60)
 
 
-# ---------------------------------------------------------------------------
-# Phase 4: Attach Gemini speaker labels to reflowed cues
-# ---------------------------------------------------------------------------
-
-def estimate_utterance_times(
-    utterances: list[dict],
-    chunk_boundaries: list[tuple[float, float]],
-) -> list[dict]:
-    """Estimate temporal position of each Gemini utterance within its chunk.
-
-    Distributes utterances evenly across chunk duration.
-    Returns list of {time, speaker} for speech utterances with speakers.
-    """
-    timed = []
-    by_chunk: dict[int, list[dict]] = {}
-    for u in utterances:
-        if u["type"] != "speech" or not u.get("speaker"):
-            continue
-        by_chunk.setdefault(u.get("chunk", 0), []).append(u)
-
-    for ci, utts in by_chunk.items():
-        if ci < len(chunk_boundaries):
-            c_start, c_end = chunk_boundaries[ci]
-        else:
-            c_start = utts[0].get("chunk_start_s", 0)
-            c_end = c_start + 600
-        c_dur = c_end - c_start
-        n = len(utts)
-        for i, u in enumerate(utts):
-            t = c_start + c_dur * (i + 0.5) / n
-            timed.append({"time": t, "speaker": u["speaker"]})
-
-    return timed
-
-
-def attach_speakers(cues: list[dict], gemini_timed: list[dict]) -> list[dict]:
-    """Attach Gemini speaker names to reflowed cues by nearest temporal match."""
-    if not gemini_timed:
-        return cues
-
-    for cue in cues:
-        cue_mid = (cue["start"] + cue["end"]) / 2
-        best_speaker = ""
-        best_dist = float("inf")
-        for gt in gemini_timed:
-            dist = abs(gt["time"] - cue_mid)
-            if dist < best_dist:
-                best_dist = dist
-                best_speaker = gt["speaker"]
-        cue["speaker"] = best_speaker
-
-    return cues
-
-
 from chigyusubs.vtt import write_vtt as _write_vtt_basic
 
 
 def write_vtt(cues: list[dict], output_path: str):
-    _write_vtt_basic(cues, output_path, include_speaker=True)
+    _write_vtt_basic(cues, output_path, include_speaker=False)
+
+
+def _load_chunk_bounds(chunk_json_path: str) -> list[tuple[float, float]]:
+    with open(chunk_json_path, "r", encoding="utf-8") as f:
+        chunks = json.load(f)
+    return [(float(c["start_sec"]), float(c["end_sec"])) for c in chunks]
+
+
+def _load_ocr_context(context_json_path: str) -> tuple[list[str], list[dict]]:
+    with open(context_json_path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    return payload.get("episode_memory", []), payload.get("chunk_contexts", [])
+
+
+def _default_ocr_context_path(episode_dir: Path) -> str:
+    preferred = episode_dir / "ocr" / "qwen_ocr_context_gemma.json"
+    if preferred.exists():
+        return str(preferred)
+    fallback = episode_dir / "ocr" / "qwen_ocr_context.json"
+    return str(fallback)
+
+
+def _ocr_terms_for_window(
+    ocr_chunk_contexts: list[dict],
+    start_sec: float,
+    end_sec: float,
+    *,
+    pad_sec: float = 2.0,
+    limit: int = 20,
+) -> list[str]:
+    scores: dict[str, float] = {}
+    for item in ocr_chunk_contexts:
+        item_start = float(item["start_sec"])
+        item_end = float(item["end_sec"])
+        if item_end < start_sec - pad_sec or item_start > end_sec + pad_sec:
+            continue
+        for idx, term in enumerate(item.get("terms", [])):
+            scores[term] = scores.get(term, 0.0) + max(0.5, 8 - idx)
+    ranked = [term for _, term in sorted((score, term) for term, score in scores.items())[::-1]]
+    return ranked[:limit]
+
+
+def _rolling_prev_context(all_chunks: list[dict], upto_chunk: int, keep_chunks: int) -> str | None:
+    if keep_chunks <= 0 or not all_chunks:
+        return None
+    start_chunk = max(0, upto_chunk - keep_chunks)
+    kept = [c.get("text", "").strip() for c in all_chunks if start_chunk <= c.get("chunk", -1) < upto_chunk]
+    kept = [c for c in kept if c]
+    if not kept:
+        return None
+    return "\n".join(kept)
+
+
+def _strip_turn_markers(text: str) -> str:
+    out_lines = []
+    for line in text.splitlines():
+        t = line.strip()
+        if not t:
+            continue
+        if t.startswith("[画面:") or t.startswith("[画面："):
+            continue
+        if t.startswith("-- "):
+            t = t[3:].lstrip()
+        out_lines.append(t)
+    return "\n".join(out_lines)
+
+
+def _speech_lines_from_chunks(chunks: list[dict]) -> list[str]:
+    lines: list[str] = []
+    for chunk in chunks:
+        raw = chunk.get("text", "") or ""
+        cleaned = _strip_turn_markers(raw)
+        for line in cleaned.splitlines():
+            t = line.strip()
+            if t:
+                lines.append(t)
+    return lines
+
+
+def _aligned_segments_with_offset(result, start_offset_s: float) -> list[dict]:
+    segments_data = []
+    for seg in result.segments:
+        words_data = [{
+            "start": w.start + start_offset_s,
+            "end": w.end + start_offset_s,
+            "word": w.word,
+            "probability": getattr(w, "probability", 0.0),
+        } for w in seg.words]
+        segments_data.append({
+            "start": seg.start + start_offset_s,
+            "end": seg.end + start_offset_s,
+            "text": seg.text,
+            "words": words_data,
+        })
+    return segments_data
 
 
 # ---------------------------------------------------------------------------
@@ -119,20 +159,30 @@ def run_pipeline(
     output_path: str,
     glossary_path: str = "",
     gemini_model: str = "gemini-3.1-pro-preview",
+    gemini_location: str = "",
     whisper_model: str = "large-v3",
     chunk_minutes: float = 10,
     only_phases: set[int] | None = None,
     work_dir: str | None = None,
+    vad_json: str = "",
+    chunk_json: str = "",
+    ocr_context_json: str = "",
+    rolling_context_chunks: int = 2,
 ):
+    run = start_run("transcribe_pipeline")
     run_phase = (lambda p: p in only_phases) if only_phases else (lambda p: True)
     out_dir = Path(output_path).parent
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = Path(output_path).stem
+    episode_dir = infer_episode_dir_from_video(Path(video_path))
 
     # Intermediate file paths (persist in output dir for resumability)
-    vad_json_path = str(out_dir / f"{stem}_vad.json")
+    vad_json_path = vad_json or str(episode_dir / "transcription" / "silero_vad_segments.json")
+    chunk_json_path = chunk_json or str(episode_dir / "transcription" / "vad_chunks.json")
+    ocr_context_path = ocr_context_json or _default_ocr_context_path(episode_dir)
     gemini_json_path = str(out_dir / f"{stem}_gemini_raw.json")
     words_json_path = str(out_dir / f"{stem}_words.json")
+    align_diag_json_path = str(out_dir / f"{stem}_alignment_chunks.json")
     vtt_path = output_path.replace(".json", ".vtt")
 
     log(f"Video: {video_path}")
@@ -151,6 +201,7 @@ def run_pipeline(
         log(f"  Speech: {total_speech:.0f}s / {duration:.0f}s "
             f"({total_speech / duration * 100:.0f}%)")
 
+        Path(vad_json_path).parent.mkdir(parents=True, exist_ok=True)
         log(f"  Writing {vad_json_path}")
         with open(vad_json_path, "w", encoding="utf-8") as f:
             json.dump(vad_segments, f, ensure_ascii=False, indent=2)
@@ -171,19 +222,39 @@ def run_pipeline(
     # Phase 2: Gemini transcription (VAD-chunked)
     # ==================================================================
     chunk_bounds: list[tuple[float, float]] = []
-    all_utterances: list[dict] = []
+    all_chunk_texts: list[dict] = []
 
     if run_phase(2):
         phase_header(2, "Gemini Transcription")
 
-        target_chunk_s = chunk_minutes * 60
-        log(f"  Finding chunk boundaries (target {chunk_minutes:.0f} min, "
-            f"min gap 2.0s)...")
-        chunk_bounds = find_chunk_boundaries(
-            vad_segments, duration,
-            target_chunk_s=target_chunk_s,
-            min_gap_s=2.0,
-        )
+        if os.path.exists(chunk_json_path):
+            log(f"  Loading chunk boundaries: {chunk_json_path}")
+            chunk_bounds = _load_chunk_bounds(chunk_json_path)
+        else:
+            target_chunk_s = chunk_minutes * 60
+            log(f"  Finding chunk boundaries (target {chunk_minutes:.0f} min, "
+                f"min gap 2.0s)...")
+            chunk_bounds = find_chunk_boundaries(
+                vad_segments, duration,
+                target_chunk_s=target_chunk_s,
+                min_gap_s=2.0,
+            )
+            Path(chunk_json_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(chunk_json_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    [
+                        {
+                            "chunk_id": idx,
+                            "start_sec": cs,
+                            "end_sec": ce,
+                            "duration_sec": round(ce - cs, 3),
+                        }
+                        for idx, (cs, ce) in enumerate(chunk_bounds)
+                    ],
+                    f,
+                    ensure_ascii=False,
+                    indent=2,
+                )
         log(f"  {len(chunk_bounds)} chunks:")
         for i, (cs, ce) in enumerate(chunk_bounds):
             log(f"    [{i + 1}] {cs / 60:.1f} - {ce / 60:.1f} min ({ce - cs:.0f}s)")
@@ -194,21 +265,23 @@ def run_pipeline(
             glossary_entries = load_glossary_names(glossary_path)
             log(f"  Glossary: {len(glossary_entries)} entries")
 
+        episode_memory: list[str] = []
+        ocr_chunk_contexts: list[dict] = []
+        if ocr_context_path and os.path.exists(ocr_context_path):
+            episode_memory, ocr_chunk_contexts = _load_ocr_context(ocr_context_path)
+            log(f"  OCR context: {len(episode_memory)} episode memory terms, "
+                f"{len(ocr_chunk_contexts)} chunk contexts")
+
         # Resume from partial output if available
         start_chunk = 0
         if os.path.exists(gemini_json_path):
             with open(gemini_json_path, "r", encoding="utf-8") as f:
-                all_utterances = json.load(f)
-            done_chunks = set(u.get("chunk", 0) for u in all_utterances)
+                all_chunk_texts = json.load(f)
+            done_chunks = set(c.get("chunk", 0) for c in all_chunk_texts)
             start_chunk = max(done_chunks) + 1 if done_chunks else 0
             if start_chunk > 0:
                 log(f"  Resuming from chunk {start_chunk + 1} "
-                    f"({len(all_utterances)} utterances from previous run)")
-
-        prev_context: list[dict] | None = None
-        if all_utterances:
-            last_ci = max(u.get("chunk", 0) for u in all_utterances)
-            prev_context = [u for u in all_utterances if u.get("chunk") == last_ci]
+                    f"({len(all_chunk_texts)} chunk texts from previous run)")
 
         with tempfile.TemporaryDirectory() as audio_tmpdir:
             for i, (c_start, c_end) in enumerate(chunk_bounds):
@@ -230,39 +303,38 @@ def run_pipeline(
                 log(f"  Audio size: {chunk_mb:.1f} MB")
 
                 log("  Sending to Gemini (streaming)...")
-                prompt = build_prompt(glossary_entries, prev_context)
-                utterances = transcribe_chunk(
-                    chunk_bytes, prompt, gemini_model, max_retries=20,
+                prev_context = _rolling_prev_context(all_chunk_texts, i, rolling_context_chunks)
+                ocr_terms = _ocr_terms_for_window(ocr_chunk_contexts, c_start, c_end)
+                prompt = build_prompt(
+                    glossary_entries,
+                    episode_memory=episode_memory,
+                    ocr_chunk_terms=ocr_terms,
+                    prev_context=prev_context,
                 )
+                chunk_text = transcribe_chunk(
+                    chunk_bytes, prompt, gemini_model, gemini_location or os.environ.get("GOOGLE_CLOUD_LOCATION", "global"), max_retries=20,
+                )
+                line_count = len([ln for ln in chunk_text.splitlines() if ln.strip()])
+                char_count = len(chunk_text)
+                log(f"  Result: {line_count} lines, {char_count} chars")
 
-                speech_count = sum(1 for u in utterances if u["type"] == "speech")
-                sfx_count = sum(1 for u in utterances if u["type"] == "sfx")
-                speakers = sorted(set(
-                    u["speaker"] for u in utterances
-                    if u["type"] == "speech" and u["speaker"]
-                ))
-                log(f"  Result: {speech_count} speech + {sfx_count} sfx")
-                log(f"  Speakers: {', '.join(speakers) or '(none detected)'}")
-
-                for u in utterances:
-                    u["chunk"] = i
-                    u["chunk_start_s"] = c_start
-
-                all_utterances.extend(utterances)
-                prev_context = utterances
+                all_chunk_texts.append({
+                    "chunk": i,
+                    "chunk_start_s": c_start,
+                    "chunk_end_s": c_end,
+                    "text": chunk_text,
+                })
 
                 # Save after each chunk (resumable)
-                log(f"  Saving progress ({len(all_utterances)} total utterances)...")
+                log(f"  Saving progress ({len(all_chunk_texts)} total chunk texts)...")
                 with open(gemini_json_path, "w", encoding="utf-8") as f:
-                    json.dump(all_utterances, f, ensure_ascii=False, indent=2)
+                    json.dump(all_chunk_texts, f, ensure_ascii=False, indent=2)
 
         # Summary
-        all_speakers = Counter(
-            u["speaker"] for u in all_utterances
-            if u["type"] == "speech" and u["speaker"]
-        )
-        log(f"\n  Gemini transcript complete: {len(all_utterances)} utterances")
-        log(f"  Speakers: {dict(all_speakers.most_common())}")
+        total_lines = sum(len([ln for ln in c.get("text", "").splitlines() if ln.strip()]) for c in all_chunk_texts)
+        total_chars = sum(len(c.get("text", "")) for c in all_chunk_texts)
+        log(f"\n  Gemini transcript complete: {len(all_chunk_texts)} chunks")
+        log(f"  Totals: {total_lines} lines, {total_chars} chars")
         log(f"  Saved: {gemini_json_path}")
         log("  Phase 2 done.")
     else:
@@ -271,14 +343,17 @@ def run_pipeline(
     # Load Gemini transcript (required for phases 3-4)
     if os.path.exists(gemini_json_path):
         with open(gemini_json_path, "r", encoding="utf-8") as f:
-            all_utterances = json.load(f)
+            all_chunk_texts = json.load(f)
         if not chunk_bounds:
-            chunk_indices = sorted(set(u.get("chunk", 0) for u in all_utterances))
-            for ci in chunk_indices:
-                ci_utts = [u for u in all_utterances if u.get("chunk") == ci]
-                c_start = ci_utts[0].get("chunk_start_s", 0)
-                chunk_bounds.append((c_start, c_start + chunk_minutes * 60))
-        log(f"Gemini transcript: {len(all_utterances)} utterances loaded")
+            if os.path.exists(chunk_json_path):
+                chunk_bounds = _load_chunk_bounds(chunk_json_path)
+            else:
+                chunk_indices = sorted(set(c.get("chunk", 0) for c in all_chunk_texts))
+                for ci in chunk_indices:
+                    ci_chunks = [c for c in all_chunk_texts if c.get("chunk") == ci]
+                    c_start = ci_chunks[0].get("chunk_start_s", 0)
+                    chunk_bounds.append((c_start, c_start + chunk_minutes * 60))
+        log(f"Gemini transcript: {len(all_chunk_texts)} chunks loaded")
     elif any(run_phase(p) for p in [3, 4]):
         log(f"ERROR: Gemini transcript not found: {gemini_json_path}")
         log("Run Phase 2 first.")
@@ -293,45 +368,102 @@ def run_pipeline(
     if run_phase(3):
         phase_header(3, "stable-ts Forced Alignment")
 
-        speech_lines = [
-            u["text"].strip()
-            for u in all_utterances
-            if u["type"] == "speech" and u.get("text", "").strip()
-        ]
-        plain_text = "\n".join(speech_lines)
+        speech_lines = _speech_lines_from_chunks(all_chunk_texts)
         log(f"  {len(speech_lines)} speech utterances to align")
-        log(f"  Text length: {len(plain_text)} chars")
 
         log(f"  Loading Whisper model: {whisper_model}...")
         import stable_whisper
         model = stable_whisper.load_model(whisper_model, device="cuda")
         log("  Model loaded.")
 
-        log("  Running alignment (this takes a while)...")
-        result = model.align(video_path, plain_text, language="ja")
-
-        log("  Extracting word-level timestamps...")
+        chunk_text_map = {int(c.get("chunk", -1)): c for c in all_chunk_texts}
+        failed_alignments: list[dict] = []
+        alignment_diagnostics: list[dict] = []
         segments_data = []
-        for seg in result.segments:
-            words_data = [{
-                "start": w.start,
-                "end": w.end,
-                "word": w.word,
-                "probability": getattr(w, "probability", 0.0),
-            } for w in seg.words]
-            segments_data.append({
-                "start": seg.start,
-                "end": seg.end,
-                "text": seg.text,
-                "words": words_data,
-            })
 
+        with tempfile.TemporaryDirectory() as align_tmpdir:
+            for i, (c_start, c_end) in enumerate(chunk_bounds):
+                chunk_info = chunk_text_map.get(i)
+                chunk_text = chunk_info.get("text", "") if chunk_info else ""
+                cleaned_text = _strip_turn_markers(chunk_text)
+                if not cleaned_text.strip():
+                    log(f"  Chunk {i + 1}/{len(chunk_bounds)}: no spoken text, skipping")
+                    continue
+
+                text_len = len(cleaned_text)
+                line_count = len([ln for ln in cleaned_text.splitlines() if ln.strip()])
+                log(
+                    f"  Chunk {i + 1}/{len(chunk_bounds)} align: "
+                    f"{c_start:.1f}-{c_end:.1f}s, {line_count} lines, {text_len} chars"
+                )
+
+                chunk_audio_path = os.path.join(align_tmpdir, f"align_chunk_{i}.mp3")
+                extract_audio_chunk(
+                    video_path,
+                    chunk_audio_path,
+                    start_s=c_start,
+                    duration_s=c_end - c_start,
+                )
+
+                try:
+                    result = model.align(chunk_audio_path, cleaned_text, language="ja")
+                    chunk_segments = _aligned_segments_with_offset(result, c_start)
+                    segments_data.extend(chunk_segments)
+                    chunk_words = sum(len(seg["words"]) for seg in chunk_segments)
+                    zero_duration_segments = sum(
+                        1 for seg in chunk_segments if float(seg["end"]) <= float(seg["start"])
+                    )
+                    zero_duration_words = sum(
+                        1
+                        for seg in chunk_segments
+                        for w in seg["words"]
+                        if float(w["end"]) <= float(w["start"])
+                    )
+                    alignment_diagnostics.append({
+                        "chunk": i,
+                        "chunk_start_s": c_start,
+                        "chunk_end_s": c_end,
+                        "line_count": line_count,
+                        "text_length": text_len,
+                        "segments": len(chunk_segments),
+                        "words": chunk_words,
+                        "zero_duration_segments": zero_duration_segments,
+                        "zero_duration_words": zero_duration_words,
+                        "needs_review": zero_duration_segments > 5,
+                        "status": "ok",
+                    })
+                except Exception as e:
+                    msg = str(e).strip().splitlines()[0] if str(e).strip() else repr(e)
+                    failure = {
+                        "chunk": i,
+                        "chunk_start_s": c_start,
+                        "chunk_end_s": c_end,
+                        "line_count": line_count,
+                        "text_length": text_len,
+                        "error": msg,
+                        "status": "failed",
+                    }
+                    failed_alignments.append(failure)
+                    alignment_diagnostics.append(failure)
+                    log(f"  Chunk {i + 1} alignment failed: {msg}")
+
+        segments_data.sort(key=lambda s: (float(s["start"]), float(s["end"])))
         total_words = sum(len(s["words"]) for s in segments_data)
         log(f"  Aligned: {total_words} words in {len(segments_data)} segments")
+        if failed_alignments:
+            log(f"  Failed chunk alignments: {len(failed_alignments)}")
+            for item in failed_alignments[:10]:
+                log(
+                    f"    chunk {item['chunk']} "
+                    f"({item['chunk_start_s']:.1f}-{item['chunk_end_s']:.1f}s): {item['error']}"
+                )
 
         log(f"  Writing {words_json_path}")
         with open(words_json_path, "w", encoding="utf-8") as f:
             json.dump(segments_data, f, ensure_ascii=False, indent=2)
+        log(f"  Writing {align_diag_json_path}")
+        with open(align_diag_json_path, "w", encoding="utf-8") as f:
+            json.dump(alignment_diagnostics, f, ensure_ascii=False, indent=2)
 
         log("  Freeing GPU memory...")
         del model
@@ -345,10 +477,10 @@ def run_pipeline(
         log("\nPhase 3: SKIPPED (using existing word timestamps)")
 
     # ==================================================================
-    # Phase 4: Reflow + speaker labels → final VTT
+    # Phase 4: Reflow → final VTT
     # ==================================================================
     if run_phase(4):
-        phase_header(4, "Reflow + Speaker Labels")
+        phase_header(4, "Reflow")
 
         if not os.path.exists(words_json_path):
             log(f"ERROR: Word timestamps not found: {words_json_path}")
@@ -369,18 +501,6 @@ def run_pipeline(
         )
         log(f"  Reflowed into {len(cues)} cues")
 
-        log("  Estimating utterance timestamps for speaker mapping...")
-        gemini_timed = estimate_utterance_times(all_utterances, chunk_bounds)
-        log(f"  {len(gemini_timed)} timed speaker labels")
-
-        log("  Attaching speaker labels to cues...")
-        cues = attach_speakers(cues, gemini_timed)
-
-        speakers_in_output = Counter(
-            c.get("speaker", "") for c in cues if c.get("speaker")
-        )
-        log(f"  Speakers: {dict(speakers_in_output.most_common())}")
-
         log(f"  Writing VTT: {vtt_path}")
         write_vtt(cues, vtt_path)
 
@@ -389,9 +509,10 @@ def run_pipeline(
             "video": video_path,
             "glossary": glossary_path,
             "gemini_model": gemini_model,
+            "gemini_location": gemini_location or os.environ.get("GOOGLE_CLOUD_LOCATION", "global"),
             "whisper_model": whisper_model,
             "n_vad_segments": len(vad_segments),
-            "n_gemini_utterances": len(all_utterances),
+            "n_gemini_chunks": len(all_chunk_texts),
             "n_cues": len(cues),
             "cues": cues,
         }
@@ -409,6 +530,48 @@ def run_pipeline(
     else:
         log("\nPhase 4: SKIPPED")
 
+    word_segments = 0
+    if os.path.exists(words_json_path):
+        with open(words_json_path, "r", encoding="utf-8") as f:
+            word_segments = len(json.load(f))
+
+    metadata = finish_run(
+        run,
+        episode_dir=str(infer_episode_dir_from_video(Path(video_path))),
+        inputs={
+            "video": video_path,
+            "glossary": glossary_path or None,
+            "ocr_context_json": ocr_context_path if os.path.exists(ocr_context_path) else None,
+        },
+        outputs={
+            "pipeline_json": output_path,
+            "vad_json": vad_json_path,
+            "chunk_json": chunk_json_path,
+            "gemini_json": gemini_json_path,
+            "words_json": words_json_path,
+            "alignment_chunks_json": align_diag_json_path if os.path.exists(align_diag_json_path) else None,
+            "vtt": vtt_path,
+        },
+        settings={
+            "gemini_model": gemini_model,
+            "whisper_model": whisper_model,
+            "chunk_minutes": chunk_minutes,
+            "only_phases": sorted(only_phases) if only_phases else None,
+            "work_dir": work_dir,
+            "rolling_context_chunks": rolling_context_chunks,
+        },
+        stats={
+            "duration_seconds": round(duration, 3),
+            "vad_segments": len(vad_segments),
+            "chunks": len(chunk_bounds),
+            "gemini_chunks": len(all_chunk_texts),
+            "word_segments": word_segments,
+            "failed_alignment_chunks": len(failed_alignments) if run_phase(3) and 'failed_alignments' in locals() else None,
+            "cues_written": len(cues) if run_phase(4) and 'cues' in locals() else None,
+        },
+    )
+    write_metadata(output_path, metadata)
+    log(f"Metadata written: {metadata_path(output_path)}")
     log("\nPipeline complete.")
 
 
@@ -428,6 +591,11 @@ def main():
         help="Gemini model (default: gemini-3.1-pro-preview).",
     )
     parser.add_argument(
+        "--location",
+        default=os.environ.get("GOOGLE_CLOUD_LOCATION", "global"),
+        help="Vertex location for Gemini requests (default: GOOGLE_CLOUD_LOCATION or global).",
+    )
+    parser.add_argument(
         "--whisper-model", default="large-v3",
         help="Whisper model for stable-ts alignment (default: large-v3).",
     )
@@ -443,6 +611,10 @@ def main():
         "--work-dir", default="",
         help="Persistent work directory (default: temp dir, cleaned up).",
     )
+    parser.add_argument("--vad-json", default="", help="Use/save reusable VAD JSON (defaults to episode transcription/silero_vad_segments.json).")
+    parser.add_argument("--chunk-json", default="", help="Use/save reusable chunk-boundary JSON (defaults to episode transcription/vad_chunks.json).")
+    parser.add_argument("--ocr-context-json", default="", help="Chunk-level OCR context JSON (defaults to episode ocr/qwen_ocr_context_gemma.json if present, otherwise qwen_ocr_context.json).")
+    parser.add_argument("--rolling-context-chunks", type=int, default=2, help="How many previous chunks of transcript history to include for continuity.")
     args = parser.parse_args()
 
     video_path = args.video
@@ -464,10 +636,15 @@ def main():
         output_path=args.output,
         glossary_path=args.glossary,
         gemini_model=args.model,
+        gemini_location=args.location,
         whisper_model=args.whisper_model,
         chunk_minutes=args.chunk_minutes,
         only_phases=only_phases,
         work_dir=args.work_dir or None,
+        vad_json=args.vad_json,
+        chunk_json=args.chunk_json,
+        ocr_context_json=args.ocr_context_json,
+        rolling_context_chunks=args.rolling_context_chunks,
     )
 
 

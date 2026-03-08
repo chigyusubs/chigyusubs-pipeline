@@ -6,7 +6,14 @@ import struct
 from chigyusubs.audio import extract_16k_wav
 
 
-def run_silero_vad(audio_path: str, work_dir: str | None = None) -> list[dict]:
+def run_silero_vad(
+    audio_path: str,
+    work_dir: str | None = None,
+    *,
+    threshold: float = 0.5,
+    min_speech_duration_ms: int = 250,
+    min_silence_duration_ms: int = 100,
+) -> list[dict]:
     """Run Silero VAD on audio file, return speech segments as list of {start, end}."""
     import torch
 
@@ -36,9 +43,9 @@ def run_silero_vad(audio_path: str, work_dir: str | None = None) -> list[dict]:
     timestamps = get_speech_timestamps(
         wav, model,
         sampling_rate=sr,
-        threshold=0.5,
-        min_speech_duration_ms=250,
-        min_silence_duration_ms=100,
+        threshold=threshold,
+        min_speech_duration_ms=min_speech_duration_ms,
+        min_silence_duration_ms=min_silence_duration_ms,
     )
 
     segments = [{"start": ts["start"] / sr, "end": ts["end"] / sr} for ts in timestamps]
