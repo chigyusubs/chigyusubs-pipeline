@@ -63,13 +63,24 @@ Use these defaults unless the user says otherwise:
 - target language: English
 - subtitle style: natural, concise, readable
 - target CPS: about 17
-- hard CPS: about 20
+- hard CPS: about 20 as a warning/review threshold, not a stop condition by itself
 - preferred line length: about 42 chars
 - max lines: 2
 
-### 3. Batch the Work
+### 3. Batch Loop
 
-Translate in local cue batches, not the whole file at once.
+**This is the core of the workflow. You MUST loop until all cues are translated or a `red` review stops the session.**
+
+Repeat this cycle:
+
+1. Run `next-batch` to get the current batch payload.
+2. Translate every cue in the batch (see translation rules below).
+3. Write the translations JSON and run `apply-batch`.
+4. Check the apply output: if status is `completed` or `stopped`, exit the loop. Otherwise, go back to step 1 immediately.
+
+Do NOT stop after a single batch. Do NOT wait for user confirmation between batches unless the review is `red`. A `yellow` review means continue with the next batch (the tier auto-downgrades). A `green` review means continue normally.
+
+Batch settings:
 
 - Use nearby context on both sides.
 - Keep the current batch small enough to reason about coherence.
@@ -78,9 +89,9 @@ Translate in local cue batches, not the whole file at once.
 
 For long files, use the helper script's session/checkpoint in `translation/`, not ad hoc JSON edits.
 
-### 4. Translate
+### 4. Translation Rules
 
-For each batch:
+For each cue in a batch:
 
 - keep cue timings unchanged
 - keep cue count unchanged
@@ -96,6 +107,7 @@ If one cue is semantically weak in isolation, use adjacent cues to distribute me
 - Save progress after every batch through `apply-batch`.
 - Let the helper regenerate the partial VTT and diagnostics.
 - Keep reruns resumable from the last completed batch.
+- After each `apply-batch`, immediately loop back to `next-batch` — do not pause or summarize between batches.
 
 ### 6. Review
 
@@ -106,6 +118,11 @@ After translation:
 - review very short cues that became awkward in English
 - review named entities and recurring terms
 - summarize any risky regions for the user
+
+Important:
+
+- hard CPS diagnostics are useful, but in this repo they are still noisy on short cues
+- do not stop a whole Codex-interactive run on CPS or ordinary warning-level issues when the actual subtitle quality is still acceptable
 
 ## When To Use The Script Instead
 
