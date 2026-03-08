@@ -1,27 +1,22 @@
 #!/usr/bin/env python3
-"""Translate VTT/SRT subtitles into readable English subtitle batches.
+"""Translate VTT/SRT subtitles into readable English subtitle batches via Mistral.
 
 Designed for reflowed Japanese subtitle output. The script translates in
 small local batches, preserves cue timings/count, and retries batches that
 produce overlong English subtitles.
 
 Usage:
-  # Vertex Gemini
-  python scripts/translate_vtt.py --backend vertex \
-    --input subs.vtt --output subs_en.vtt
-
-  # OpenAI-compatible (local or remote)
-  python scripts/translate_vtt.py --backend openai \
-    --url http://127.0.0.1:8787 --model qwen3-30b \
-    --input subs.vtt --output subs_en.vtt
+  # Default Mistral endpoint + model
+  python scripts/translate_vtt_mistral.py \
+    --input subs.vtt --output subs_en_mistral.vtt
 
   # With glossary and summary
-  python scripts/translate_vtt.py --backend vertex \
-    --input subs.vtt --output subs_en.vtt \
+  python scripts/translate_vtt_mistral.py \
+    --input subs.vtt --output subs_en_mistral.vtt \
     --glossary glossary.tsv --summary "A comedy variety show featuring..."
 
   # Subtitle-editing batch controls
-  python scripts/translate_vtt.py --backend openai \
+  python scripts/translate_vtt_mistral.py \
     --input subs.vtt --batch-cues 12 --batch-seconds 45
 """
 
@@ -36,6 +31,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Optional
+
+
+DEFAULT_MISTRAL_API_BASE = "https://api.mistral.ai"
 
 
 # ---------------------------------------------------------------------------
@@ -308,9 +306,8 @@ def _build_manifest(
     input_path: str,
     output_path: str,
     target_lang: str,
-    backend: str,
     model: str,
-    location: str,
+    api_base: str,
     batch_size: int,
     batch_seconds: float,
     context_cues: int,
@@ -323,9 +320,9 @@ def _build_manifest(
         "input": input_path,
         "output": output_path,
         "target_language": target_lang,
-        "backend": backend,
+        "backend": "mistral",
         "model": model,
-        "location": location,
+        "api_base": api_base,
         "batch_size": batch_size,
         "batch_seconds": batch_seconds,
         "context_cues": context_cues,
@@ -348,7 +345,7 @@ def _load_checkpoint(path: str, manifest: dict) -> tuple[dict[int, str], set[int
         "target_language",
         "backend",
         "model",
-        "location",
+        "api_base",
         "batch_size",
         "batch_seconds",
         "context_cues",
@@ -531,7 +528,7 @@ def _reconstruct_vtt(
 
 
 # ---------------------------------------------------------------------------
-# LLM backends
+# Mistral backend
 # ---------------------------------------------------------------------------
 
 def _strip_code_fences(text: str) -> str:
@@ -556,13 +553,34 @@ def _parse_json_response(raw: str) -> dict:
     raise ValueError(f"Failed to parse JSON from model response: {raw}")
 
 
-def _call_openai_compatible(
-    url: str,
+def _extract_message_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            text = item.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+                continue
+            if item.get("type") == "text" and isinstance(item.get("content"), str):
+                parts.append(item["content"])
+        return "".join(parts)
+    return ""
+
+
+def _call_mistral(
+    api_base: str,
     model: str,
     system_prompt: str,
     user_prompt: str,
     temperature: float,
-    api_key: Optional[str] = None,
+    api_key: str,
 ) -> str:
     payload = {
         "model": model,
@@ -571,45 +589,30 @@ def _call_openai_compatible(
             {"role": "user", "content": user_prompt},
         ],
         "temperature": temperature,
-        "response_format": {"type": "json_object"},
     }
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
     req = urllib.request.Request(
-        f"{url.rstrip('/')}/v1/chat/completions",
+        f"{api_base.rstrip('/')}/v1/chat/completions",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers=headers,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
     )
-    with urllib.request.urlopen(req, timeout=600) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    return data["choices"][0]["message"]["content"]
+    try:
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace").strip()
+        detail = f"{e.code} {e.reason}"
+        if body:
+            detail = f"{detail}: {body}"
+        raise RuntimeError(detail) from e
 
-
-def _call_vertex(
-    model: str,
-    system_prompt: str,
-    user_prompt: str,
-    temperature: float,
-    location: str,
-) -> str:
-    from google import genai
-    from google.genai import types
-
-    client = genai.Client(vertexai=True, location=location)
-    config = types.GenerateContentConfig(
-        system_instruction=system_prompt,
-        temperature=temperature,
-        response_mime_type="application/json",
-        max_output_tokens=65536,
-    )
-    response = client.models.generate_content(
-        model=model,
-        contents=user_prompt,
-        config=config,
-    )
-    return response.text or ""
+    message = data["choices"][0]["message"]
+    text = _extract_message_text(message.get("content"))
+    if text:
+        return text
+    raise ValueError(f"Mistral returned empty message content: {message}")
 
 
 def _backoff_delay(attempt: int, cap: float = 30.0, k: float = 2.0) -> float:
@@ -666,15 +669,13 @@ def _translate_batch(
     target_lang: str,
     glossary: Optional[str],
     summary: Optional[str],
-    backend: str,
     model: str,
     temperature: float,
     target_cps: float,
     hard_cps: float,
     max_line_length: int,
-    location: str,
-    url: Optional[str],
-    api_key: Optional[str],
+    api_base: str,
+    api_key: str,
 ) -> tuple[list[Cue], list[str], dict]:
     speaker_instruction = ""
     if _has_speaker_labels(batch.cues):
@@ -709,25 +710,15 @@ def _translate_batch(
             retry_instruction=retry_instruction,
         )
 
-        if backend == "vertex":
-            raw = _call_with_retry(
-                _call_vertex,
-                model=model,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                temperature=temperature,
-                location=location,
-            )
-        else:
-            raw = _call_with_retry(
-                _call_openai_compatible,
-                url=url or "http://127.0.0.1:8787",
-                model=model,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                temperature=temperature,
-                api_key=api_key,
-            )
+        raw = _call_with_retry(
+            _call_mistral,
+            api_base=api_base,
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            api_key=api_key,
+        )
 
         parsed = _parse_json_response(raw)
         translations = _validate_structured_output(parsed)
@@ -775,11 +766,10 @@ def translate_subtitles(
     input_path: str,
     output_path: str,
     target_lang: str,
-    backend: str,
     model: str,
     temperature: float,
-    url: Optional[str],
-    api_key: Optional[str],
+    api_base: str,
+    api_key: str,
     glossary_path: Optional[str],
     summary: Optional[str],
     batch_seconds: float,
@@ -788,7 +778,6 @@ def translate_subtitles(
     target_cps: float,
     hard_cps: float,
     max_line_length: int,
-    location: str,
     output_format: str,
 ):
     # Load input
@@ -826,9 +815,8 @@ def translate_subtitles(
         input_path=input_path,
         output_path=output_path,
         target_lang=target_lang,
-        backend=backend,
         model=model,
-        location=location,
+        api_base=api_base,
         batch_size=batch_size,
         batch_seconds=batch_seconds,
         context_cues=context_cues,
@@ -866,14 +854,12 @@ def translate_subtitles(
             target_lang=target_lang,
             glossary=glossary,
             summary=summary,
-            backend=backend,
             model=model,
             temperature=temperature,
             target_cps=target_cps,
             hard_cps=hard_cps,
             max_line_length=max_line_length,
-            location=location,
-            url=url,
+            api_base=api_base,
             api_key=api_key,
         )
         for offset, cue in enumerate(translated, start=batch.start_index + 1):
@@ -947,40 +933,36 @@ def translate_subtitles(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Translate VTT/SRT subtitles using structured JSON via LLM."
+        description="Translate VTT/SRT subtitles via the Mistral API."
     )
     parser.add_argument("--input", required=True, help="Input VTT or SRT file.")
     parser.add_argument(
-        "--output", default="", help="Output file. Defaults to <input>_<lang>.<ext>"
+        "--output",
+        default="",
+        help="Output file. Defaults to <input>_<lang>_mistral.<ext>",
     )
     parser.add_argument(
         "--target-lang", default="English", help="Target language (default: English)."
     )
     parser.add_argument(
-        "--backend",
-        default="openai",
-        choices=["openai", "vertex"],
-        help="LLM backend: 'openai' (any OpenAI-compatible API) or 'vertex' (Gemini).",
-    )
-    parser.add_argument(
         "--model",
         default="",
-        help="Model name. Defaults: vertex=gemini-2.5-pro, openai=gpt-4o",
+        help="Mistral model name (default: MISTRAL_MODEL or mistral-small-latest).",
     )
     parser.add_argument(
-        "--location",
-        default=os.environ.get("GOOGLE_CLOUD_LOCATION", "global"),
-        help="Vertex location for Gemini requests (default: GOOGLE_CLOUD_LOCATION or global).",
+        "--api-base",
+        default=os.environ.get("MISTRAL_API_BASE", DEFAULT_MISTRAL_API_BASE),
+        help="Base URL for the Mistral API (env: MISTRAL_API_BASE).",
     )
     parser.add_argument(
         "--url",
-        default=os.environ.get("OPENAI_BASE_URL", ""),
-        help="Base URL for OpenAI-compatible backend (env: OPENAI_BASE_URL).",
+        default="",
+        help="Deprecated alias for --api-base.",
     )
     parser.add_argument(
         "--api-key",
-        default=os.environ.get("OPENAI_API_KEY", ""),
-        help="API key for OpenAI-compatible backend (env: OPENAI_API_KEY).",
+        default=os.environ.get("MISTRAL_API_KEY", ""),
+        help="API key for the Mistral API (env: MISTRAL_API_KEY).",
     )
     parser.add_argument(
         "--glossary",
@@ -1056,17 +1038,15 @@ def main():
 
     # Resolve defaults
     if not args.model:
-        args.model = (
-            os.environ.get("GEMINI_MODEL", "gemini-2.5-pro")
-            if args.backend == "vertex"
-            else "gpt-4o"
-        )
+        args.model = os.environ.get("MISTRAL_MODEL", "mistral-small-latest")
+    if not args.api_key:
+        raise SystemExit("Missing Mistral API key. Set --api-key or MISTRAL_API_KEY.")
 
     if not args.output:
         stem = Path(args.input).stem
         ext = Path(args.input).suffix or ".vtt"
         lang_slug = args.target_lang.lower().replace(" ", "_")
-        args.output = str(Path(args.input).parent / f"{stem}_{lang_slug}{ext}")
+        args.output = str(Path(args.input).parent / f"{stem}_{lang_slug}_mistral{ext}")
 
     output_format = args.format
     if not output_format:
@@ -1078,16 +1058,16 @@ def main():
     context_cues = args.context_cues
     if args.overlap_cues >= 0:
         context_cues = args.overlap_cues
+    api_base = args.url or args.api_base
 
     translate_subtitles(
         input_path=args.input,
         output_path=args.output,
         target_lang=args.target_lang,
-        backend=args.backend,
         model=args.model,
         temperature=args.temperature,
-        url=args.url or None,
-        api_key=args.api_key or None,
+        api_base=api_base,
+        api_key=args.api_key,
         glossary_path=args.glossary or None,
         summary=args.summary or None,
         batch_seconds=batch_seconds,
@@ -1096,7 +1076,6 @@ def main():
         target_cps=args.target_cps,
         hard_cps=args.hard_cps,
         max_line_length=args.max_line_length,
-        location=args.location,
         output_format=output_format,
     )
 
