@@ -1,0 +1,4 @@
+interface:
+  display_name: "Subtitle Translation"
+  short_description: "Translate VTT/SRT via Codex subtitle editing workflow"
+  default_prompt: "Use $subtitle-translation to translate this subtitle file into natural English while preserving cue timings and reviewing risky batches."

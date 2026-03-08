@@ -19,6 +19,7 @@ coverage/
 
 # Local artifacts
 samples/
+downloads/
 outputs/
 logs/
 checkpoints/
@@ -29,6 +30,7 @@ ctranslate2_issue_materials/
 .DS_Store
 .vscode/
 .claude/
+.codex/
 
 # Experiment archive
 _archive/

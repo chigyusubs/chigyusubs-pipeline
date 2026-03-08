@@ -180,6 +180,7 @@ VAD chunks + OCR context + episode memory + bounded rolling transcript history
   -> Gemini or local transcription
   -> alignment
   -> reflow
+  -> optional local cue repair
   -> subtitle output
   -> CPS-aware English subtitle editing/translation
 ```
@@ -240,7 +241,11 @@ Transcription and alignment:
 - `scripts/align_qwen_forced.py` — Qwen forced alignment benchmark (archived)
 - `scripts/align_qwen_forced_hf.py` — Qwen HF forced alignment benchmark (archived)
 - `scripts/align_stable_ts.py` — global stable-ts alignment (legacy)
+- `scripts/start_gemma_cue_repair_server.sh` — llama-server wrapper for local Gemma cue repair decisions
+- `scripts/repair_vtt_local.py` — local Gemma cue-boundary repair on top of a reflowed VTT + aligned words
 - `scripts/translate_vtt.py`
+- `scripts/translate_vtt_codex.py` — Codex-interactive one-episode translation helper with session/checkpoint, partial VTT assembly, and automatic batch-tier fallback
+- `scripts/translate_vtt_mistral.py` — experimental translation benchmark using the same batch/checkpoint flow against the Mistral API
 
 ## Recommended Operational Default
 
@@ -265,7 +270,21 @@ Gemini transcription
 
   -> CTC forced alignment (wav2vec2-ja)
   -> reflow
+  -> optional local Gemma cue repair
   -> batch-based CPS-aware English subtitle editing
 ```
 
 This keeps the quality path strong while preserving a reusable local artifact chain.
+
+There is now a second maintained translation mode for cases where the user wants Codex itself to do the translation rather than an API-backed model:
+
+```text
+reflowed VTT
+  -> translate_vtt_codex.py prepare
+  -> Codex-interactive batch translation
+  -> translate_vtt_codex.py apply-batch
+  -> partial English VTT in translation/
+  -> finalize to full English VTT
+```
+
+This mode is one episode at a time, stores preferences like `preferred_model=gpt-5.4` as metadata only, and uses an automatic batch-tier policy of `84 -> 60 -> 48`.

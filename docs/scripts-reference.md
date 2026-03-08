@@ -31,6 +31,7 @@ Silero VAD -> VAD chunk boundaries
 6. `transcribe_pipeline.py` — Gemini transcription + alignment + reflow
 7. `repair_vtt_local.py` — optional local Gemma cue-boundary repair on reflowed VTT
 8. `translate_vtt.py` — LLM translation to English
+9. `translate_vtt_mistral.py` — experimental Mistral translation benchmark
 
 `transcribe_pipeline.py` can now consume the saved VAD/chunk/OCR artifacts instead of recomputing them.
 
@@ -42,6 +43,7 @@ Fully local, no API calls. Lower quality but zero cost.
 2. `run_vad_episode.py` + `build_vad_chunks.py`
 3. `transcribe_local.py` — local ASR path
 4. `translate_vtt.py`
+5. `translate_vtt_mistral.py` (experimental benchmark)
 
 ## Episode Layout
 
@@ -75,6 +77,8 @@ samples/episodes/<episode_slug>/
 | `reflow_words.py` | Reflow word/line timestamps into subtitle cues. `--line-level` (default for CTC) treats lines as atomic, preventing mid-word splits. Includes comma-fallback splitting and sparse-cue clamping for CTC artifacts. | Maintained |
 | `repair_vtt_local.py` | Repair an existing reflowed VTT using aligned words + local Gemma as a constrained merge/split/extend chooser. Writes repaired VTT plus decisions/checkpoint JSON. | Maintained |
 | `translate_vtt.py` | LLM translation of Japanese VTT to English (Vertex or local) | Maintained |
+| `translate_vtt_codex.py` | Codex-interactive translation helper with session/checkpoint state, partial VTT assembly, and automatic `84 -> 60 -> 48` batch-tier fallback for one episode at a time | Maintained |
+| `translate_vtt_mistral.py` | Mistral API translation benchmark. Keeps the same batch/checkpoint/diagnostics flow as `translate_vtt.py`, but targets Mistral chat completions directly. | Experimental |
 | `init_episode_from_media.py` | Create episode workspace from media, optionally extracting fixed-rate frames | Maintained |
 
 ### OCR & Glossary
@@ -217,15 +221,51 @@ python scripts/repair_vtt_local.py \
   --model qwen3.5-35b-a3b
 
 # 8. Translate
+# dmm example from the current CTC + reflow path
 python scripts/translate_vtt.py \
-  --input samples/episodes/<slug>/transcription/raw_aligned.vtt \
-  --glossary samples/episodes/<slug>/glossary/translation_glossary.tsv \
+  --input samples/episodes/dmm/transcription/dmm_ctc_reflow.vtt \
+  --output samples/episodes/dmm/translation/dmm_ctc_reflow_en.vtt \
+  --batch-cues 12 \
+  --batch-seconds 45
+
+# great_escape1 example from the current reflow path
+python scripts/translate_vtt.py \
+  --input samples/episodes/great_escape1/transcription/ge1_reflow.vtt \
+  --output samples/episodes/great_escape1/translation/ge1_reflow_en.vtt \
   --batch-cues 12 \
   --batch-seconds 45
 
 # `translate_vtt.py` now translates in local cue batches, preserves cue timings,
 # targets readable English subtitle CPS, retries overlong batches once, and
 # writes `<output>.diagnostics.json`.
+
+# Codex-interactive translation helper (no API call)
+python scripts/translate_vtt_codex.py prepare \
+  --input samples/episodes/great_escape_s01e04/transcription/great_escape_s01e04_video_only_v1_ctc_words_reflow.vtt \
+  --output samples/episodes/great_escape_s01e04/translation/great_escape_s01e04_video_only_v1_ctc_words_reflow_en_codex.vtt
+
+python scripts/translate_vtt_codex.py next-batch \
+  --session samples/episodes/great_escape_s01e04/translation/great_escape_s01e04_video_only_v1_ctc_words_reflow_en_codex.vtt.checkpoint.json
+
+# After Codex translates the emitted batch and writes a JSON payload:
+python scripts/translate_vtt_codex.py apply-batch \
+  --session samples/episodes/great_escape_s01e04/translation/great_escape_s01e04_video_only_v1_ctc_words_reflow_en_codex.vtt.checkpoint.json \
+  --translations-json /tmp/batch.json
+
+# `translate_vtt_codex.py` writes a session/checkpoint JSON, a partial VTT in
+# `translation/`, and automatically reduces the batch tier 84 -> 60 -> 48 when
+# a batch is reviewed as yellow.
+
+# Experimental Mistral benchmark with the same cue-preserving translation flow.
+# dmm
+python scripts/translate_vtt_mistral.py \
+  --input samples/episodes/dmm/transcription/dmm_ctc_reflow.vtt \
+  --output samples/episodes/dmm/translation/dmm_ctc_reflow_en_mistral.vtt
+
+# great_escape1
+python scripts/translate_vtt_mistral.py \
+  --input samples/episodes/great_escape1/transcription/ge1_reflow.vtt \
+  --output samples/episodes/great_escape1/translation/ge1_reflow_en_mistral.vtt
 ```
 
 ### Local Pipeline

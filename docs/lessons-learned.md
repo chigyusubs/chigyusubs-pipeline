@@ -291,7 +291,24 @@ The English translation quality is already promising, but still incomplete:
   - true bad subtitles
   - acceptable short-cue CPS spikes
 
-### 7. CTC wav2vec2 alignment outperformed both stable-ts and Qwen forced alignment
+### 7. Codex-interactive translation has a practical batch ceiling
+
+When Codex itself did the subtitle translation interactively, quality degraded gradually rather than catastrophically:
+
+- `60` cues: solid
+- `84` cues: still held quality
+- `120` cues: still usable, but noticeably flatter and weaker on puns/riddles
+
+Current practical default for the Codex-interactive path:
+
+- default batch tier: `84`
+- automatic fallback tiers: `60`, then `48`
+- one episode at a time
+- stop on structural blockers or red-quality batches
+
+This is now embodied in the maintained `translate_vtt_codex.py` workflow instead of relying on ad hoc chat-only checkpoint edits.
+
+### 8. CTC wav2vec2 alignment outperformed both stable-ts and Qwen forced alignment
 
 Three alignment approaches were benchmarked:
 

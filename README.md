@@ -2,6 +2,12 @@
 
 Local pipeline workspace for Japanese variety-show OCR, ASR, glossary building, and translation prep.
 
+Key docs:
+
+- `docs/current-architecture.md` — current artifact-level pipeline shape
+- `docs/lessons-learned.md` — validated findings and remaining issues from real episode runs
+- `docs/codex-skills.md` — Codex-interactive skills for reflow review/repair and translation
+
 ## Current Defaults
 
 - Use fixed-rate frame sampling (`0.5 fps`) instead of `mpdecimate` by default.
@@ -22,6 +28,7 @@ Local pipeline workspace for Japanese variety-show OCR, ASR, glossary building, 
 Optional but common:
 
 - Vertex/Gemini access for glossary condensation
+- Mistral API key for translation experiments
 - `jq` for small JSON extraction helpers
 
 ## Environment Variables
@@ -33,6 +40,13 @@ Optional but common:
   - Default in glossary condensation script: `gemini-3.1-pro-preview`
 - `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`
   - Needed for Vertex workflows.
+- `MISTRAL_API_KEY`
+  - Needed for `scripts/translate_vtt_mistral.py`.
+- `MISTRAL_MODEL`
+  - Default in the Mistral translation experiment: `mistral-small-latest`.
+- `MISTRAL_API_BASE`
+  - Optional override for the Mistral API base URL. Defaults to `https://api.mistral.ai`.
+  - Not used by the Codex-interactive translation helper.
 
 ## Directory Layout
 
@@ -54,14 +68,36 @@ samples/
 
 Example episode: `samples/episodes/wednesday_downtown_2025-02-05_406`
 
+Initialize a new episode workspace from media:
+
+```bash
+python scripts/init_episode_from_media.py \
+  --extract-frames \
+  samples/new_episode.mp4
+```
+
+Recommended OCR server settings for Qwen-VL:
+
+```bash
+scripts/start_qwen_ocr_server.sh
+```
+
+By default the wrapper auto-detects `mmproj*.gguf` under `~/.cache/llama.cpp`.
+Set `QWEN_OCR_MMPROJ` only if you want to override that.
+
 1. Run OCR on extracted frames:
 
 ```bash
 python scripts/run_qwen_ocr_episode.py ocr \
   --episode-dir samples/episodes/wednesday_downtown_2025-02-05_406 \
   --url http://127.0.0.1:8787 \
-  --model qwen3.5-9b
+  --model qwen3.5-9b \
+  --server-settings '{"quant":"Q6_K","ctx_size":8192,"seed":3407,"temp":0,"top_p":0.9,"top_k":20,"thinking":false}'
 ```
+
+This writes OCR results to `ocr/*.jsonl` and a sidecar metadata file
+`*.meta.json` with prompt, client settings, optional server settings, and run timing.
+The maintained transcription/alignment scripts now emit the same metadata sidecars.
 
 2. Build filtered OCR glossary JSON:
 
@@ -97,6 +133,57 @@ python scripts/condense_glossary_vertex.py \
 python scripts/run_faster_whisper.py --model large-v3 --compute-type float16
 ```
 
+Experimental translation benchmark with Mistral:
+
+```bash
+# dmm
+python scripts/translate_vtt_mistral.py \
+  --input samples/episodes/dmm/transcription/dmm_ctc_reflow.vtt \
+  --output samples/episodes/dmm/translation/dmm_ctc_reflow_en_mistral.vtt
+
+# great_escape1
+python scripts/translate_vtt_mistral.py \
+  --input samples/episodes/great_escape1/transcription/ge1_reflow.vtt \
+  --output samples/episodes/great_escape1/translation/ge1_reflow_en_mistral.vtt
+```
+
+## Codex Skills
+
+The repo now also has two Codex-side skills for interactive subtitle work.
+These are not API-backed model runs. They are workflow guides that make Codex
+use the maintained repo scripts and review logic consistently.
+
+- `subtitle-reflow`
+  - reflows aligned Japanese subtitle artifacts with the maintained line-level
+    path
+  - reviews the resulting VTT for translation-risk issues
+  - optionally runs local cue repair when the VTT is structurally valid but weak
+    for translation
+- `subtitle-translation`
+  - translates a Japanese VTT/SRT into English with Codex itself as the subtitle
+    editor
+  - uses the maintained `translate_vtt_codex.py` helper for checkpointed,
+    one-episode-at-a-time batch translation
+
+Typical use:
+
+```text
+Use $subtitle-reflow on samples/episodes/<slug>/transcription/<stem>_ctc_words.json
+
+Use $subtitle-translation on samples/episodes/<slug>/transcription/<stem>_reflow.vtt
+```
+
+The canonical tracked skill source now lives in `codex/skills/`.
+Install or refresh the live Codex copy with:
+
+```bash
+python3 scripts/install_codex_skills.py
+python3 scripts/install_codex_skills.py --skill subtitle-translation
+```
+
+See `docs/codex-skills.md` for the intended scope, defaults, and handoff between
+the two skills.
+
 ## Troubleshooting
 
 - OCR fails to connect:
@@ -111,5 +198,7 @@ python scripts/run_faster_whisper.py --model large-v3 --compute-type float16
 
 ## Docs
 
-- Design + architecture: `docs/local-whisper-ocr-pipeline.md`
+- Current architecture: `docs/current-architecture.md`
+- Older design notes: `docs/local-whisper-ocr-pipeline.md`
 - Full script reference: `docs/scripts-reference.md`
+- Codex skills: `docs/codex-skills.md`
