@@ -19,6 +19,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
+
 # Speaker label pattern: "Name: text" or "(sound effect)"
 _SPEAKER_RE = re.compile(r"^([\w\u3000-\u9fff\uff00-\uffef]+):\s*(.+)$")
 _SFX_RE = re.compile(r"^\(.*\)$")
@@ -61,6 +65,7 @@ def _format_ts(seconds: float) -> str:
 
 
 def main():
+    run = start_run("align_stable_ts")
     parser = argparse.ArgumentParser(
         description="Align a transcript to audio using stable-ts (Whisper cross-attention)."
     )
@@ -133,6 +138,28 @@ def main():
     total_words = sum(len(s["words"]) for s in segments_data)
     total_segs = len(segments_data)
     print(f"\nDone: {total_segs} segments, {total_words} words aligned")
+    metadata = finish_run(
+        run,
+        inputs={
+            "video": args.video,
+            "transcript": args.transcript,
+        },
+        outputs={
+            "vtt": args.output,
+            "words_json": args.output_words_json,
+        },
+        settings={
+            "model": args.model,
+        },
+        stats={
+            "utterances_parsed": len(utterances),
+            "speech_utterances": len(speech_utterances),
+            "segments_written": total_segs,
+            "words_written": total_words,
+        },
+    )
+    write_metadata(args.output, metadata)
+    print(f"Metadata written: {metadata_path(args.output)}")
 
 
 if __name__ == "__main__":

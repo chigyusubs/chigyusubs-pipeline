@@ -2,10 +2,15 @@
 import argparse
 import json
 import os
-import sys
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
+
 
 def extract_audio_slice(video_path, start_s, duration_s, out_path):
     subprocess.run([
@@ -15,6 +20,7 @@ def extract_audio_slice(video_path, start_s, duration_s, out_path):
     ], capture_output=True, check=True)
 
 def main():
+    run = start_run("align_chunkwise")
     parser = argparse.ArgumentParser(description="Chunk-wise stable-ts alignment.")
     parser.add_argument("--video", required=True)
     parser.add_argument("--chunks", required=True, help="Path to _chunks.json from transcription.")
@@ -79,6 +85,26 @@ def main():
     print(f"\nWriting word timestamps JSON to {args.output_words}")
     with open(args.output_words, "w", encoding="utf-8") as f:
         json.dump(all_segments, f, ensure_ascii=False, indent=2)
+    metadata = finish_run(
+        run,
+        inputs={
+            "video": args.video,
+            "chunks_json": args.chunks,
+        },
+        outputs={
+            "words_json": args.output_words,
+        },
+        settings={
+            "model": args.model,
+        },
+        stats={
+            "chunks_loaded": len(chunks_data),
+            "segments_written": len(all_segments),
+            "words_written": sum(len(seg.get("words", [])) for seg in all_segments),
+        },
+    )
+    write_metadata(args.output_words, metadata)
+    print(f"Metadata written: {metadata_path(args.output_words)}")
 
 if __name__ == "__main__":
     main()
