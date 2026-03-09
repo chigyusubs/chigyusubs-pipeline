@@ -131,6 +131,9 @@ def _make_client(location: str, api_key: str = ""):
     from google import genai
 
     if api_key:
+        # The SDK checks GOOGLE_GENAI_USE_VERTEXAI and forces Vertex routing
+        # even when api_key is explicitly provided. Override it.
+        os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
         return genai.Client(api_key=api_key)
     return genai.Client(vertexai=True, location=location)
 

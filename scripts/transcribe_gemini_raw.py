@@ -92,6 +92,7 @@ def transcribe_raw_chunk(
     from google.genai import types
 
     if api_key:
+        os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
         client = genai.Client(api_key=api_key)
     else:
         client = genai.Client(vertexai=True, location=location)
