@@ -33,6 +33,7 @@ SAMPLE_RATE = 16000
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_NAME = "NTQAI/wav2vec2-large-japanese"
 _FALLBACK_LINE_SLOT_S = 0.08
+CPU_THREADS = 24
 
 # Lines that should be stripped before alignment (visual-only context)
 _VISUAL_RE = re.compile(r"^\[画面:.*\]$")
@@ -48,6 +49,12 @@ def load_model():
     model.eval().to(DEVICE)
     print(f"Model on {DEVICE}")
     return model, processor
+
+
+def configure_torch_threads() -> None:
+    """Cap CPU thread fanout for the CPU-side forced alignment step."""
+    torch.set_num_threads(CPU_THREADS)
+    torch.set_num_interop_threads(1)
 
 
 def extract_audio_slice(video_path, start_s, duration_s, out_path):
@@ -338,6 +345,7 @@ def main():
     with open(args.chunks, "r", encoding="utf-8") as f:
         chunks_data = json.load(f)
 
+    configure_torch_threads()
     model, processor = load_model()
 
     all_segments = []

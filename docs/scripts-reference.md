@@ -69,7 +69,7 @@ samples/episodes/<episode_slug>/
 | `transcribe_gemini_raw.py` | Gemini raw text transcription with chunk-wise local OCR filtering | Maintained |
 | `transcribe_gemini.py` | Gemini transcription (JSON schema mode, used by pipeline) | Maintained |
 | `transcribe_local.py` | Fully local pipeline: Silero VAD + local OCR filter + faster-whisper | Maintained |
-| `align_ctc.py` | CTC forced alignment using `NTQAI/wav2vec2-large-japanese` + `torchaudio.functional.forced_align`. 0.3% zero-duration words vs 13.4% with stable-ts on `dmm`. Runs on system python3.12 with ROCm GPU. Repairs fully unaligned lines into small local fallback slots and enforces monotonic segment timing so short answers do not jump to chunk start and disappear in reflow. | Maintained |
+| `align_ctc.py` | CTC forced alignment using `NTQAI/wav2vec2-large-japanese` + `torchaudio.functional.forced_align`. 0.3% zero-duration words vs 13.4% with stable-ts on `dmm`. Runs on system python3.12 with ROCm GPU for wav2vec2 inference, keeps `forced_align` on CPU, and caps PyTorch CPU threads to 24 to avoid runaway thread fanout. Repairs fully unaligned lines into small local fallback slots and enforces monotonic segment timing so short answers do not jump to chunk start and disappear in reflow. | Maintained |
 | `align_chunkwise.py` | Chunk-wise stable-ts forced alignment from `_chunks.json` | Legacy |
 | `align_qwen_forced.py` | Chunk-wise Qwen forced-alignment benchmark via `py-qwen3-asr-cpp` GGUF backend | Archived |
 | `align_qwen_forced_hf.py` | Chunk-wise Qwen forced-alignment benchmark via official `qwen-asr` on system Python / ROCm | Archived |
