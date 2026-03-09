@@ -60,15 +60,42 @@ Chunked alignment should remain the default. CTC forced alignment (lesson 2) als
 
 ### 4. Zero-duration alignment misses should not be dropped blindly
 
-With CTC alignment, zero-duration segments are now rare (0.3% on `dmm`) and limited to non-Japanese text. But the principle still holds: do not drop them blindly.
+With CTC alignment, zero-duration segments are now rare (0.3% on `dmm`) and were initially thought to be limited to non-Japanese text. But the principle still holds: do not drop them blindly.
 
 The zero-duration segments from earlier stable-ts runs were not mostly garbage. Many were real short utterances or chunk-edge dialogue blocks.
 
 Dropping them would make later English translation worse. The current reflow step preserves their text by merging them into nearby timed cues.
 
+New failure mode seen on `great_escape_s01e01`:
+
+- a short Japanese answer line (`蚊。`) failed alignment entirely inside a chunk
+- `align_ctc.py` emitted it as `0.0 -> 0.0` inside the chunk
+- the chunk offset then turned that into the chunk start timestamp, creating a large backward jump
+- line-level reflow attached the zero-duration line to an earlier cue, and max-line trimming hid it
+
+The fix is to repair all-unaligned line timings inside `align_ctc.py` before chunk offsetting:
+
+- keep the text
+- keep the original line order
+- interpolate a small local slot between neighboring aligned lines instead of defaulting to chunk start
+- run a final monotonic timing pass so tiny backward reversals do not survive into saved alignment JSON
+
+This preserves short answers and other high-value lines without pretending the timing confidence is high.
+
 This is the correct default for a translation-first pipeline, even if the repaired Japanese cue timing is imperfect.
 
-### 5. Video-only Gemini is a serious path, not just an experiment
+### 5. Reflow must not use text-only word-timestamp lookup for repeated lines
+
+Another real failure on `great_escape_s01e06` came from line-level reflow, not alignment:
+
+- `_split_long_single_lines()` looked up character timestamps by line text only
+- repeated strings like `うわ、すげえ。` appeared multiple times in one episode
+- a later cue inherited the earlier occurrence's word timings
+- that produced backward cue times and a negative-duration VTT cue
+
+The fix is to resolve repeated lines by nearest `(text, start, end)` match, not by text alone.
+
+### 6. Video-only Gemini is a serious path, not just an experiment
 
 For both `great_escape1` and `dmm`, direct video transcription with Gemini was viable.
 
@@ -83,7 +110,7 @@ The main lesson:
 - OCR is still useful
 - but Gemini video-only is strong enough that it must be treated as a first-class baseline
 
-### 6. Shorter video chunks were a big win
+### 7. Shorter video chunks were a big win
 
 The first video-only trial on `great_escape1` used long fixed chunks and was too verbose and more failure-prone.
 
@@ -169,6 +196,78 @@ Examples:
 
 The translation step is now behaving like subtitle editing, which is what this repo needs.
 
+### 11. Cues under 0.5 seconds are too short to hand off, even if technically correct
+
+Real episode review on `great_escape_s01e01` exposed a failure mode that the earlier policy still allowed:
+
+- the restored answer `蚊。` survived in Japanese reflow
+- but it lived in a `0.16s` cue
+- the first English rerun also placed `Mosquito.` in that same micro-cue
+- the answer became easy to miss in actual viewing even though it was "present"
+
+Operational conclusion:
+
+- cues under `0.5s` should be treated as structural blockers for the reflow -> translation handoff
+- this is stricter than the earlier "short cues are advisory" rule, and intentionally so
+- plausible short reactions can still exist above that threshold, but sub-`0.5s` cues are too easy to miss to trust in final subtitle output
+
+Pipeline consequence:
+
+- `repair_vtt_codex.py` / `chigyusubs.reflow_repair` should mark sub-`0.5s` cues as `red`
+- `translate_vtt_codex.py prepare` should stop on sub-`0.5s` source cues instead of letting English translation try to compensate later
+
+The purpose is not metric purity. The purpose is to prevent important content from being stranded in cues that barely register on screen.
+
+### 12. Line-level micro-cue repair has to rewrap display lines, not just count raw transcript lines
+
+Validated on `great_escape_s01e03`.
+
+Failure mode:
+
+- line-level reflow already had a residual micro-cue merge pass
+- but it rejected merges whenever the combined raw line count would exceed the display line limit
+- that left sub-`0.5s` cues behind even when the merged cue could still be shown cleanly in two subtitle lines
+
+### 13. English draft reuse must be gated by exact cue timelines, not cue index
+
+Validated on `great_escape_s01e04`.
+
+Failure mode:
+
+- an older Codex English draft existed for the episode
+- the Japanese `*_ctc_words_reflow.vtt` was later regenerated with several local cue-boundary changes
+- replaying the old English by cue number looked superficially plausible but drifted meaning into neighboring cues
+- short answers like `ホッチキス。` and lines like `おしっこしたいんだけど。` then appeared at the wrong timestamps or vanished from the right cue
+
+Operational rule:
+
+- treat old English drafts as reusable only when cue count and cue timings match the current Japanese source exactly
+- if even one cue boundary changed, do not seed by cue index
+- any safe reuse path should validate exact cue-timeline equality before importing draft translations
+
+Pipeline consequence:
+
+- `translate_vtt_codex.py prepare --seed-from ...` now errors out unless the candidate draft matches the current Japanese cue timeline exactly
+- manual cue-index replay should be treated as unsafe and avoided
+
+Observed `e03` examples before the fix:
+
+- `知らない。 / え?` followed by `つる、つる、 / つる本手。`
+- `やったあ! / やったあ!` followed by `イエス! / よっしゃあ!`
+- `おお。 / おお。` during the Tom Brown escape burst
+
+Fix:
+
+- `chigyusubs.reflow._merge_micro_cues()` now evaluates candidate merges through a display-text rewrap path
+- merged cues can keep the original underlying raw-line list while rewriting visible cue text back down to the configured line limit
+
+Result on `e03`:
+
+- plain line-level reflow moved from `red` to `green`
+- cue count dropped from `760` to `750`
+- residual cues under `0.5s` dropped from `10` to `0`
+- no negative durations and no overlaps
+
 ## Episode-Specific Findings
 
 ### `great_escape1`
@@ -234,6 +333,13 @@ What should change:
 
 - treat very short cue durations differently in translation diagnostics
 - do not overcount these as meaningful readability failures
+
+The same lesson applies to Japanese reflow review:
+
+- short or tiny cues are not automatically broken
+- one-word answers, reactions, and interruptions may be legitimate even below `0.8s`
+- reflow review should use short/tiny counts as advisory metrics, not automatic repair triggers
+- repair should focus on structural timing defects and artifact-like boundary errors
 
 ### 3. Line-level reflow eliminated split-word artifacts
 

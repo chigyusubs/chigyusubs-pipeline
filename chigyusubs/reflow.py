@@ -10,6 +10,7 @@ _ZERO_CLUSTER_EPSILON_S = 0.05
 _INTERJECTION_MAX_CHARS = 8
 _TARGET_CPS = 14.0
 _MAX_CPS = 20.0
+_HARD_MIN_CUE_S = 0.5
 _SENTENCE_END_RE = re.compile(r"[。！？!?」』）】]$")
 _COMMA_RE = re.compile(r"[、,]$")
 
@@ -206,6 +207,16 @@ def reflow_lines(
     # Phase 8: Remove overlaps — snap start of each cue to prev cue's end
     _remove_overlaps(cues)
 
+    # Phase 9: Eliminate any residual micro-cues created by later splitting.
+    _merge_micro_cues(
+        cues,
+        hard_min_s=_HARD_MIN_CUE_S,
+        max_cue_s=max_cue_s,
+        max_cue_chars=max_cue_chars,
+        max_lines=max_lines,
+    )
+    _remove_overlaps(cues)
+
     return cues
 
 
@@ -356,12 +367,14 @@ def _split_long_single_lines(
     boundaries), find sentence-ending punctuation and use the character-level
     timestamps from the original segments to split.
     """
-    # Build a lookup from segment text to its word-level timestamps
-    seg_by_text: dict[str, dict] = {}
+    # Build a lookup from segment text to its word-level timestamps.
+    # Keep all occurrences so repeated dialogue lines don't inherit timings
+    # from an earlier identical string.
+    segs_by_text: dict[str, list[dict]] = {}
     for seg in segments:
         text = (seg.get("text") or "").strip()
-        if text and text not in seg_by_text:
-            seg_by_text[text] = seg
+        if text:
+            segs_by_text.setdefault(text, []).append(seg)
 
     result: list[dict] = []
     for cue in cues:
@@ -375,7 +388,15 @@ def _split_long_single_lines(
 
         # Single line that's too long — try to split at punctuation
         line = lines[0]
-        seg = seg_by_text.get(line["text"])
+        candidates = segs_by_text.get(line["text"], [])
+        seg = min(
+            candidates,
+            key=lambda cand: (
+                abs(float(cand.get("start", 0.0)) - float(line.get("start", 0.0))),
+                abs(float(cand.get("end", 0.0)) - float(line.get("end", 0.0))),
+            ),
+            default=None,
+        )
         if not seg or not seg.get("words"):
             result.append(cue)
             continue
@@ -440,6 +461,56 @@ def _remove_overlaps(cues: list[dict]):
     for i in range(1, len(cues)):
         if cues[i]["start"] < cues[i - 1]["end"]:
             cues[i]["start"] = cues[i - 1]["end"]
+
+
+def _merge_micro_cues(
+    cues: list[dict],
+    *,
+    hard_min_s: float,
+    max_cue_s: float,
+    max_cue_chars: int,
+    max_lines: int,
+):
+    """Merge residual sub-threshold cues after split/trim passes."""
+    changed = True
+    while changed:
+        changed = False
+        i = 0
+        while i < len(cues):
+            dur = cues[i]["end"] - cues[i]["start"]
+            if dur >= hard_min_s:
+                i += 1
+                continue
+
+            best_j = None
+            best_score = float("inf")
+            for j in (i - 1, i + 1):
+                if j < 0 or j >= len(cues):
+                    continue
+                merged = _merge_adjacent_cues_rewrapped(cues[min(i, j)], cues[max(i, j)], max_lines=max_lines)
+                if merged is None:
+                    continue
+                merged_dur = merged["end"] - merged["start"]
+                merged_chars = _cue_text_chars(merged)
+                if merged_dur > max_cue_s or merged_chars > max_cue_chars:
+                    continue
+                score = abs(merged_dur - 1.8)
+                if score < best_score:
+                    best_score = score
+                    best_j = j
+
+            if best_j is None:
+                i += 1
+                continue
+
+            left_idx, right_idx = sorted((i, best_j))
+            merged = _merge_adjacent_cues_rewrapped(cues[left_idx], cues[right_idx], max_lines=max_lines)
+            if merged is None:
+                i += 1
+                continue
+            cues[left_idx:right_idx + 1] = [merged]
+            changed = True
+            break
 
 
 def _clamp_sparse_cues(cues: list[dict], *, max_cue_s: float, target_cps: float):
@@ -703,6 +774,43 @@ def _merge_two_cues(left: dict, right: dict) -> dict:
     if repaired:
         merged["repaired_zero_duration_texts"] = repaired
     return merged
+
+
+def _merge_adjacent_cues_rewrapped(left: dict, right: dict, *, max_lines: int) -> dict | None:
+    merged = _merge_two_cues(left, right)
+    raw_lines = list(left.get("lines", [{"start": left["start"], "end": left["end"], "text": left["text"]}]))
+    raw_lines += list(right.get("lines", [{"start": right["start"], "end": right["end"], "text": right["text"]}]))
+    display_text = _rewrap_line_texts([line["text"] for line in raw_lines], max_lines=max_lines)
+    if display_text is None:
+        return None
+    merged["text"] = display_text
+    merged["lines"] = raw_lines
+    return merged
+
+
+def _rewrap_line_texts(texts: list[str], *, max_lines: int) -> str | None:
+    if not texts:
+        return ""
+    if len(texts) <= max_lines:
+        return "\n".join(texts)
+    if max_lines != 2:
+        return None
+
+    best_text = None
+    best_score = float("inf")
+    total_chars = sum(len(t) for t in texts)
+    for split_after in range(len(texts) - 1):
+        left = " ".join(texts[: split_after + 1]).strip()
+        right = " ".join(texts[split_after + 1 :]).strip()
+        if not left or not right:
+            continue
+        balance = abs(len(left) - len(right))
+        score = balance + abs(total_chars - (len(left) + len(right)))
+        if score < best_score:
+            best_score = score
+            best_text = f"{left}\n{right}"
+
+    return best_text
 
 
 def _cue_duration(cue: dict) -> float:

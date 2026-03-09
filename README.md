@@ -166,6 +166,7 @@ use the maintained repo scripts and review logic consistently.
   - uses the maintained `translate_vtt_codex.py` helper for checkpointed,
     one-episode-at-a-time batch translation
   - supports clean restarts with `prepare --force`, which resets stale session and diagnostics state
+  - only allows draft seeding from an older English file when cue count and cue timings match exactly
 
 Typical use:
 

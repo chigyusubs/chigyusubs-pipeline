@@ -178,3 +178,75 @@ If you need to choose where to invest next, prefer:
 5. simple OCR context selection
 
 Prefer evidence from real episode artifacts over theoretical prompt ideas.
+
+## Codex Skills
+
+This repo has tracked Codex-interactive skills under:
+
+- `codex/skills/subtitle-reflow`
+- `codex/skills/glossary-context`
+- `codex/skills/subtitle-translation`
+
+Treat the repo copy as canonical. Do not treat `~/.codex/skills/` as the source of truth.
+
+If the live Codex install needs refreshing, use:
+
+- `python3 scripts/install_codex_skills.py`
+- `python3 scripts/install_codex_skills.py --skill subtitle-reflow`
+- `python3 scripts/install_codex_skills.py --skill subtitle-translation`
+
+### When to use `subtitle-reflow`
+
+Use the reflow skill when the task is:
+
+- reviewing a Japanese reflowed VTT for translation readiness
+- running line-level reflow from `*_ctc_words.json`
+- repairing weak cue boundaries before translation
+
+Default behavior should be:
+
+- deterministic `scripts/reflow_words.py --line-level`
+- deterministic review of the VTT
+- `scripts/repair_vtt_codex.py` only if the VTT is `yellow`
+
+Do not use a local model server as the default reflow-skill fallback.
+`repair_vtt_local.py` is an alternative path, not the normal one.
+
+### When to use `glossary-context`
+
+Use the glossary-context skill when starting a new episode or show and the user wants to build a glossary and episode context before translation.
+
+Default behavior should be:
+
+- read Gemini raw JSON for the episode
+- extract cast names, show terms, game terms, guest names
+- classify as global (cross-episode) or local (episode-specific)
+- output `glossary/glossary.json` and `glossary/episode_context.json`
+- merge with existing global glossary if present
+
+### When to use `subtitle-translation`
+
+Use the translation skill when the user wants Codex itself to do subtitle translation interactively instead of an API-backed translation run.
+
+Default behavior should be:
+
+- `scripts/translate_vtt_codex.py prepare`
+- `next-batch -> translate -> apply-batch` loop
+- `finalize` at the end
+
+Important translation-skill rules:
+
+- preserve cue count, order, and timings
+- keep `yellow` batches resumable and continue by default
+- only structural errors or explicit `red` should stop the session
+- restart with `prepare --force` when a truly clean session reset is needed
+
+### Handoff order
+
+Preferred Codex-interactive handoff is:
+
+1. aligned words
+2. `subtitle-reflow`
+3. `glossary-context`
+4. `subtitle-translation`
+5. English VTT in `translation/`

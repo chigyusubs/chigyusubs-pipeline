@@ -32,6 +32,7 @@ DEFAULT_CONTEXT_CUES = 2
 DEFAULT_TARGET_CPS = 17.0
 DEFAULT_HARD_CPS = 20.0
 DEFAULT_MAX_LINE_LENGTH = 42
+MIN_CUE_DURATION_S = 0.5
 
 
 def _load_cues(input_path: Path) -> list[Cue]:
@@ -39,6 +40,36 @@ def _load_cues(input_path: Path) -> list[Cue]:
     if input_path.suffix.lower() == ".srt":
         return parse_srt(raw)
     return parse_vtt(raw)
+
+
+def _cue_timing_signature(cue: Cue) -> tuple[int, int]:
+    return (round(cue.start * 1000), round(cue.end * 1000))
+
+
+def _validate_seed_timeline(source_cues: list[Cue], seed_cues: list[Cue], seed_path: Path) -> None:
+    if len(seed_cues) != len(source_cues):
+        raise ValueError(
+            f"Seed draft cue count mismatch for {seed_path}: "
+            f"source has {len(source_cues)} cues, seed has {len(seed_cues)}"
+        )
+    for cue_id, (source, seed) in enumerate(zip(source_cues, seed_cues), 1):
+        if _cue_timing_signature(source) != _cue_timing_signature(seed):
+            raise ValueError(
+                "Seed draft cue timing mismatch for "
+                f"{seed_path} at cue {cue_id}: "
+                f"source={seconds_to_time(source.start)} --> {seconds_to_time(source.end)} "
+                f"seed={seconds_to_time(seed.start)} --> {seconds_to_time(seed.end)}"
+            )
+
+
+def _seed_translations_from_path(source_cues: list[Cue], seed_path: Path) -> dict[int, str]:
+    seed_cues = _load_cues(seed_path)
+    _validate_seed_timeline(source_cues, seed_cues, seed_path)
+    return {
+        cue_id: cue.text
+        for cue_id, cue in enumerate(seed_cues, 1)
+        if cue.text.strip()
+    }
 
 
 def _episode_translation_output(input_path: Path, target_lang: str) -> Path:
@@ -74,7 +105,10 @@ def _parse_tiers(raw: str) -> list[int]:
 def _preflight(cues: list[Cue]) -> dict:
     negative_duration = []
     overlaps = []
+    micro_cues = []
     for idx, cue in enumerate(cues, 1):
+        if max(0.0, cue.end - cue.start) < MIN_CUE_DURATION_S:
+            micro_cues.append(idx)
         if cue.end < cue.start:
             negative_duration.append(idx)
         if idx < len(cues) and cues[idx].start < cue.end:
@@ -82,7 +116,19 @@ def _preflight(cues: list[Cue]) -> dict:
     return {
         "negative_duration_cues": negative_duration,
         "overlap_after_cues": overlaps,
+        "micro_duration_cues_under_0_5s": micro_cues,
     }
+
+
+def _load_visual_cues_for_batch(visual_cues_path: str, batch_start: float, batch_end: float) -> list[dict]:
+    if not visual_cues_path:
+        return []
+    data = json.loads(Path(visual_cues_path).read_text(encoding="utf-8"))
+    return [
+        {"chunk_start_s": vc["chunk_start_s"], "chunk_end_s": vc["chunk_end_s"], "text": vc["text"]}
+        for vc in data
+        if vc["chunk_end_s"] > batch_start and vc["chunk_start_s"] < batch_end
+    ]
 
 
 def _load_text_blob(path_value: str) -> str:
@@ -98,6 +144,9 @@ def _initial_session(args, input_path: Path, output_path: Path, cues: list[Cue])
     if preflight["negative_duration_cues"] or preflight["overlap_after_cues"]:
         status = "stopped"
         stop_reason = "preflight structural blocker"
+    elif preflight["micro_duration_cues_under_0_5s"]:
+        status = "stopped"
+        stop_reason = "preflight cue under 0.5s"
 
     return {
         "version": 1,
@@ -111,6 +160,7 @@ def _initial_session(args, input_path: Path, output_path: Path, cues: list[Cue])
         "target_language": args.target_lang,
         "glossary_path": args.glossary or "",
         "summary_path": args.summary or "",
+        "visual_cues_path": args.visual_cues or "",
         "preferred_model": args.preferred_model,
         "preferred_thinking": args.preferred_thinking,
         "preferred_temperature": args.preferred_temperature,
@@ -126,6 +176,8 @@ def _initial_session(args, input_path: Path, output_path: Path, cues: list[Cue])
         "completed_batches": [],
         "batch_diagnostics": {},
         "preflight": preflight,
+        "seed_from": args.seed_from or "",
+        "seeded_cues": 0,
     }
 
 
@@ -273,6 +325,8 @@ def _session_diagnostics(session: dict, cues: list[Cue]) -> dict:
         "preferred_model": session["preferred_model"],
         "preferred_thinking": session["preferred_thinking"],
         "preferred_temperature": session["preferred_temperature"],
+        "seed_from": session.get("seed_from", ""),
+        "seeded_cues": int(session.get("seeded_cues", 0)),
         "current_batch_tier": session["current_batch_tier"],
         "batch_tiers": session["batch_tiers"],
         "completed_cues": completed,
@@ -325,6 +379,20 @@ def cmd_prepare(args) -> int:
     output_path = Path(args.output) if args.output else _episode_translation_output(input_path, args.target_lang)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     session_path = Path(args.session) if args.session else Path(checkpoint_path(str(output_path)))
+    seed_path = Path(args.seed_from) if args.seed_from else None
+    if seed_path and args.force:
+        reserved = {
+            output_path.resolve(),
+            _partial_output_path(output_path).resolve(),
+            _diagnostics_path(output_path).resolve(),
+            session_path.resolve(),
+        }
+        if seed_path.resolve() in reserved:
+            print(
+                "--seed-from cannot point at the session/output files being reset by prepare --force.",
+                file=sys.stderr,
+            )
+            return 1
     if session_path.exists() and not args.force:
         print(f"Session already exists: {session_path}", file=sys.stderr)
         return 1
@@ -332,11 +400,25 @@ def cmd_prepare(args) -> int:
         _cleanup_prepare_outputs(session_path, output_path)
 
     session = _initial_session(args, input_path, output_path, cues)
+    try:
+        if seed_path:
+            seeded = _seed_translations_from_path(cues, seed_path)
+            session["translations"] = {str(k): v for k, v in sorted(seeded.items())}
+            session["seeded_cues"] = len(seeded)
+            session["seed_from"] = str(seed_path)
+            if session["status"] == "ready" and len(seeded) == len(cues):
+                session["status"] = "completed"
+                session["stop_reason"] = ""
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     _save_session(session_path, session)
     _render_partial(session, cues)
     _write_diagnostics(session, cues)
     print(f"Prepared session: {session_path}")
     print(f"Partial output: {session['partial_output']}")
+    if seed_path:
+        print(f"Seeded from: {seed_path} ({session['seeded_cues']} cues)")
     if session["status"] == "stopped":
         print(f"Stopped: {session['stop_reason']}", file=sys.stderr)
         return 2
@@ -351,6 +433,9 @@ def cmd_next_batch(args) -> int:
     if batch is None:
         print(json.dumps({"status": session["status"], "message": "no pending batch"}, ensure_ascii=False, indent=2))
         return 0
+    batch_start = batch["cues"][0].start
+    batch_end = batch["cues"][-1].end
+    visual_cues = _load_visual_cues_for_batch(session.get("visual_cues_path", ""), batch_start, batch_end)
     payload = {
         "batch_index": batch["batch_index"],
         "current_batch_tier": session["current_batch_tier"],
@@ -366,6 +451,7 @@ def cmd_next_batch(args) -> int:
             _cue_payload(batch["end_index"] + idx + 1, cue)
             for idx, cue in enumerate(batch["next_context"])
         ],
+        "visual_cues": visual_cues,
         "glossary": _load_text_blob(session.get("glossary_path", "")),
         "summary": _load_text_blob(session.get("summary_path", "")),
         "review_policy": {
@@ -536,6 +622,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--target-lang", default="English")
     prepare.add_argument("--glossary", default="", help="Optional glossary text file.")
     prepare.add_argument("--summary", default="", help="Optional summary text file.")
+    prepare.add_argument("--visual-cues", default="", help="Optional visual cues JSON file.")
     prepare.add_argument("--preferred-model", default="gpt-5.4")
     prepare.add_argument("--preferred-thinking", default="medium")
     prepare.add_argument("--preferred-temperature", type=float, default=0.2)
@@ -545,6 +632,11 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--target-cps", type=float, default=DEFAULT_TARGET_CPS)
     prepare.add_argument("--hard-cps", type=float, default=DEFAULT_HARD_CPS)
     prepare.add_argument("--max-line-length", type=int, default=DEFAULT_MAX_LINE_LENGTH)
+    prepare.add_argument(
+        "--seed-from",
+        default="",
+        help="Optional existing translated VTT/SRT to seed from. Requires exact cue count and cue timings.",
+    )
     prepare.add_argument("--force", action="store_true", help="Overwrite an existing session.")
     prepare.set_defaults(func=cmd_prepare)
 

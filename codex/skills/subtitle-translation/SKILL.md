@@ -105,6 +105,16 @@ For each cue in a batch:
 
 If one cue is semantically weak in isolation, use adjacent cues to distribute meaning more naturally, but still keep one non-empty output per cue.
 
+### Visual Cues
+
+If `visual_cues` is present in the batch payload, these are on-screen text elements
+from the video (name plates, captions, game instructions, location text). They have
+chunk-level timestamps, not cue-level precision.
+
+- Use visual cues to resolve ambiguous names, quiz content, and game rules
+- They are context only — do not emit them as subtitle lines
+- On-screen instructions often clarify what speakers are referring to
+
 ### 5. Write Incrementally
 
 - Save progress after every batch through `apply-batch`.

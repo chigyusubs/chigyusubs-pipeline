@@ -1,0 +1,4 @@
+interface:
+  display_name: "Glossary & Context Builder"
+  short_description: "Extract show glossary and episode context from Gemini raw transcript"
+  default_prompt: "Use $glossary-context to build a show glossary and episode context from a Gemini raw transcript."

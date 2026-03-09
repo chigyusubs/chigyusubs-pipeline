@@ -21,11 +21,17 @@ Before translating, inspect for:
 
 - negative cue durations
 - cue overlaps
+- cues under `0.5s`
 - split-word or split-clause artifacts
 - pathological transcript repetition
 - unusable OCR or visual-text junk carried into dialogue cues
 
 Do not translate clearly broken subtitle timing artifacts without flagging them.
+Treat any cue under `0.5s` as a structural blocker for the handoff, even if the text itself is technically correct.
+
+If you reuse an older English draft as seed material, only do it through a path
+that validates exact cue-count and cue-timeline equality against the current
+Japanese source. Never replay old English by cue index when reflow has changed.
 
 ## Session Preferences
 

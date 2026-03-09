@@ -32,6 +32,7 @@ from chigyusubs.metadata import finish_run, metadata_path, start_run, write_meta
 SAMPLE_RATE = 16000
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_NAME = "NTQAI/wav2vec2-large-japanese"
+_FALLBACK_LINE_SLOT_S = 0.08
 
 # Lines that should be stripped before alignment (visual-only context)
 _VISUAL_RE = re.compile(r"^\[画面:.*\]$")
@@ -189,6 +190,7 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> l
                 "start": 0.0,
                 "end": 0.0,
                 "text": line,
+                "_unaligned": True,
                 "words": [{"start": 0.0, "end": 0.0, "word": line, "probability": 0.0}],
             })
             continue
@@ -212,7 +214,117 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> l
             "words": words,
         })
 
+    _repair_unaligned_line_timings(segments)
+    _enforce_monotonic_timings(segments)
+
     return segments
+
+
+def _repair_unaligned_line_timings(segments: list[dict]) -> None:
+    """Repair all-unaligned lines so they keep local ordering within a chunk.
+
+    When an entire line fails alignment, the old behavior left it at 0.0s.
+    After the chunk offset is applied, that becomes the chunk start, which can
+    throw a short answer far backward in time and make later reflow drop it.
+    Instead, assign a small local slot between neighboring aligned lines.
+    """
+    if not segments:
+        return
+
+    def timed(seg: dict) -> bool:
+        return float(seg.get("end", 0.0)) > float(seg.get("start", 0.0))
+
+    i = 0
+    while i < len(segments):
+        if not segments[i].get("_unaligned"):
+            i += 1
+            continue
+
+        j = i
+        while j < len(segments) and segments[j].get("_unaligned"):
+            j += 1
+
+        prev_idx = i - 1
+        while prev_idx >= 0 and not timed(segments[prev_idx]):
+            prev_idx -= 1
+
+        next_idx = j
+        while next_idx < len(segments) and not timed(segments[next_idx]):
+            next_idx += 1
+
+        cluster = segments[i:j]
+        cluster_count = len(cluster)
+
+        if prev_idx >= 0 and next_idx < len(segments):
+            gap_start = float(segments[prev_idx]["end"])
+            gap_end = float(segments[next_idx]["start"])
+            available = max(0.0, gap_end - gap_start)
+            if available > 0.0:
+                slot = min(_FALLBACK_LINE_SLOT_S, available / cluster_count)
+                slot = max(slot, 0.001)
+                cursor = gap_start
+                for seg in cluster:
+                    seg["start"] = round(cursor, 3)
+                    cursor = min(gap_end, cursor + slot)
+                    seg["end"] = round(max(cursor, seg["start"] + 0.001), 3)
+                i = j
+                continue
+
+        if prev_idx >= 0:
+            base = float(segments[prev_idx]["end"])
+        elif next_idx < len(segments):
+            base = max(0.0, float(segments[next_idx]["start"]) - cluster_count * _FALLBACK_LINE_SLOT_S)
+        else:
+            base = 0.0
+
+        cursor = base
+        for seg in cluster:
+            seg["start"] = round(cursor, 3)
+            cursor += _FALLBACK_LINE_SLOT_S
+            seg["end"] = round(cursor, 3)
+
+        i = j
+
+    for seg in segments:
+        seg.pop("_unaligned", None)
+
+
+def _enforce_monotonic_timings(segments: list[dict]) -> None:
+    """Snap segment and word timings forward to preserve transcript order."""
+    prev_end = 0.0
+    for seg in segments:
+        start = float(seg.get("start", 0.0))
+        end = float(seg.get("end", 0.0))
+        orig_dur = max(0.001, end - start)
+
+        if start < prev_end:
+            start = prev_end
+        if end <= start:
+            end = start + orig_dur
+
+        words = seg.get("words") or []
+        word_cursor = start
+        for word in words:
+            w_start = float(word.get("start", 0.0))
+            w_end = float(word.get("end", 0.0))
+            w_dur = max(0.001, w_end - w_start)
+
+            if w_start < word_cursor:
+                w_start = word_cursor
+            if w_end <= w_start:
+                w_end = w_start + w_dur
+
+            word["start"] = round(w_start, 3)
+            word["end"] = round(w_end, 3)
+            word_cursor = w_end
+
+        if words:
+            start = float(words[0]["start"])
+            end = max(end, float(words[-1]["end"]))
+
+        seg["start"] = round(start, 3)
+        seg["end"] = round(end, 3)
+        prev_end = seg["end"]
 
 
 def main():

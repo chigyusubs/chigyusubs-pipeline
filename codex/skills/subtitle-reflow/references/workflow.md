@@ -52,6 +52,7 @@ python3 scripts/repair_vtt_codex.py finalize \
 
 - any negative-duration cue
 - any cue overlap
+- any cue under `0.5s`
 - obviously corrupt or nonsensical VTT output
 
 On `red`, stop. Do not run repair in this workflow.
@@ -61,7 +62,7 @@ On `red`, stop. Do not run repair in this workflow.
 Use `yellow` when the file is structurally valid but clearly weak for translation, for example:
 
 - obvious split-word or split-clause artifacts in sampled regions
-- a visible pattern of very short fragment cues
+- artifact-like short clusters or non-terminal fragments
 - localized pathological regions that would clearly damage translation
 
 On `yellow`, use `repair_vtt_codex.py` and keep the repair local to the flagged regions. Preserve the full source text of each region and let the helper rebuild timings deterministically inside the region span.
@@ -84,10 +85,18 @@ Check all of:
 - middle sample
 - ending sample
 - deterministic helper metrics:
-  - negative durations / overlaps
-  - short cues under `0.8s` and `1.0s`
-  - tiny cues (`<=4` chars)
+- negative durations / overlaps
+- hard-stop micro cues under `0.5s`
+- advisory counts for short cues under `0.8s` and `1.0s`
+- advisory counts for tiny cues (`<=4` chars)
   - flagged region ranges and sampled previews
+
+Important policy:
+
+- cues under `0.5s` should stop the handoff
+- short/tiny cues above that threshold alone should not force repair
+- plausible fast reactions and one-word answers are acceptable
+- repair should target artifact-like boundaries, not optimize the metrics mechanically
 
 The purpose is not exhaustive QA. The purpose is to decide whether the VTT is safe to hand to translation.
 

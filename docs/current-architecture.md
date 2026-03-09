@@ -289,6 +289,11 @@ reflowed VTT
 
 This mode is one episode at a time, stores preferences like `preferred_model=gpt-5.4` as metadata only, and uses an automatic batch-tier policy of `84 -> 60 -> 48`.
 
+When reusing an older English draft in this mode, the helper must treat cue count
+and cue timeline as the safety boundary. Draft seeding is only valid when the
+candidate English file matches the current Japanese source cue-for-cue on timing;
+cue-index-only reuse is unsafe once reflow changes.
+
 There is now a matching Codex-interactive repair mode for weak-but-structurally-valid Japanese reflowed VTTs:
 
 ```text

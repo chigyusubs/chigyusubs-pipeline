@@ -9,6 +9,7 @@ from chigyusubs.translation import Cue
 
 
 _TERMINAL_PUNCT = tuple("。！？?!…」』）)]")
+MIN_CUE_DURATION_S = 0.5
 
 
 @dataclass
@@ -44,7 +45,10 @@ def cue_chars(cue: Cue) -> int:
 def structural_preflight(cues: list[Cue]) -> dict:
     negative_duration = []
     overlaps = []
+    micro_cues = []
     for idx, cue in enumerate(cues, 1):
+        if cue_duration(cue) < MIN_CUE_DURATION_S:
+            micro_cues.append(idx)
         if cue.end < cue.start:
             negative_duration.append(idx)
         if idx < len(cues) and cues[idx].start < cue.end:
@@ -52,6 +56,7 @@ def structural_preflight(cues: list[Cue]) -> dict:
     return {
         "negative_duration_cues": negative_duration,
         "overlap_after_cues": overlaps,
+        "micro_duration_cues_under_0_5s": micro_cues,
     }
 
 
@@ -62,12 +67,31 @@ def _cue_flags(cue: Cue) -> dict[str, bool]:
     terminal = bool(text) and text.endswith(_TERMINAL_PUNCT)
     return {
         "short": duration < 0.8,
-        "very_short": duration < 0.5,
+        "very_short": duration < MIN_CUE_DURATION_S,
         "tiny": chars <= 4,
         "small": chars <= 8,
         "non_terminal": bool(text) and not terminal,
         "empty": not text,
     }
+
+
+def _is_artifact_like_short_cluster(cues: list[Cue], idx: int) -> bool:
+    current = _cue_flags(cues[idx])
+    if not current["short"]:
+        return False
+
+    for neighbor_idx in (idx - 1, idx + 1):
+        if neighbor_idx < 0 or neighbor_idx >= len(cues):
+            continue
+        neighbor = _cue_flags(cues[neighbor_idx])
+        if not neighbor["short"]:
+            continue
+        # Treat short clusters as suspicious only when at least one cue reads
+        # like an incomplete fragment. Legitimate bursts of terminal reactions
+        # should stay advisory-only.
+        if current["non_terminal"] or neighbor["non_terminal"]:
+            return True
+    return False
 
 
 def detect_regions(cues: list[Cue], context_cues: int = 1) -> list[RepairRegion]:
@@ -77,19 +101,11 @@ def detect_regions(cues: list[Cue], context_cues: int = 1) -> list[RepairRegion]
         reasons: set[str] = set()
         if flags["empty"]:
             reasons.add("empty cue")
-        if flags["tiny"]:
-            reasons.add("tiny cue")
-        if flags["very_short"]:
-            reasons.add("very short cue")
-        elif flags["short"] and flags["small"]:
-            reasons.add("short fragment cue")
         if flags["short"] and flags["non_terminal"]:
             reasons.add("split-like boundary")
-        prev_flags = _cue_flags(cues[idx - 1]) if idx > 0 else None
-        next_flags = _cue_flags(cues[idx + 1]) if idx + 1 < len(cues) else None
-        if flags["short"] and prev_flags and prev_flags["short"]:
-            reasons.add("short cluster")
-        if flags["short"] and next_flags and next_flags["short"]:
+        if flags["short"] and flags["small"] and flags["non_terminal"]:
+            reasons.add("short fragment cue")
+        if _is_artifact_like_short_cluster(cues, idx):
             reasons.add("short cluster")
         if reasons:
             flagged.append((idx, reasons))
@@ -163,12 +179,18 @@ def build_review(cues: list[Cue], preflight: dict, regions: list[RepairRegion]) 
 
     reasons: list[str] = []
     review = "green"
-    if preflight["negative_duration_cues"] or preflight["overlap_after_cues"]:
+    if (
+        preflight["negative_duration_cues"]
+        or preflight["overlap_after_cues"]
+        or preflight["micro_duration_cues_under_0_5s"]
+    ):
         review = "red"
         reasons.append("structural timing blocker")
-    elif regions and (short_count >= 8 or tiny_count >= 3 or len(regions) >= 2):
+        if preflight["micro_duration_cues_under_0_5s"]:
+            reasons.append("cue under 0.5s")
+    elif regions:
         review = "yellow"
-        reasons.append("fragment-heavy reflow needs repair")
+        reasons.append("artifact-risk cue boundaries need review")
 
     return {
         "review": review,
@@ -177,6 +199,7 @@ def build_review(cues: list[Cue], preflight: dict, regions: list[RepairRegion]) 
             "total_cues": len(cues),
             "negative_duration_count": len(preflight["negative_duration_cues"]),
             "overlap_count": len(preflight["overlap_after_cues"]),
+            "micro_cues_under_0_5s": len(preflight["micro_duration_cues_under_0_5s"]),
             "short_cues_under_0_8s": short_count,
             "short_cues_under_1_0s": under_one_second,
             "tiny_cues_le_4_chars": tiny_count,
