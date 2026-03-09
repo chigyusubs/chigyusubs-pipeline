@@ -285,27 +285,32 @@ Operational rule:
 - treat old English drafts as reusable only when cue count and cue timings match the current Japanese source exactly
 - if even one cue boundary changed, do not seed by cue index
 
-### 14. Full-episode faster-whisper is most useful as a deterministic second opinion, not the primary default path
+### 14. Full-episode faster-whisper is the standard always-on second opinion
 
-Validated on `killah_kuts_s01e03`.
+Validated on `killah_kuts_s01e03` and `killah_kuts_s01e02`.
 
 What worked:
 
 - a full-episode `faster-whisper large-v3` pass recovered several real spoken lines that Gemini+CTC had missed or compressed
 - the highest-signal misses were found by comparing the two transcripts as time-local coverage windows rather than by cue index
+- glossary-assisted Whisper (via initial_prompt from episode glossary) improves name recognition in the coverage pass
+- VAD cross-reference in the coverage comparison distinguishes real coverage gaps from Whisper hallucination in silence
 
 What not to do:
 
 - do not switch the whole maintained pipeline to faster-whisper by default
 - do not auto-replace Gemini output wholesale from a second model
 
-Better rule:
+Current rule:
 
 - keep Gemini + CTC as the main path
-- use faster-whisper as a saved second-opinion artifact when alignment diagnostics or manual review suggest missing narration
+- always run faster-whisper as a second-opinion artifact — it is cheap (~2-3 min/episode) and catches both visible (visual-substitution) and invisible (silent omission) Gemini drops
 - compare `*_ctc_words.json` against `*_faster_*_words.json` with a deterministic coverage-diff pass before reflow or source patching
+- when VAD segments are available, the coverage diff marks each flagged region as `vad_confirmed` or `possible_hallucination`
 
 This preserves the main quality path while giving review a concrete way to find missing speech without rerunning Gemini.
+
+The second opinion was originally gated on `possible_visual_narration_substitution` from alignment diagnostics. This was changed to always-on after lesson 15 showed Gemini can silently omit speech with no signal at all.
 - any safe reuse path should validate exact cue-timeline equality before importing draft translations
 
 Pipeline consequence:

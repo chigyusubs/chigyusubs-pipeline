@@ -3,7 +3,6 @@
 
 import argparse
 import json
-import math
 import re
 from pathlib import Path
 
@@ -96,24 +95,48 @@ def merge_flagged_windows(flagged: list[dict], *, merge_gap_s: float) -> list[di
     return merged
 
 
-def enrich_regions(regions: list[dict], primary: list[dict], secondary: list[dict]) -> list[dict]:
+def load_vad_segments(path: Path) -> list[dict]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError(f"{path} did not contain a top-level list")
+    return data
+
+
+def vad_overlaps_region(vad_segments: list[dict], start_s: float, end_s: float) -> bool:
+    for seg in vad_segments:
+        seg_start = float(seg.get("start", 0.0))
+        seg_end = float(seg.get("end", 0.0))
+        if overlap(seg_start, seg_end, start_s, end_s):
+            return True
+    return False
+
+
+def enrich_regions(
+    regions: list[dict],
+    primary: list[dict],
+    secondary: list[dict],
+    vad_segments: list[dict] | None = None,
+) -> list[dict]:
     enriched = []
     for idx, region in enumerate(regions):
         primary_text = window_text(primary, region["start_s"], region["end_s"])
         secondary_text = window_text(secondary, region["start_s"], region["end_s"])
-        enriched.append(
-            {
-                "region_index": idx,
-                "start_s": round(region["start_s"], 3),
-                "end_s": round(region["end_s"], 3),
-                "duration_s": round(region["end_s"] - region["start_s"], 3),
-                "primary_chars": len(normalize_text(primary_text)),
-                "secondary_chars": len(normalize_text(secondary_text)),
-                "coverage_gap_chars": len(normalize_text(secondary_text)) - len(normalize_text(primary_text)),
-                "primary_text": primary_text,
-                "secondary_text": secondary_text,
-            }
-        )
+        item = {
+            "region_index": idx,
+            "start_s": round(region["start_s"], 3),
+            "end_s": round(region["end_s"], 3),
+            "duration_s": round(region["end_s"] - region["start_s"], 3),
+            "primary_chars": len(normalize_text(primary_text)),
+            "secondary_chars": len(normalize_text(secondary_text)),
+            "coverage_gap_chars": len(normalize_text(secondary_text)) - len(normalize_text(primary_text)),
+            "primary_text": primary_text,
+            "secondary_text": secondary_text,
+        }
+        if vad_segments is not None:
+            has_speech = vad_overlaps_region(vad_segments, region["start_s"], region["end_s"])
+            item["vad_confirmed"] = has_speech
+            item["possible_hallucination"] = not has_speech
+        enriched.append(item)
     return enriched
 
 
@@ -129,6 +152,7 @@ def main() -> None:
     parser.add_argument("--max-primary-chars", type=int, default=4, help="Flag immediately when primary coverage is at or below this threshold.")
     parser.add_argument("--min-extra-chars", type=int, default=8, help="Otherwise require at least this many extra chars in the secondary transcript.")
     parser.add_argument("--top", type=int, default=20, help="How many top flagged regions to keep in the summary sample.")
+    parser.add_argument("--vad-json", default="", help="Optional VAD segments JSON for speech cross-reference. Regions without VAD speech are marked as possible hallucination.")
     args = parser.parse_args()
 
     primary_path = Path(args.primary)
@@ -146,8 +170,26 @@ def main() -> None:
         max_primary_chars=args.max_primary_chars,
         min_extra_chars=args.min_extra_chars,
     )
-    regions = enrich_regions(merge_flagged_windows(flagged, merge_gap_s=args.merge_gap_s), primary, secondary)
+    vad_segments = None
+    if args.vad_json:
+        vad_path = Path(args.vad_json)
+        if vad_path.exists():
+            vad_segments = load_vad_segments(vad_path)
+            print(f"Loaded {len(vad_segments)} VAD segments from {vad_path}")
+
+    regions = enrich_regions(merge_flagged_windows(flagged, merge_gap_s=args.merge_gap_s), primary, secondary, vad_segments)
     regions.sort(key=lambda item: (-item["coverage_gap_chars"], item["start_s"]))
+
+    summary_dict: dict = {
+        "flagged_windows": len(flagged),
+        "flagged_regions": len(regions),
+        "top_regions_kept": min(args.top, len(regions)),
+    }
+    if vad_segments is not None:
+        vad_confirmed = sum(1 for r in regions if r.get("vad_confirmed", False))
+        possible_hallucination = sum(1 for r in regions if r.get("possible_hallucination", False))
+        summary_dict["vad_confirmed_regions"] = vad_confirmed
+        summary_dict["possible_hallucination_regions"] = possible_hallucination
 
     report = {
         "primary": str(primary_path),
@@ -160,11 +202,7 @@ def main() -> None:
             "max_primary_chars": args.max_primary_chars,
             "min_extra_chars": args.min_extra_chars,
         },
-        "summary": {
-            "flagged_windows": len(flagged),
-            "flagged_regions": len(regions),
-            "top_regions_kept": min(args.top, len(regions)),
-        },
+        "summary": summary_dict,
         "top_regions": regions[: args.top],
         "all_regions": regions,
     }

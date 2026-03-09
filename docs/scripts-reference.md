@@ -70,7 +70,7 @@ samples/episodes/<episode_slug>/
 | `transcribe_gemini.py` | Gemini transcription (JSON schema mode, used by pipeline) | Maintained |
 | `transcribe_local.py` | Fully local pipeline: Silero VAD + local OCR filter + faster-whisper | Maintained |
 | `align_ctc.py` | CTC forced alignment using `NTQAI/wav2vec2-large-japanese` + `torchaudio.functional.forced_align`. 0.3% zero-duration words vs 13.4% with stable-ts on `dmm`. Runs on system python3.12 with ROCm GPU for wav2vec2 inference, keeps `forced_align` on CPU, and caps PyTorch CPU threads to 24 to avoid runaway thread fanout. Repairs fully unaligned lines into small local fallback slots, enforces monotonic segment timing so short answers do not jump to chunk start and disappear in reflow, preserves Gemini turn-boundary metadata per aligned line, and writes an `.diagnostics.json` sidecar with per-chunk repaired-unaligned counts, line-level details, and advisory `possible_visual_narration_substitution` flags when dense `[画面: ...]` runs may be standing in for spoken narration. | Maintained |
-| `pre_reflow_second_opinion.py` | Pre-reflow helper that reads `*_ctc_words.json.diagnostics.json`, skips clean episodes, and only runs a faster-whisper second-opinion pass plus `compare_transcript_coverage.py` when alignment diagnostics flag `possible_visual_narration_substitution` (or `--force` is given). Writes a reusable summary JSON under `transcription/diagnostics/`. | Maintained |
+| `pre_reflow_second_opinion.py` | Always-on pre-reflow helper that runs a faster-whisper second-opinion pass on every episode plus `compare_transcript_coverage.py` coverage diff. Auto-discovers episode glossary for Whisper initial_prompt conditioning (glossary.json source terms or legacy whisper_prompt_condensed.txt) and passes VAD segments to the coverage comparison when available. Visual-substitution risk from alignment diagnostics is collected as informational metadata. Use `--force` to rerun whisper even when artifacts exist. Writes a reusable summary JSON under `transcription/diagnostics/`. | Maintained |
 | `align_chunkwise.py` | Chunk-wise stable-ts forced alignment from `_chunks.json` | Legacy |
 | `align_qwen_forced.py` | Chunk-wise Qwen forced-alignment benchmark via `py-qwen3-asr-cpp` GGUF backend | Archived |
 | `align_qwen_forced_hf.py` | Chunk-wise Qwen forced-alignment benchmark via official `qwen-asr` on system Python / ROCm | Archived |
@@ -99,7 +99,7 @@ samples/episodes/<episode_slug>/
 | Script | Purpose | Status |
 |---|---|---|
 | `run_faster_whisper.py` | faster-whisper ASR (ROCm/CUDA), initial prompt + hotwords | Maintained |
-| `compare_transcript_coverage.py` | Compare a primary aligned words JSON against a secondary ASR words JSON (typically Gemini+CTC vs faster-whisper) and emit time-local coverage-gap regions where the second opinion contains substantially more speech than the primary transcript. Intended as a deterministic pre-reflow diagnostic when alignment flags possible visual-text substitution or manual review hears missing narration. | Maintained |
+| `compare_transcript_coverage.py` | Compare a primary aligned words JSON against a secondary ASR words JSON (typically Gemini+CTC vs faster-whisper) and emit time-local coverage-gap regions where the second opinion contains substantially more speech than the primary transcript. Optional `--vad-json` cross-references flagged regions against VAD speech segments, marking each as `vad_confirmed` or `possible_hallucination`. Intended as a deterministic pre-reflow diagnostic. | Maintained |
 | `run_whisper_cpp.py` | whisper.cpp ASR via `whisper-cli` | Maintained |
 | `run_local_whisper.py` | OpenAI Whisper Python package ASR | Maintained |
 | `start_qwen_ocr_server.sh` | Start llama-server for Qwen OCR with recommended deterministic settings | Maintained |
@@ -221,14 +221,15 @@ python3 scripts/repair_vtt_codex.py prepare \
 # If <stem>_ctc_words.json contains turn metadata, prepare also surfaces
 # cue-level turn-boundary context for merged multi-turn cues.
 
-# Optional pre-reflow second-opinion diagnostic:
+# Always-on pre-reflow second-opinion diagnostic:
 python3.12 scripts/pre_reflow_second_opinion.py \
   --words samples/episodes/<slug>/transcription/<stem>_ctc_words.json
 
-# The helper auto-discovers the sibling alignment diagnostics sidecar, skips
-# clean episodes, and only runs faster-whisper + compare_transcript_coverage
-# when `possible_visual_narration_substitution` is present.
-# Use --force to run the same second-opinion flow even without that flag.
+# Runs faster-whisper on every episode and compares coverage against the primary
+# transcript. Auto-discovers episode glossary for Whisper initial_prompt and
+# passes VAD segments to the coverage comparison.
+# Use --force to rerun whisper even when artifacts already exist.
+# Use --glossary to override glossary auto-discovery.
 
 python3 scripts/repair_vtt_codex.py next-region \
   --session samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt.checkpoint.json

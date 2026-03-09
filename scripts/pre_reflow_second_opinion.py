@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a Whisper second-opinion coverage check only when alignment diagnostics warrant it."""
+"""Always-on Whisper second-opinion coverage check with optional glossary and VAD filtering."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -77,14 +78,56 @@ def ensure_rocm_env(env: dict[str, str]) -> dict[str, str]:
     return result
 
 
+def _build_whisper_prompt_from_glossary(glossary_path: Path) -> str:
+    """Read glossary.json and concatenate source terms into a comma-separated prompt string."""
+    data = json.loads(glossary_path.read_text(encoding="utf-8"))
+    entries = data.get("entries", [])
+    sources = [entry["source"] for entry in entries if entry.get("source")]
+    return "、".join(sources)
+
+
+def _discover_glossary_file(
+    explicit_glossary: str, episode_dir: Optional[Path], diagnostics_dir: Path
+) -> Optional[Path]:
+    """Resolve the glossary file to pass as --glossary to run_faster_whisper.py.
+
+    Discovery order:
+    1. Explicit --glossary arg
+    2. <episode>/glossary/whisper_prompt_condensed.txt (legacy)
+    3. Auto-generate from <episode>/glossary/glossary.json
+    """
+    if explicit_glossary:
+        p = Path(explicit_glossary)
+        return p if p.exists() else None
+
+    if not episode_dir:
+        return None
+
+    legacy = episode_dir / "glossary" / "whisper_prompt_condensed.txt"
+    if legacy.exists():
+        return legacy
+
+    glossary_json = episode_dir / "glossary" / "glossary.json"
+    if glossary_json.exists():
+        prompt_text = _build_whisper_prompt_from_glossary(glossary_json)
+        if prompt_text:
+            diagnostics_dir.mkdir(parents=True, exist_ok=True)
+            generated = diagnostics_dir / "whisper_prompt_from_glossary.txt"
+            generated.write_text(prompt_text, encoding="utf-8")
+            return generated
+
+    return None
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run a Whisper second-opinion pass only for alignment chunks with visual-substitution risk.")
+    parser = argparse.ArgumentParser(description="Always-on Whisper second-opinion coverage check. Runs faster-whisper on every episode and compares against the primary transcript.")
     parser.add_argument("--words", required=True, help="Primary aligned words JSON, usually *_ctc_words.json")
     parser.add_argument("--alignment-diagnostics", default="", help="Optional alignment diagnostics sidecar override")
     parser.add_argument("--video", default="", help="Optional source video override")
     parser.add_argument("--faster-vtt", default="", help="Optional faster-whisper VTT output path")
     parser.add_argument("--coverage-json", default="", help="Optional coverage report output path")
     parser.add_argument("--summary-json", default="", help="Optional helper summary output path")
+    parser.add_argument("--glossary", default="", help="Optional glossary file for Whisper initial_prompt. Auto-discovered from episode glossary if not given.")
     parser.add_argument("--model", default="large-v3", help="Whisper model name passed to run_faster_whisper.py")
     parser.add_argument("--compute-type", default="float16", help="Compute type passed to run_faster_whisper.py")
     parser.add_argument("--reflow-pause-ms", type=int, default=250, help="Pause threshold for the helper's faster-whisper VTT")
@@ -92,7 +135,7 @@ def main() -> None:
     parser.add_argument("--window-s", type=float, default=2.0, help="Coverage diff window size")
     parser.add_argument("--step-s", type=float, default=1.0, help="Coverage diff step size")
     parser.add_argument("--top", type=int, default=20, help="How many top coverage-gap regions to keep in the report summary")
-    parser.add_argument("--force", action="store_true", help="Run even when alignment diagnostics do not flag visual-substitution risk")
+    parser.add_argument("--force", action="store_true", help="Rerun whisper even if artifacts already exist")
     parser.add_argument("--rerun-whisper", action="store_true", help="Ignore existing faster-whisper artifacts and rerun the secondary ASR pass")
     args = parser.parse_args()
 
@@ -116,46 +159,34 @@ def main() -> None:
         summary_path = Path(args.summary_json)
 
     visual_risk_chunks = [] if not diagnostics else diagnostics.get("visual_narration_risk_chunks", [])
-    should_run = bool(args.force or visual_risk_chunks)
     summary = {
         "words_json": str(words_path),
         "alignment_diagnostics_json": str(alignment_path) if alignment_path else "",
         "visual_risk_chunk_count": len(visual_risk_chunks),
         "visual_risk_chunks": visual_risk_chunks[:8],
-        "forced": bool(args.force),
-        "should_run_second_opinion": should_run,
         "secondary_vtt": str(faster_vtt_path),
         "secondary_words_json": str(faster_vtt_path).replace(".vtt", "_words.json"),
         "coverage_report_json": str(coverage_path),
     }
 
-    if not should_run:
-        summary["status"] = "skipped_no_visual_risk"
-        summary_path.parent.mkdir(parents=True, exist_ok=True)
-        summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        metadata = finish_run(
-            run,
-            inputs={"words_json": str(words_path), "alignment_diagnostics_json": str(alignment_path) if alignment_path else None},
-            outputs={"summary_json": str(summary_path)},
-            settings={"model": args.model, "compute_type": args.compute_type},
-            stats={"visual_risk_chunks": len(visual_risk_chunks), "ran_second_opinion": 0},
-        )
-        write_metadata(summary_path, metadata)
-        print("No visual-substitution risk flagged; skipped Whisper second opinion.")
-        print(f"Summary written: {summary_path}")
-        return
+    episode_dir = find_episode_dir_from_path(words_path)
+    diagnostics_dir = faster_vtt_path.parent
+    glossary_file = _discover_glossary_file(args.glossary, episode_dir, diagnostics_dir)
+    if glossary_file:
+        summary["glossary_file"] = str(glossary_file)
 
     video_path = Path(args.video) if args.video else discover_video_for_words(words_path)
     if not video_path or not video_path.exists():
         raise SystemExit("Could not discover source video; pass --video explicitly.")
 
     secondary_words_path = Path(str(faster_vtt_path).replace(".vtt", "_words.json"))
-    discovered_secondary = None if args.rerun_whisper else discover_existing_secondary(words_path, args.model)
+    rerun = args.rerun_whisper or args.force
+    discovered_secondary = None if rerun else discover_existing_secondary(words_path, args.model)
     if discovered_secondary and not (faster_vtt_path.exists() and secondary_words_path.exists()):
         faster_vtt_path, secondary_words_path = discovered_secondary
         summary["secondary_vtt"] = str(faster_vtt_path)
         summary["secondary_words_json"] = str(secondary_words_path)
-    reused_existing = faster_vtt_path.exists() and secondary_words_path.exists() and not args.rerun_whisper
+    reused_existing = faster_vtt_path.exists() and secondary_words_path.exists() and not rerun
     if not reused_existing:
         cmd = [
             sys.executable,
@@ -174,6 +205,8 @@ def main() -> None:
             "--reflow-min-cue-s",
             str(args.reflow_min_cue_s),
         ]
+        if glossary_file:
+            cmd.extend(["--glossary", str(glossary_file)])
         print("Running faster-whisper second opinion...")
         subprocess.run(cmd, check=True, env=ensure_rocm_env(os.environ))
     else:
@@ -195,6 +228,11 @@ def main() -> None:
         "--top",
         str(args.top),
     ]
+    if episode_dir:
+        vad_json = episode_dir / "transcription" / "silero_vad_segments.json"
+        if vad_json.exists():
+            compare_cmd.extend(["--vad-json", str(vad_json)])
+
     subprocess.run(compare_cmd, check=True)
 
     coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
@@ -230,8 +268,7 @@ def main() -> None:
             "step_s": args.step_s,
             "reflow_pause_ms": args.reflow_pause_ms,
             "reflow_min_cue_s": args.reflow_min_cue_s,
-            "forced": bool(args.force),
-            "rerun_whisper": bool(args.rerun_whisper),
+            "rerun": bool(rerun),
         },
         stats={
             "visual_risk_chunks": len(visual_risk_chunks),

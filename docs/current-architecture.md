@@ -179,7 +179,7 @@ source video
 VAD chunks + OCR context + episode memory + bounded rolling transcript history
   -> Gemini or local transcription
   -> alignment
-  -> optional second-opinion coverage diff
+  -> always-on Whisper second-opinion coverage diff
   -> reflow
   -> optional Codex-interactive cue repair
   -> subtitle output
@@ -230,20 +230,21 @@ To make that inspectable, the alignment diagnostics sidecar now records advisory
 - `possible_visual_narration_substitution`
 - `suspicious_visual_runs`
 
-When those flags appear, the preferred next step is not to rerun Gemini blindly. Instead:
+The preferred next step is not to rerun Gemini blindly. Instead:
 
-1. run a full-episode or local-window `faster-whisper large-v3` second-opinion pass
+1. run a full-episode `faster-whisper large-v3` second-opinion pass (always-on, ~2-3 min/episode)
 2. compare it against `*_ctc_words.json` with `scripts/compare_transcript_coverage.py`
-3. review only the flagged windows
-4. patch the Japanese source locally before translation if needed
+3. when VAD segments are available, mark flagged regions as `vad_confirmed` or `possible_hallucination`
+4. review only the flagged windows
+5. patch the Japanese source locally before translation if needed
 
 This keeps the pipeline artifact-first while giving the reflow handoff a deterministic review gate for missing narration.
 
-The maintained helper for this gate is:
+The maintained helper for this is:
 
 - `scripts/pre_reflow_second_opinion.py --words <stem>_ctc_words.json`
 
-It auto-discovers alignment diagnostics, skips episodes with no visual-substitution risk, and only runs the local second-opinion path when the alignment sidecar warrants it.
+It always runs the faster-whisper second opinion, auto-discovers episode glossary for Whisper initial_prompt conditioning, and passes VAD segments to the coverage comparison when available. Visual-substitution risk from alignment diagnostics is still collected as informational metadata but no longer gates execution.
 
 ## Current Scripts By Role
 
@@ -303,6 +304,7 @@ Gemini transcription
   - bounded rolling transcript history
 
   -> CTC forced alignment (wav2vec2-ja)
+  -> always-on Whisper second-opinion coverage diff
   -> reflow
   -> optional Codex-interactive cue repair
   -> batch-based CPS-aware English subtitle editing
