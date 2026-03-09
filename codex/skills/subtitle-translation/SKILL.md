@@ -98,10 +98,12 @@ For each cue in a batch:
 
 - keep cue timings unchanged
 - keep cue count unchanged
+- copy `source_text_hash` from `next-batch` into each translation item you pass to `apply-batch`
 - rewrite Japanese into natural English subtitle lines
 - compress where needed for readability
 - do not leave empty cues
 - do not invent content that is unsupported by the source
+- if the batch payload includes `alignment_warnings`, treat them as timing-confidence notes for the affected cues, not as a stop condition by themselves
 
 If one cue is semantically weak in isolation, use adjacent cues to distribute meaning more naturally, but still keep one non-empty output per cue.
 
@@ -120,6 +122,8 @@ chunk-level timestamps, not cue-level precision.
 - Save progress after every batch through `apply-batch`.
 - Let the helper regenerate the partial VTT and diagnostics.
 - Keep reruns resumable from the last completed batch.
+- `apply-batch` validates source cue identity as well as cue IDs, so do not strip `source_text_hash` from the batch payload when preparing the translations JSON.
+- If `prepare` auto-discovers an alignment diagnostics sidecar, expect `next-batch` payloads and diagnostics to carry advisory warnings for cues whose source timing was locally interpolated during alignment.
 - If you intentionally restart with `prepare --force`, expect the helper to clear the old session, partial output, final output, and diagnostics so stale batch history does not leak into the new run.
 - After each `apply-batch`, immediately loop back to `next-batch` — do not pause or summarize between batches.
 

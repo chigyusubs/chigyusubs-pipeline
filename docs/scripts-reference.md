@@ -69,16 +69,16 @@ samples/episodes/<episode_slug>/
 | `transcribe_gemini_raw.py` | Gemini raw text transcription with chunk-wise local OCR filtering | Maintained |
 | `transcribe_gemini.py` | Gemini transcription (JSON schema mode, used by pipeline) | Maintained |
 | `transcribe_local.py` | Fully local pipeline: Silero VAD + local OCR filter + faster-whisper | Maintained |
-| `align_ctc.py` | CTC forced alignment using `NTQAI/wav2vec2-large-japanese` + `torchaudio.functional.forced_align`. 0.3% zero-duration words vs 13.4% with stable-ts on `dmm`. Runs on system python3.12 with ROCm GPU for wav2vec2 inference, keeps `forced_align` on CPU, and caps PyTorch CPU threads to 24 to avoid runaway thread fanout. Repairs fully unaligned lines into small local fallback slots and enforces monotonic segment timing so short answers do not jump to chunk start and disappear in reflow. | Maintained |
+| `align_ctc.py` | CTC forced alignment using `NTQAI/wav2vec2-large-japanese` + `torchaudio.functional.forced_align`. 0.3% zero-duration words vs 13.4% with stable-ts on `dmm`. Runs on system python3.12 with ROCm GPU for wav2vec2 inference, keeps `forced_align` on CPU, and caps PyTorch CPU threads to 24 to avoid runaway thread fanout. Repairs fully unaligned lines into small local fallback slots, enforces monotonic segment timing so short answers do not jump to chunk start and disappear in reflow, and writes an `.diagnostics.json` sidecar with per-chunk repaired-unaligned counts and line-level details. | Maintained |
 | `align_chunkwise.py` | Chunk-wise stable-ts forced alignment from `_chunks.json` | Legacy |
 | `align_qwen_forced.py` | Chunk-wise Qwen forced-alignment benchmark via `py-qwen3-asr-cpp` GGUF backend | Archived |
 | `align_qwen_forced_hf.py` | Chunk-wise Qwen forced-alignment benchmark via official `qwen-asr` on system Python / ROCm | Archived |
 | `align_stable_ts.py` | Global stable-ts alignment (single pass) | Legacy |
 | `reflow_words.py` | Reflow word/line timestamps into subtitle cues. `--line-level` (default for CTC) treats lines as atomic, preventing mid-word splits. Includes comma-fallback splitting, repeated-line-safe word-timestamp lookup, sparse-cue clamping for CTC artifacts, and display-line rewrapping during residual micro-cue merges so sub-`0.5s` cues do not survive just because the raw merged line count is temporarily >2. | Maintained |
-| `repair_vtt_codex.py` | Codex-interactive reflow review/repair helper. Prepares flagged cue regions, checkpoints progress, validates region repairs, regenerates a partial repaired VTT, and finalizes a repaired Japanese VTT with deterministic before/after diagnostics and one recommended translation-input path. Cues under `0.5s` are treated as structural blockers; otherwise short/tiny cue counts stay advisory and repair triggering is driven by artifact-like boundary risks. | Maintained |
+| `repair_vtt_codex.py` | Codex-interactive reflow review/repair helper. Prepares flagged cue regions, checkpoints progress, validates region repairs, regenerates a partial repaired VTT, and finalizes a repaired Japanese VTT with deterministic before/after diagnostics and one recommended translation-input path. If a sibling CTC alignment diagnostics sidecar exists, it is loaded automatically and surfaced as advisory alignment-risk context in session status, diagnostics, and region payloads, attaching repaired lines by cue overlap first and nearest-cue fallback second. Cues under `0.5s` are treated as structural blockers; otherwise short/tiny cue counts stay advisory and repair triggering is driven by artifact-like boundary risks. | Maintained |
 | `repair_vtt_local.py` | Repair an existing reflowed VTT using aligned words + local Gemma as a constrained merge/split/extend chooser. Optional legacy/benchmark alternative to the default Codex-interactive repair path. | Alternative |
 | `translate_vtt.py` | LLM translation of Japanese VTT to English (Vertex or local) | Maintained |
-| `translate_vtt_codex.py` | Codex-interactive translation helper with session/checkpoint state, deterministic batch diagnostics, clean restart via `prepare --force`, optional `--seed-from` draft reuse guarded by exact cue-count and cue-timeline matching, partial VTT assembly, automatic `84 -> 60 -> 48` batch-tier fallback, and preflight stop on structural timing blockers including cues under `0.5s` | Maintained |
+| `translate_vtt_codex.py` | Codex-interactive translation helper with session/checkpoint state, deterministic batch diagnostics, source-cue signature validation during `apply-batch`, clean restart via `prepare --force`, optional `--seed-from` draft reuse guarded by exact cue-count and cue-timeline matching, optional `--alignment-diagnostics` override with best-effort auto-discovery from the input VTT, partial VTT assembly, automatic `84 -> 60 -> 48` batch-tier fallback, and preflight stop on structural timing blockers including cues under `0.5s`. Interpolated alignment warnings remain advisory and are carried into batch payloads and diagnostics instead of stopping translation, using nearest-cue fallback when a repaired line sits in a reflow gap. | Maintained |
 | `translate_vtt_mistral.py` | Mistral API translation benchmark. Keeps the same batch/checkpoint/diagnostics flow as `translate_vtt.py`, but targets Mistral chat completions directly. | Experimental |
 | `init_episode_from_media.py` | Create episode workspace from media, optionally extracting fixed-rate frames | Maintained |
 
@@ -195,6 +195,10 @@ python3.12 scripts/align_ctc.py \
 # Uses NTQAI/wav2vec2-large-japanese + torchaudio CTC forced alignment.
 # Runs on system python3.12 with ROCm GPU.
 # 0.3% zero-duration words vs 13.4% with stable-ts on dmm.
+# Note: this only aligns text that already exists in the Gemini transcript.
+# If manual review finds a missing narrated section, use a local clip-level
+# faster-whisper pass as a second-opinion repair artifact instead of expecting
+# CTC diagnostics to surface missing speech.
 
 # 6. Reflow (line-level, recommended for CTC output)
 PYTHONPATH=. python3 scripts/reflow_words.py \
@@ -208,12 +212,29 @@ python3 scripts/repair_vtt_codex.py prepare \
   --words samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
   --output samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt
 
+# If <stem>_ctc_words.json.diagnostics.json exists, prepare auto-loads it and
+# surfaces interpolated alignment lines as advisory review context.
+
 python3 scripts/repair_vtt_codex.py next-region \
   --session samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt.checkpoint.json
 
 python3 scripts/repair_vtt_codex.py apply-region \
   --session samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt.checkpoint.json \
   --repair-json /tmp/<stem>_repair_region.json
+
+# Optional local second-opinion ASR for a suspicious short window
+ffmpeg -y -ss <start_s> -to <end_s> -i samples/episodes/<slug>/source/video.mp4 \
+  -vn -ac 1 -ar 16000 -c:a pcm_s16le /tmp/<slug>_clip.wav
+
+env LD_LIBRARY_PATH=/opt/rocm-7.2.0/lib:${LD_LIBRARY_PATH:-} \
+CT2_CUDA_ALLOCATOR=cub_caching \
+python3.12 scripts/run_faster_whisper.py \
+  --video /tmp/<slug>_clip.wav \
+  --glossary /tmp/does_not_exist_glossary.txt \
+  --out samples/episodes/<slug>/transcription/diagnostics/<slug>_clip_faster_large_v3.vtt \
+  --model large-v3 \
+  --compute-type float16 \
+  --reflow
 
 python3 scripts/repair_vtt_codex.py finalize \
   --session samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt.checkpoint.json
@@ -242,6 +263,10 @@ python scripts/translate_vtt_codex.py prepare \
   --input samples/episodes/great_escape_s01e04/transcription/great_escape_s01e04_video_only_v1_ctc_words_reflow.vtt \
   --output samples/episodes/great_escape_s01e04/translation/great_escape_s01e04_video_only_v1_ctc_words_reflow_en_codex.vtt
 
+# Auto-discovers a sibling CTC alignment diagnostics sidecar when present.
+# Use --alignment-diagnostics <path> to override discovery explicitly.
+# Each target cue payload also includes source_text_hash.
+
 python scripts/translate_vtt_codex.py next-batch \
   --session samples/episodes/great_escape_s01e04/translation/great_escape_s01e04_video_only_v1_ctc_words_reflow_en_codex.vtt.checkpoint.json
 
@@ -250,9 +275,14 @@ python scripts/translate_vtt_codex.py apply-batch \
   --session samples/episodes/great_escape_s01e04/translation/great_escape_s01e04_video_only_v1_ctc_words_reflow_en_codex.vtt.checkpoint.json \
   --translations-json /tmp/batch.json
 
+# Each translation item in /tmp/batch.json must include source_text_hash
+# (or source_text) copied from next-batch so apply-batch can reject
+# cue-ID-only semantic drift.
+
 # `translate_vtt_codex.py` writes a session/checkpoint JSON, a partial VTT in
-# `translation/`, a deterministic diagnostics rollup, and automatically reduces
-# the batch tier 84 -> 60 -> 48 when a batch is reviewed as yellow.
+# `translation/`, a deterministic diagnostics rollup, surfaces advisory
+# alignment-warning context for affected batches, and automatically reduces the
+# batch tier 84 -> 60 -> 48 when a batch is reviewed as yellow.
 # Restart with `prepare --force` to clear stale session/output/diagnostics
 # artifacts before beginning a fresh run.
 

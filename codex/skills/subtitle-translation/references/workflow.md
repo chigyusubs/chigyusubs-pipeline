@@ -28,6 +28,8 @@ Before translating, inspect for:
 
 Do not translate clearly broken subtitle timing artifacts without flagging them.
 Treat any cue under `0.5s` as a structural blocker for the handoff, even if the text itself is technically correct.
+If `translate_vtt_codex.py prepare` loads alignment diagnostics, treat those interpolation warnings as advisory context for the affected cues, not as a structural blocker.
+When using `translate_vtt_codex.py next-batch`, preserve each target cue's `source_text_hash` into the corresponding translation item you pass back to `apply-batch`; cue IDs alone are no longer treated as sufficient validation.
 
 If you reuse an older English draft as seed material, only do it through a path
 that validates exact cue-count and cue-timeline equality against the current
@@ -60,6 +62,12 @@ If no existing checkpoint is present, a small JSON file next to the output is en
 ```
 
 The exact format can vary; resumability matters more than schema purity.
+
+When alignment diagnostics are available, the session and per-batch payloads should also retain:
+
+- episode-level counts of interpolated all-unaligned source lines
+- affected cue IDs
+- sampled repaired source lines for the current batch
 
 ## Trigger Phrases
 

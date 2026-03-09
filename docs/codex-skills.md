@@ -125,6 +125,8 @@ python3 scripts/translate_vtt_codex.py prepare \
   --output samples/episodes/<slug>/translation/<stem>_reflow_en_codex.vtt
 ```
 
+If a sibling CTC alignment diagnostics sidecar exists, `prepare` auto-loads it and later `next-batch` payloads include advisory `alignment_warnings` for affected cues.
+
 2. Work batch-by-batch with:
 
 - `next-batch`
@@ -138,6 +140,7 @@ The maintained helper automatically:
 - writes a checkpoint/session JSON
 - writes a partial VTT in `translation/`
 - writes a deterministic batch summary in diagnostics
+- carries advisory alignment warnings from CTC diagnostics into batch payloads and diagnostics when present
 - uses the `84 -> 60 -> 48` batch-tier fallback
 - keeps minimum-tier CPS overruns as diagnostics/warnings instead of auto-stopping the whole run
 - continues through `yellow` batches by default; only structural errors or explicit `red` stop the session

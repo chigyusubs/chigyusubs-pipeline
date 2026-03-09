@@ -79,6 +79,9 @@ The fix is to repair all-unaligned line timings inside `align_ctc.py` before chu
 - keep the original line order
 - interpolate a small local slot between neighboring aligned lines instead of defaulting to chunk start
 - run a final monotonic timing pass so tiny backward reversals do not survive into saved alignment JSON
+- keep diagnostics for those repaired lines so QA can still count them and inspect which lines were interpolated
+- carry those diagnostics forward into reflow review and Codex translation as advisory context, not as a hard stop
+- when the repaired line falls into a tiny reflow gap, attach the warning to the nearest cue instead of dropping it from downstream review
 
 This preserves short answers and other high-value lines without pretending the timing confidence is high.
 
@@ -228,6 +231,18 @@ Failure mode:
 - but it rejected merges whenever the combined raw line count would exceed the display line limit
 - that left sub-`0.5s` cues behind even when the merged cue could still be shown cleanly in two subtitle lines
 
+Fix:
+
+- `chigyusubs.reflow._merge_micro_cues()` now evaluates candidate merges through a display-text rewrap path
+- merged cues can keep the original underlying raw-line list while rewriting visible cue text back down to the configured line limit
+
+Result on `e03`:
+
+- plain line-level reflow moved from `red` to `green`
+- cue count dropped from `760` to `750`
+- residual cues under `0.5s` dropped from `10` to `0`
+- no negative durations and no overlaps
+
 ### 13. English draft reuse must be gated by exact cue timelines, not cue index
 
 Validated on `great_escape_s01e04`.
@@ -256,17 +271,62 @@ Observed `e03` examples before the fix:
 - `やったあ! / やったあ!` followed by `イエス! / よっしゃあ!`
 - `おお。 / おお。` during the Tom Brown escape burst
 
-Fix:
+### 14. Codex batch apply must validate source cue identity, not just cue IDs
 
-- `chigyusubs.reflow._merge_micro_cues()` now evaluates candidate merges through a display-text rewrap path
-- merged cues can keep the original underlying raw-line list while rewriting visible cue text back down to the configured line limit
+Validated on `killah_kuts_s01e02`.
 
-Result on `e03`:
+Failure mode:
 
-- plain line-level reflow moved from `red` to `green`
-- cue count dropped from `760` to `750`
-- residual cues under `0.5s` dropped from `10` to `0`
-- no negative durations and no overlaps
+- a Codex translation batch was written with the correct `cue_id`s
+- but the English lines drifted onto the wrong source cues partway through the batch
+- `apply-batch` accepted it because it only checked cue ID coverage/order
+- the final English VTT then looked like a timing problem even though the cue timestamps themselves were unchanged
+
+Operational rule:
+
+- cue IDs alone are not enough to validate a translation batch
+- each translated item should also prove which source cue text it belongs to
+- a lightweight per-cue source-text hash is enough for this
+
+Pipeline consequence:
+
+- `translate_vtt_codex.py next-batch` now emits `source_text_hash` for each cue payload
+- `translate_vtt_codex.py apply-batch` now rejects items that omit `source_text` / `source_text_hash`, or whose source signature does not match the current batch
+
+This catches batch-local semantic drift immediately instead of letting it masquerade as subtitle-timing drift later.
+
+### 15. Video-only Gemini can compress or skip narrated premise VO even when nearby cards are correct
+
+Validated on `killah_kuts_s01e02`.
+
+Failure mode:
+
+- an early narrated premise block around `01:50-02:18` was clearly present in audio
+- Gemini preserved part of the surrounding explanation (`グッドアイデア`, `麻酔ってなった`)
+- but it did not preserve the full spoken setup as spoken lines
+- instead, some of that setup survived only as nearby `[画面: ...]` cards like `被害者 刑事` and `設定 診察で病院を訪れていた被害者`
+- CTC then aligned the shortened Gemini text correctly, so the downstream artifact looked coherent even though the spoken transcript was incomplete
+
+Operational lesson:
+
+- this is not an alignment failure; it is an upstream transcript-completeness failure
+- CTC diagnostics cannot detect missing speech that never appears in the source transcript
+- manual review is still required for premise VO, rules narration, and other off-camera explanation blocks
+
+Recommended workaround:
+
+- keep Gemini + CTC as the default path
+- when review finds a suspicious local miss, extract only that short clip
+- run `faster-whisper large-v3` locally on the clip as a second-opinion artifact
+- patch the affected Japanese cues from that local result instead of rerunning Gemini for the whole episode
+- then regenerate only downstream artifacts that depend on that region
+
+Why this is the right compromise:
+
+- it keeps the main artifact chain stable
+- it is much cheaper than rerunning Gemini
+- it gives a saved local comparison artifact for the exact repaired window
+- it avoids overreacting to a local Gemini miss by replacing the whole transcription path
 
 ## Episode-Specific Findings
 

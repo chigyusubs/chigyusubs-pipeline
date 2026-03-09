@@ -10,6 +10,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from chigyusubs.alignment_diagnostics import (
+    alignment_warnings_for_cue_ids,
+    build_alignment_review,
+    discover_alignment_diagnostics_path,
+)
 from chigyusubs.reflow_repair import (
     RepairRegion,
     build_review,
@@ -149,6 +154,7 @@ def _write_diagnostics(session: dict, base_cues: list[Cue]) -> None:
         "output": session["output"],
         "partial_output": session["partial_output"],
         "words_path": session.get("words_path", ""),
+        "alignment_review": _alignment_status_payload(session.get("alignment_review")),
         "prepared_review": prepared_review,
         "current_review": review,
         "regions_total": len(session["regions"]),
@@ -180,7 +186,7 @@ def _write_diagnostics(session: dict, base_cues: list[Cue]) -> None:
         },
         "recommended_translation_input": recommended_translation_input,
         "translation_ready": translation_ready,
-        "remaining_translation_risks": review["reasons"],
+        "remaining_translation_risks": review["reasons"] + _alignment_review_reasons(session.get("alignment_review")),
         "region_reports": region_reports,
     }
     path = Path(session["diagnostics_path"])
@@ -238,6 +244,8 @@ def cmd_prepare(args) -> int:
     preflight = structural_preflight(cues)
     regions = detect_regions(cues, context_cues=args.region_context_cues)
     review = build_review(cues, preflight, regions)
+    alignment_diagnostics = discover_alignment_diagnostics_path(words_path=args.words, input_path=input_path)
+    alignment_review = build_alignment_review(cues, alignment_diagnostics) if alignment_diagnostics else None
     status = "ready"
     stop_reason = ""
     if review["review"] == "red":
@@ -254,6 +262,8 @@ def cmd_prepare(args) -> int:
         "partial_output": str(_partial_output_path(output_path)),
         "diagnostics_path": str(_diagnostics_path(output_path)),
         "words_path": args.words,
+        "alignment_diagnostics_path": str(alignment_diagnostics) if alignment_diagnostics else "",
+        "alignment_review": alignment_review,
         "region_context_cues": args.region_context_cues,
         "prepared_review": review,
         "regions": _regions_payload(regions),
@@ -267,6 +277,12 @@ def cmd_prepare(args) -> int:
     print(f"Prepared session: {session_path}")
     print(f"Partial output: {session['partial_output']}")
     print(f"Prepared review: {review['review']}")
+    if alignment_review:
+        print(
+            "Alignment advisory: "
+            f"{alignment_review['repaired_line_count']} interpolated source lines across "
+            f"{alignment_review['affected_cues_count']} cues"
+        )
     if session["status"] == "stopped":
         print(f"Stopped: {session['stop_reason']}", file=sys.stderr)
         return 2
@@ -293,6 +309,7 @@ def cmd_status(args) -> int:
         "prepared_metrics": session["prepared_review"]["metrics"],
         "current_review": current_review["review"],
         "current_metrics": current_review["metrics"],
+        "alignment_review": _alignment_status_payload(session.get("alignment_review")),
         "regions_total": len(session["regions"]),
         "completed_regions": len(session.get("completed_regions", [])),
         "pending_regions": len(pending),
@@ -320,6 +337,10 @@ def cmd_next_region(args) -> int:
         "status": session["status"],
         "prepared_review": session["prepared_review"],
         "region": _region_payload(region, cues),
+        "alignment_warnings": alignment_warnings_for_cue_ids(
+            session.get("alignment_review"),
+            range(int(region["start_cue_id"]), int(region["end_cue_id"]) + 1),
+        ),
         "review_policy": {
             "allowed_reviews": ["green", "yellow", "red"],
             "green": "apply region and continue",
@@ -467,6 +488,34 @@ def build_parser() -> argparse.ArgumentParser:
     finalize.set_defaults(func=cmd_finalize)
 
     return parser
+
+
+def _alignment_review_reasons(alignment_review: dict | None) -> list[str]:
+    if not alignment_review or not alignment_review.get("affected_cues_count"):
+        return []
+    return [
+        "advisory: "
+        f"{alignment_review['repaired_line_count']} source lines were locally interpolated during alignment "
+        f"and overlap {alignment_review['affected_cues_count']} cues"
+    ]
+
+
+def _alignment_status_payload(alignment_review: dict | None) -> dict | None:
+    if not alignment_review:
+        return None
+    return {
+        "advisory_only": True,
+        "diagnostics_path": alignment_review["diagnostics_path"],
+        "interpolated_unaligned_segments": alignment_review["interpolated_unaligned_segments"],
+        "chunks_with_interpolated_unaligned_segments": alignment_review["chunks_with_interpolated_unaligned_segments"],
+        "repaired_line_count": alignment_review["repaired_line_count"],
+        "affected_cues_count": alignment_review["affected_cues_count"],
+        "affected_cue_ids_sample": alignment_review["affected_cue_ids"][:8],
+        "sample_repaired_lines": alignment_review.get("sample_repaired_lines", []),
+        "nearest_cue_mapped_lines_count": alignment_review.get("nearest_cue_mapped_lines_count", 0),
+        "unmapped_repaired_lines_count": alignment_review.get("unmapped_repaired_lines_count", 0),
+        "sample_unmapped_repaired_lines": alignment_review.get("sample_unmapped_repaired_lines", []),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:

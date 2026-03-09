@@ -61,6 +61,7 @@ Review should combine:
 - objective file-level checks
 - spot-checks from early, middle, and late regions
 - deterministic diagnostics from the helper, including flagged region ranges and short/tiny cue counts
+- alignment-stage interpolation diagnostics when a sibling `*_ctc_words.json.diagnostics.json` sidecar exists
 
 ### 3. Decision
 
@@ -93,6 +94,7 @@ Default repair output naming:
 Do not overwrite the original reflow VTT.
 
 When repair runs, rely on the helper's deterministic before/after diagnostics and one recommended translation-input path. Do not fall back to a local model server in the normal skill path.
+Interpolated all-unaligned source lines are advisory only: surface them during review and repair, but do not treat them as structural blockers by themselves.
 
 ### 5. Handoff
 

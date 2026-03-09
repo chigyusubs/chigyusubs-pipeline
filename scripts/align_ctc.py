@@ -57,6 +57,10 @@ def configure_torch_threads() -> None:
     torch.set_num_interop_threads(1)
 
 
+def diagnostics_path(output_path: str | Path) -> Path:
+    return Path(f"{output_path}.diagnostics.json")
+
+
 def extract_audio_slice(video_path, start_s, duration_s, out_path):
     subprocess.run(
         [
@@ -83,13 +87,13 @@ def clean_chunk_text(raw_text: str) -> list[str]:
     return lines
 
 
-def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> list[dict]:
+def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> tuple[list[dict], list[dict]]:
     """Align spoken lines to audio using CTC forced alignment.
 
     Returns list of segment dicts with word-level timestamps.
     """
     if not lines:
-        return []
+        return [], []
 
     vocab = processor.tokenizer.get_vocab()
     pad_id = processor.tokenizer.pad_token_id
@@ -119,7 +123,7 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> l
             chars.append(ch)
 
     if not token_ids:
-        return []
+        return [], []
 
     # Run CTC forced alignment
     targets = torch.tensor([token_ids], dtype=torch.int32)
@@ -132,14 +136,14 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> l
         )
     except Exception as e:
         print(f"  forced_align failed: {e}")
-        return []
+        return [], []
 
     # Merge consecutive aligned frames into token spans
     token_spans = torchaudio.functional.merge_tokens(aligned_tokens[0], scores[0])
 
     if len(token_spans) != len(chars):
         print(f"  Warning: token_spans ({len(token_spans)}) != characters ({len(chars)}), skipping")
-        return []
+        return [], []
 
     # Map frame indices to time
     frame_to_time = audio_duration / num_frames
@@ -159,7 +163,7 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> l
     # Reconstruct segments from the original lines with character-level words
     segments = []
     char_idx = 0
-    for line in lines:
+    for line_idx, line in enumerate(lines):
         # First pass: match aligned chars and mark unaligned ones
         raw_entries = []
         for ch in line:
@@ -197,6 +201,7 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> l
                 "start": 0.0,
                 "end": 0.0,
                 "text": line,
+                "_line_index": line_idx,
                 "_unaligned": True,
                 "words": [{"start": 0.0, "end": 0.0, "word": line, "probability": 0.0}],
             })
@@ -218,16 +223,18 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> l
             "start": seg_start,
             "end": seg_end,
             "text": line,
+            "_line_index": line_idx,
             "words": words,
         })
 
-    _repair_unaligned_line_timings(segments)
+    repairs = _repair_unaligned_line_timings(segments)
     _enforce_monotonic_timings(segments)
+    _finalize_alignment_diagnostics(segments, repairs)
 
-    return segments
+    return segments, repairs
 
 
-def _repair_unaligned_line_timings(segments: list[dict]) -> None:
+def _repair_unaligned_line_timings(segments: list[dict]) -> list[dict]:
     """Repair all-unaligned lines so they keep local ordering within a chunk.
 
     When an entire line fails alignment, the old behavior left it at 0.0s.
@@ -236,7 +243,9 @@ def _repair_unaligned_line_timings(segments: list[dict]) -> None:
     Instead, assign a small local slot between neighboring aligned lines.
     """
     if not segments:
-        return
+        return []
+
+    repairs: list[dict] = []
 
     def timed(seg: dict) -> bool:
         return float(seg.get("end", 0.0)) > float(seg.get("start", 0.0))
@@ -267,33 +276,68 @@ def _repair_unaligned_line_timings(segments: list[dict]) -> None:
             gap_end = float(segments[next_idx]["start"])
             available = max(0.0, gap_end - gap_start)
             if available > 0.0:
+                mode = "between_neighbors"
                 slot = min(_FALLBACK_LINE_SLOT_S, available / cluster_count)
                 slot = max(slot, 0.001)
                 cursor = gap_start
                 for seg in cluster:
+                    original_start = float(seg.get("start", 0.0))
+                    original_end = float(seg.get("end", 0.0))
                     seg["start"] = round(cursor, 3)
                     cursor = min(gap_end, cursor + slot)
                     seg["end"] = round(max(cursor, seg["start"] + 0.001), 3)
+                    repairs.append({
+                        "line_index_in_chunk": int(seg.get("_line_index", -1)),
+                        "text": seg.get("text", ""),
+                        "repair_mode": mode,
+                        "original_local_start_s": round(original_start, 3),
+                        "original_local_end_s": round(original_end, 3),
+                    })
                 i = j
                 continue
 
         if prev_idx >= 0:
             base = float(segments[prev_idx]["end"])
+            mode = "after_previous"
         elif next_idx < len(segments):
             base = max(0.0, float(segments[next_idx]["start"]) - cluster_count * _FALLBACK_LINE_SLOT_S)
+            mode = "before_next"
         else:
             base = 0.0
+            mode = "fallback_from_zero"
 
         cursor = base
         for seg in cluster:
+            original_start = float(seg.get("start", 0.0))
+            original_end = float(seg.get("end", 0.0))
             seg["start"] = round(cursor, 3)
             cursor += _FALLBACK_LINE_SLOT_S
             seg["end"] = round(cursor, 3)
+            repairs.append({
+                "line_index_in_chunk": int(seg.get("_line_index", -1)),
+                "text": seg.get("text", ""),
+                "repair_mode": mode,
+                "original_local_start_s": round(original_start, 3),
+                "original_local_end_s": round(original_end, 3),
+            })
 
         i = j
 
+    return repairs
+
+
+def _finalize_alignment_diagnostics(segments: list[dict], repairs: list[dict]) -> None:
+    indexed = {int(seg["_line_index"]): seg for seg in segments if "_line_index" in seg}
+    for item in repairs:
+        seg = indexed.get(int(item["line_index_in_chunk"]))
+        if seg is None:
+            continue
+        item["repaired_local_start_s"] = round(float(seg["start"]), 3)
+        item["repaired_local_end_s"] = round(float(seg["end"]), 3)
+
     for seg in segments:
         seg.pop("_unaligned", None)
+        seg.pop("_line_index", None)
 
 
 def _enforce_monotonic_timings(segments: list[dict]) -> None:
@@ -349,6 +393,7 @@ def main():
     model, processor = load_model()
 
     all_segments = []
+    all_chunk_diagnostics = []
 
     with tempfile.TemporaryDirectory() as work_dir:
         for i, chunk in enumerate(chunks_data):
@@ -362,6 +407,20 @@ def main():
 
             if not lines:
                 print("  Skipping empty chunk.")
+                all_chunk_diagnostics.append({
+                    "chunk": i,
+                    "chunk_start_s": c_start,
+                    "chunk_end_s": c_end,
+                    "line_count": 0,
+                    "segments": 0,
+                    "words": 0,
+                    "zero_duration_segments": 0,
+                    "zero_duration_words": 0,
+                    "repaired_unaligned_segments": 0,
+                    "repaired_unaligned_details": [],
+                    "needs_review": False,
+                    "status": "empty",
+                })
                 continue
 
             # Extract audio slice
@@ -374,7 +433,7 @@ def main():
                 waveform = torchaudio.functional.resample(waveform, file_sr, SAMPLE_RATE)
 
             # Align
-            segments = align_chunk(model, processor, waveform, lines)
+            segments, repairs = align_chunk(model, processor, waveform, lines)
 
             # Offset timestamps to episode time
             for seg in segments:
@@ -383,39 +442,67 @@ def main():
                 for w in seg["words"]:
                     w["start"] = round(w["start"] + c_start, 3)
                     w["end"] = round(w["end"] + c_start, 3)
+            for item in repairs:
+                item["repaired_start_s"] = round(float(item["repaired_local_start_s"]) + c_start, 3)
+                item["repaired_end_s"] = round(float(item["repaired_local_end_s"]) + c_start, 3)
 
             all_segments.extend(segments)
 
             # Quick stats
             zero_dur = sum(1 for s in segments if s["start"] == s["end"])
+            zero_words = sum(1 for s in segments for w in s["words"] if w["start"] == w["end"])
+            if repairs:
+                print(f"  repaired {len(repairs)}/{len(segments)} all-unaligned segments")
             if zero_dur:
                 print(f"  {zero_dur}/{len(segments)} zero-duration segments")
+            all_chunk_diagnostics.append({
+                "chunk": i,
+                "chunk_start_s": c_start,
+                "chunk_end_s": c_end,
+                "line_count": len(lines),
+                "segments": len(segments),
+                "words": sum(len(s["words"]) for s in segments),
+                "zero_duration_segments": zero_dur,
+                "zero_duration_words": zero_words,
+                "repaired_unaligned_segments": len(repairs),
+                "repaired_unaligned_details": repairs,
+                "needs_review": bool(repairs or zero_dur or zero_words or not segments),
+                "status": "ok_repaired" if repairs else ("ok" if segments else "no_segments"),
+            })
 
     # Write output
     total_words = sum(len(s["words"]) for s in all_segments)
     zero_segs = sum(1 for s in all_segments if s["start"] == s["end"])
     zero_words = sum(1 for s in all_segments for w in s["words"] if w["start"] == w["end"])
+    repaired_segments = sum(item["repaired_unaligned_segments"] for item in all_chunk_diagnostics)
+    repaired_chunks = sum(1 for item in all_chunk_diagnostics if item["repaired_unaligned_segments"] > 0)
 
     print(f"\nResults: {len(all_segments)} segments, {total_words} words")
     print(f"Zero-duration: {zero_segs} segments ({zero_segs/max(len(all_segments),1)*100:.1f}%), "
           f"{zero_words} words ({zero_words/max(total_words,1)*100:.1f}%)")
+    print(f"Interpolated all-unaligned segments: {repaired_segments} across {repaired_chunks} chunks")
 
     Path(args.output_words).parent.mkdir(parents=True, exist_ok=True)
     with open(args.output_words, "w", encoding="utf-8") as f:
         json.dump(all_segments, f, ensure_ascii=False, indent=2)
     print(f"Written to {args.output_words}")
+    diag_path = diagnostics_path(args.output_words)
+    diag_path.write_text(json.dumps(all_chunk_diagnostics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"Diagnostics written: {diag_path}")
 
     metadata = finish_run(
         run,
         inputs={"video": args.video, "chunks_json": args.chunks},
-        outputs={"words_json": args.output_words},
-        settings={"model": MODEL_NAME, "language": "ja"},
+        outputs={"words_json": args.output_words, "alignment_diagnostics_json": str(diag_path)},
+        settings={"model": MODEL_NAME, "language": "ja", "cpu_threads": CPU_THREADS},
         stats={
             "chunks_loaded": len(chunks_data),
             "segments_written": len(all_segments),
             "words_written": total_words,
             "zero_duration_segments": zero_segs,
             "zero_duration_words": zero_words,
+            "interpolated_unaligned_segments": repaired_segments,
+            "chunks_with_interpolated_unaligned_segments": repaired_chunks,
         },
     )
     write_metadata(args.output_words, metadata)

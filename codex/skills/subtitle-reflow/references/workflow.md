@@ -30,6 +30,9 @@ python3 scripts/repair_vtt_codex.py prepare \
   --input samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
   --words samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
   --output samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt
+
+# If <stem>_ctc_words.json.diagnostics.json exists, prepare auto-loads it and
+# carries interpolated alignment lines into session diagnostics and region payloads.
 ```
 
 Then iterate:
@@ -89,12 +92,14 @@ Check all of:
 - hard-stop micro cues under `0.5s`
 - advisory counts for short cues under `0.8s` and `1.0s`
 - advisory counts for tiny cues (`<=4` chars)
-  - flagged region ranges and sampled previews
+- flagged region ranges and sampled previews
+- advisory alignment warnings for cues that overlap interpolated all-unaligned source lines
 
 Important policy:
 
 - cues under `0.5s` should stop the handoff
 - short/tiny cues above that threshold alone should not force repair
+- interpolated alignment warnings alone should not force repair
 - plausible fast reactions and one-word answers are acceptable
 - repair should target artifact-like boundaries, not optimize the metrics mechanically
 

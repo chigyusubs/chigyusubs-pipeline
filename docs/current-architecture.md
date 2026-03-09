@@ -236,15 +236,15 @@ Transcription and alignment:
 - `scripts/transcribe_pipeline.py`
 - `scripts/transcribe_gemini.py`
 - `scripts/transcribe_local.py`
-- `scripts/align_ctc.py` — CTC forced alignment using `NTQAI/wav2vec2-large-japanese` (recommended)
+- `scripts/align_ctc.py` — CTC forced alignment using `NTQAI/wav2vec2-large-japanese` (recommended); writes per-chunk alignment diagnostics including interpolated all-unaligned lines
 - `scripts/align_chunkwise.py` — chunked stable-ts alignment (legacy)
 - `scripts/align_qwen_forced.py` — Qwen forced alignment benchmark (archived)
 - `scripts/align_qwen_forced_hf.py` — Qwen HF forced alignment benchmark (archived)
 - `scripts/align_stable_ts.py` — global stable-ts alignment (legacy)
-- `scripts/repair_vtt_codex.py` — Codex-interactive region-based reflow repair helper with session/checkpoint state and deterministic validation/final assembly
+- `scripts/repair_vtt_codex.py` — Codex-interactive region-based reflow repair helper with session/checkpoint state, deterministic validation/final assembly, and advisory surfacing of alignment-stage interpolated-line diagnostics
 - `scripts/repair_vtt_local.py` — local Gemma cue-boundary repair on top of a reflowed VTT + aligned words (alternative path, no longer the default skill fallback)
 - `scripts/translate_vtt.py`
-- `scripts/translate_vtt_codex.py` — Codex-interactive one-episode translation helper with session/checkpoint, deterministic batch diagnostics, clean restart via `prepare --force`, partial VTT assembly, and automatic batch-tier fallback
+- `scripts/translate_vtt_codex.py` — Codex-interactive one-episode translation helper with session/checkpoint, deterministic batch diagnostics, source-cue signature validation during `apply-batch`, alignment-warning carry-through from CTC diagnostics, clean restart via `prepare --force`, partial VTT assembly, and automatic batch-tier fallback
 - `scripts/translate_vtt_mistral.py` — experimental translation benchmark using the same batch/checkpoint flow against the Mistral API
 
 ## Recommended Operational Default
@@ -306,4 +306,6 @@ reflowed VTT
 ```
 
 This mode is region-based, preserves source text coverage inside each repaired region, and rebuilds timings deterministically inside the original region span.
-Its diagnostics now include deterministic before/after cue metrics, sampled flagged regions, and one recommended Japanese VTT handoff path for translation.
+Its diagnostics now include deterministic before/after cue metrics, sampled flagged regions, advisory alignment-stage interpolation warnings, and one recommended Japanese VTT handoff path for translation.
+
+One important boundary remains: if Gemini never transcribed a spoken section, CTC cannot recover it later. In practice this shows up most often in narrated premise/rules VO that partially overlaps with explanatory telops. The operational workaround is local and artifact-preserving: extract the suspicious clip, transcribe that clip with `faster-whisper large-v3` as a saved second-opinion artifact, patch the affected Japanese cues, and only then rerun downstream reflow/translation for that region or episode.

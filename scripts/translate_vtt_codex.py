@@ -4,12 +4,18 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from chigyusubs.alignment_diagnostics import (
+    alignment_warnings_for_cue_ids,
+    build_alignment_review,
+    discover_alignment_diagnostics_path,
+)
 from chigyusubs.translation import (
     Cue,
     batch_cues,
@@ -44,6 +50,10 @@ def _load_cues(input_path: Path) -> list[Cue]:
 
 def _cue_timing_signature(cue: Cue) -> tuple[int, int]:
     return (round(cue.start * 1000), round(cue.end * 1000))
+
+
+def _source_text_hash(text: str) -> str:
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
 
 
 def _validate_seed_timeline(source_cues: list[Cue], seed_cues: list[Cue], seed_path: Path) -> None:
@@ -139,6 +149,11 @@ def _load_text_blob(path_value: str) -> str:
 
 def _initial_session(args, input_path: Path, output_path: Path, cues: list[Cue]) -> dict:
     preflight = _preflight(cues)
+    alignment_diagnostics = discover_alignment_diagnostics_path(
+        explicit_path=args.alignment_diagnostics,
+        input_path=input_path,
+    )
+    alignment_review = build_alignment_review(cues, alignment_diagnostics) if alignment_diagnostics else None
     status = "ready"
     stop_reason = ""
     if preflight["negative_duration_cues"] or preflight["overlap_after_cues"]:
@@ -157,6 +172,8 @@ def _initial_session(args, input_path: Path, output_path: Path, cues: list[Cue])
         "output": str(output_path),
         "partial_output": str(_partial_output_path(output_path)),
         "diagnostics_path": str(_diagnostics_path(output_path)),
+        "alignment_diagnostics_path": str(alignment_diagnostics) if alignment_diagnostics else "",
+        "alignment_review": alignment_review,
         "target_language": args.target_lang,
         "glossary_path": args.glossary or "",
         "summary_path": args.summary or "",
@@ -251,9 +268,35 @@ def _cue_payload(cue_id: int, cue: Cue) -> dict:
         "start_tc": seconds_to_time(cue.start),
         "end_tc": seconds_to_time(cue.end),
         "text": cue.text,
+        "source_text_hash": _source_text_hash(cue.text),
         "duration": round(duration, 3),
         "source_cps": round(text_cps(cue.text, duration), 3),
     }
+
+
+def _validate_translation_source_signature(item: dict, cue_id: int, source: Cue) -> None:
+    expected_text = source.text
+    expected_hash = _source_text_hash(expected_text)
+    provided_text = item.get("source_text")
+    provided_hash = item.get("source_text_hash")
+
+    if provided_text is None and provided_hash is None:
+        raise ValueError(
+            f"Translation for cue {cue_id} is missing source_text/source_text_hash. "
+            "Copy source_text_hash from next-batch target_cues into each translation item."
+        )
+
+    if provided_text is not None and str(provided_text) != expected_text:
+        raise ValueError(
+            f"Translation source_text mismatch for cue {cue_id}: "
+            f"expected {expected_text!r}, got {str(provided_text)!r}"
+        )
+
+    if provided_hash is not None and str(provided_hash) != expected_hash:
+        raise ValueError(
+            f"Translation source_text_hash mismatch for cue {cue_id}: "
+            f"expected {expected_hash}, got {str(provided_hash)}"
+        )
 
 
 def _render_partial(session: dict, cues: list[Cue]) -> None:
@@ -304,12 +347,18 @@ def _session_diagnostics(session: dict, cues: list[Cue]) -> dict:
     line_violations_total = 0
     structural_red_batches = 0
     warning_batches = 0
+    alignment_warning_batches = 0
+    alignment_warning_cues_total = 0
+    alignment_warning_lines_total = 0
     for batch in batch_diags:
         review = str(batch.get("review", "green"))
         batch_review_counts[review] = batch_review_counts.get(review, 0) + 1
         hard_cps_total += int(batch.get("hard_cps_violations", 0))
         line_violations_total += int(batch.get("line_violations", 0))
         warning_batches += int(review == "yellow")
+        alignment_warning_batches += int(int(batch.get("alignment_warning_cues", 0)) > 0)
+        alignment_warning_cues_total += int(batch.get("alignment_warning_cues", 0))
+        alignment_warning_lines_total += int(batch.get("alignment_warning_lines", 0))
         structural_red_batches += int(
             review == "red"
             and str(batch.get("auto_reason", "")).startswith("structural")
@@ -329,6 +378,7 @@ def _session_diagnostics(session: dict, cues: list[Cue]) -> dict:
         "seeded_cues": int(session.get("seeded_cues", 0)),
         "current_batch_tier": session["current_batch_tier"],
         "batch_tiers": session["batch_tiers"],
+        "alignment_warning_summary": _alignment_summary(session.get("alignment_review")),
         "completed_cues": completed,
         "total_cues": len(cues),
         "completed_batches": len(session.get("completed_batches", [])),
@@ -336,6 +386,9 @@ def _session_diagnostics(session: dict, cues: list[Cue]) -> dict:
             "review_counts": batch_review_counts,
             "warning_batches": warning_batches,
             "structural_red_batches": structural_red_batches,
+            "alignment_warning_batches": alignment_warning_batches,
+            "alignment_warning_cues_total": alignment_warning_cues_total,
+            "alignment_warning_lines_total": alignment_warning_lines_total,
             "hard_cps_violations_total": hard_cps_total,
             "line_violations_total": line_violations_total,
         },
@@ -417,6 +470,12 @@ def cmd_prepare(args) -> int:
     _write_diagnostics(session, cues)
     print(f"Prepared session: {session_path}")
     print(f"Partial output: {session['partial_output']}")
+    if session.get("alignment_review"):
+        print(
+            "Alignment advisory: "
+            f"{session['alignment_review']['repaired_line_count']} interpolated source lines across "
+            f"{session['alignment_review']['affected_cues_count']} cues"
+        )
     if seed_path:
         print(f"Seeded from: {seed_path} ({session['seeded_cues']} cues)")
     if session["status"] == "stopped":
@@ -436,6 +495,15 @@ def cmd_next_batch(args) -> int:
     batch_start = batch["cues"][0].start
     batch_end = batch["cues"][-1].end
     visual_cues = _load_visual_cues_for_batch(session.get("visual_cues_path", ""), batch_start, batch_end)
+    target_alignment = alignment_warnings_for_cue_ids(session.get("alignment_review"), batch["cue_ids"])
+    context_ids = [
+        batch["start_index"] - len(batch["prev_context"]) + idx + 1
+        for idx, _ in enumerate(batch["prev_context"])
+    ] + [
+        batch["end_index"] + idx + 1
+        for idx, _ in enumerate(batch["next_context"])
+    ]
+    context_alignment = alignment_warnings_for_cue_ids(session.get("alignment_review"), context_ids)
     payload = {
         "batch_index": batch["batch_index"],
         "current_batch_tier": session["current_batch_tier"],
@@ -454,6 +522,7 @@ def cmd_next_batch(args) -> int:
         "visual_cues": visual_cues,
         "glossary": _load_text_blob(session.get("glossary_path", "")),
         "summary": _load_text_blob(session.get("summary_path", "")),
+        "alignment_warnings": _batch_alignment_payload(target_alignment, context_alignment),
         "review_policy": {
             "allowed_reviews": ["green", "yellow", "red"],
             "green": "apply batch and continue",
@@ -492,10 +561,12 @@ def cmd_apply_batch(args) -> int:
 
     expected_ids = batch["cue_ids"]
     seen: dict[int, str] = {}
+    raw_items: dict[int, dict] = {}
     for item in items:
         cue_id = int(item["cue_id"])
         text = str(item["text"])
         seen[cue_id] = text
+        raw_items[cue_id] = item
     structural_error = sorted(seen.keys()) != expected_ids
     if structural_error:
         raise ValueError(f"Translated cue IDs do not match current batch: expected {expected_ids}, got {sorted(seen.keys())}")
@@ -506,6 +577,7 @@ def cmd_apply_batch(args) -> int:
     line_violations = 0
     cue_diags: list[dict] = []
     for cue_id, source in zip(expected_ids, batch["cues"]):
+        _validate_translation_source_signature(raw_items[cue_id], cue_id, source)
         text = wrap_english_text(seen[cue_id], max_line_length=int(session["max_line_length"]))
         if not text.strip():
             raise ValueError(f"Empty translation for cue {cue_id}")
@@ -525,6 +597,7 @@ def cmd_apply_batch(args) -> int:
     )
 
     batch_index = batch["batch_index"]
+    batch_alignment = alignment_warnings_for_cue_ids(session.get("alignment_review"), expected_ids)
     session["translations"] = {str(k): v for k, v in sorted(translations.items())}
     completed = _sorted_completed(session)
     completed.add(batch_index)
@@ -540,6 +613,10 @@ def cmd_apply_batch(args) -> int:
         "notes": notes,
         "hard_cps_violations": hard_cps_violations,
         "line_violations": line_violations,
+        "alignment_warning_cues": 0 if not batch_alignment else batch_alignment["affected_cues_count"],
+        "alignment_warning_lines": 0 if not batch_alignment else batch_alignment["repaired_line_count"],
+        "alignment_warning_cue_ids": [] if not batch_alignment else batch_alignment["affected_cue_ids"],
+        "alignment_warning_lines_sample": [] if not batch_alignment else batch_alignment["repaired_lines"],
         "cues": cue_diags,
     }
 
@@ -583,6 +660,7 @@ def cmd_status(args) -> int:
         "total_cues": len(cues),
         "completed_batches": len(session.get("completed_batches", [])),
         "current_batch_tier": session["current_batch_tier"],
+        "alignment_warning_summary": _alignment_summary(session.get("alignment_review")),
         "next_batch_index": None if pending_batch is None else pending_batch["batch_index"],
         "next_batch_range": None if pending_batch is None else [pending_batch["cue_ids"][0], pending_batch["cue_ids"][-1]],
     }
@@ -623,6 +701,11 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--glossary", default="", help="Optional glossary text file.")
     prepare.add_argument("--summary", default="", help="Optional summary text file.")
     prepare.add_argument("--visual-cues", default="", help="Optional visual cues JSON file.")
+    prepare.add_argument(
+        "--alignment-diagnostics",
+        default="",
+        help="Optional alignment diagnostics sidecar. If omitted, prepare auto-discovers it from the input VTT.",
+    )
     prepare.add_argument("--preferred-model", default="gpt-5.4")
     prepare.add_argument("--preferred-thinking", default="medium")
     prepare.add_argument("--preferred-temperature", type=float, default=0.2)
@@ -659,6 +742,33 @@ def build_parser() -> argparse.ArgumentParser:
     finalize.set_defaults(func=cmd_finalize)
 
     return parser
+
+
+def _alignment_summary(alignment_review: dict | None) -> dict | None:
+    if not alignment_review:
+        return None
+    return {
+        "advisory_only": True,
+        "diagnostics_path": alignment_review["diagnostics_path"],
+        "interpolated_unaligned_segments": alignment_review["interpolated_unaligned_segments"],
+        "chunks_with_interpolated_unaligned_segments": alignment_review["chunks_with_interpolated_unaligned_segments"],
+        "repaired_line_count": alignment_review["repaired_line_count"],
+        "affected_cues_count": alignment_review["affected_cues_count"],
+        "affected_cue_ids_sample": alignment_review["affected_cue_ids"][:8],
+        "sample_repaired_lines": alignment_review.get("sample_repaired_lines", []),
+        "nearest_cue_mapped_lines_count": alignment_review.get("nearest_cue_mapped_lines_count", 0),
+        "unmapped_repaired_lines_count": alignment_review.get("unmapped_repaired_lines_count", 0),
+    }
+
+
+def _batch_alignment_payload(target_alignment: dict | None, context_alignment: dict | None) -> dict | None:
+    if not target_alignment and not context_alignment:
+        return None
+    return {
+        "advisory_only": True,
+        "target": target_alignment,
+        "context": context_alignment,
+    }
 
 
 def main() -> int:
