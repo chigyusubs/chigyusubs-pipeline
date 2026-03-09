@@ -126,6 +126,15 @@ def _countdown(seconds: float):
     print("\r" + " " * 30 + "\r", end="", flush=True)
 
 
+def _make_client(location: str, api_key: str = ""):
+    """Build a genai Client for either Gemini API (free tier) or Vertex AI."""
+    from google import genai
+
+    if api_key:
+        return genai.Client(api_key=api_key)
+    return genai.Client(vertexai=True, location=location)
+
+
 def transcribe_chunk(
     audio_bytes: bytes,
     prompt: str,
@@ -134,12 +143,16 @@ def transcribe_chunk(
     max_retries: int = 10,
     temperature: float = 0.1,
     mime_type: str = "audio/mpeg",
+    api_key: str = "",
 ) -> str:
-    """Send a media chunk to Gemini via streaming, return plain transcript text."""
-    from google import genai
+    """Send a media chunk to Gemini via streaming, return plain transcript text.
+
+    When api_key is provided, uses the Gemini API (Google AI Studio free tier)
+    instead of Vertex AI.
+    """
     from google.genai import types
 
-    client = genai.Client(vertexai=True, location=location)
+    client = _make_client(location, api_key)
 
     audio_part = types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
     text_part = types.Part.from_text(text=prompt)
@@ -207,6 +220,7 @@ def transcribe_full(
     glossary_entries: list[str],
     model: str,
     chunk_minutes: float,
+    api_key: str = "",
 ) -> list[dict]:
     """Transcribe full video in chunks, return chunk texts."""
     duration = get_duration(video_path)
@@ -238,7 +252,11 @@ def transcribe_full(
             print(f"\n[{label}] {m_start:.1f}-{m_end:.1f} min ({chunk_mb:.1f} MB)")
 
             prompt = build_prompt(glossary_entries, prev_context=prev_context)
-            text = transcribe_chunk(chunk_bytes, prompt, model, os.environ.get("GOOGLE_CLOUD_LOCATION", "global"))
+            text = transcribe_chunk(
+                chunk_bytes, prompt, model,
+                os.environ.get("GOOGLE_CLOUD_LOCATION", "global"),
+                api_key=api_key,
+            )
             all_chunks.append({"chunk": i, "chunk_start_s": start, "text": text})
             prev_context = text
 
@@ -279,6 +297,12 @@ def main():
         "--chunk-minutes", type=float, default=10,
         help="Chunk duration in minutes (default: 10).",
     )
+    parser.add_argument(
+        "--api-key",
+        default=os.environ.get("GEMINI_API_KEY", ""),
+        help="Gemini API key for Google AI Studio free tier. "
+        "Defaults to GEMINI_API_KEY env var. When set, uses the Gemini API instead of Vertex AI.",
+    )
     args = parser.parse_args()
 
     video_path = args.video
@@ -296,11 +320,17 @@ def main():
         glossary_entries = load_glossary_names(args.glossary)
         print(f"Loaded {len(glossary_entries)} glossary entries")
 
+    if args.api_key:
+        print("Using Gemini API (Google AI Studio)")
+    else:
+        print("Using Vertex AI")
+
     chunks = transcribe_full(
         video_path=video_path,
         glossary_entries=glossary_entries,
         model=args.model,
         chunk_minutes=args.chunk_minutes,
+        api_key=args.api_key,
     )
 
     txt_path = write_outputs(chunks, args.output)

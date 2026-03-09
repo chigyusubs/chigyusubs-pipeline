@@ -125,6 +125,7 @@ def run_video_transcription(
     temperature: float,
     retry_temperature: float,
     loop_max_line_length: int,
+    api_key: str = "",
 ):
     run = start_run("transcribe_gemini_video")
     out_dir = Path(output_path).parent
@@ -199,6 +200,7 @@ def run_video_transcription(
                 max_retries=20,
                 temperature=temperature,
                 mime_type="video/mp4",
+                api_key=api_key,
             )
             retry_info = None
             issue = _detect_loop_issue(text, loop_max_line_length)
@@ -213,6 +215,7 @@ def run_video_transcription(
                     max_retries=20,
                     temperature=retry_temperature,
                     mime_type="video/mp4",
+                    api_key=api_key,
                 )
                 retry_issue = _detect_loop_issue(retried, loop_max_line_length)
                 retry_info = {
@@ -292,7 +295,13 @@ def main():
     parser.add_argument("--temperature", type=float, default=0.1)
     parser.add_argument("--retry-temperature", type=float, default=0.3)
     parser.add_argument("--loop-max-line-length", type=int, default=300)
+    parser.add_argument("--api-key", default=os.environ.get("GEMINI_API_KEY", ""), help="Gemini API key for Google AI Studio free tier. Defaults to GEMINI_API_KEY env var.")
     args = parser.parse_args()
+
+    if args.api_key:
+        print("Using Gemini API (Google AI Studio)", flush=True)
+    else:
+        print("Using Vertex AI", flush=True)
 
     run_video_transcription(
         video_path=args.video,
@@ -310,6 +319,7 @@ def main():
         temperature=args.temperature,
         retry_temperature=args.retry_temperature,
         loop_max_line_length=args.loop_max_line_length,
+        api_key=args.api_key,
     )
 
 

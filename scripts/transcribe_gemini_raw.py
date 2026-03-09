@@ -85,11 +85,16 @@ def transcribe_raw_chunk(
     prompt: str,
     model: str,
     max_retries: int = 10,
+    api_key: str = "",
+    location: str = "europe-west4",
 ) -> str:
     from google import genai
     from google.genai import types
 
-    client = genai.Client(vertexai=True, location="europe-west4")
+    if api_key:
+        client = genai.Client(api_key=api_key)
+    else:
+        client = genai.Client(vertexai=True, location=location)
 
     audio_part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/mpeg")
     text_part = types.Part.from_text(text=prompt)
@@ -167,6 +172,12 @@ def main():
     parser.add_argument(
         "--ocr-filter-model", default="",
         help="Model name for local OCR filter endpoint (e.g. gemma3-27b, qwen3.5-9b).",
+    )
+    parser.add_argument(
+        "--api-key",
+        default=os.environ.get("GEMINI_API_KEY", ""),
+        help="Gemini API key for Google AI Studio free tier. "
+        "Defaults to GEMINI_API_KEY env var. When set, uses the Gemini API instead of Vertex AI.",
     )
     args = parser.parse_args()
 
@@ -249,7 +260,8 @@ def main():
                 )
                 
                 text_result = transcribe_raw_chunk(
-                    chunk_bytes, prompt, args.model, max_retries=10
+                    chunk_bytes, prompt, args.model, max_retries=10,
+                    api_key=args.api_key,
                 )
                 
                 all_text.append(text_result)
