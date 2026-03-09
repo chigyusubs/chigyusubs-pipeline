@@ -17,6 +17,14 @@ This reference captures the repo-specific expectations for Codex-interactive Jap
 ### Reflow from aligned words
 
 ```bash
+python3.12 scripts/pre_reflow_second_opinion.py \
+  --words samples/episodes/<slug>/transcription/<stem>_ctc_words.json
+
+# This helper auto-discovers the sibling alignment diagnostics sidecar and
+# skips clean episodes. When `possible_visual_narration_substitution` is
+# present, it runs faster-whisper + compare_transcript_coverage and writes
+# a reusable summary JSON under transcription/diagnostics/.
+
 PYTHONPATH=. python3 scripts/reflow_words.py \
   --input samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
   --output samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
@@ -33,6 +41,8 @@ python3 scripts/repair_vtt_codex.py prepare \
 
 # If <stem>_ctc_words.json.diagnostics.json exists, prepare auto-loads it and
 # carries interpolated alignment lines into session diagnostics and region payloads.
+# If <stem>_ctc_words.json preserves Gemini turn metadata, prepare also carries
+# cue-level turn-boundary context for merged multi-turn cues.
 ```
 
 Then iterate:

@@ -104,6 +104,7 @@ For each cue in a batch:
 - do not leave empty cues
 - do not invent content that is unsupported by the source
 - if the batch payload includes `alignment_warnings`, treat them as timing-confidence notes for the affected cues, not as a stop condition by themselves
+- if the batch payload includes `turn_context`, treat it as speaker-turn awareness only; do not restore visible `-- ` markers or transcript-style labels into the subtitle text
 
 If one cue is semantically weak in isolation, use adjacent cues to distribute meaning more naturally, but still keep one non-empty output per cue.
 
@@ -124,6 +125,7 @@ chunk-level timestamps, not cue-level precision.
 - Keep reruns resumable from the last completed batch.
 - `apply-batch` validates source cue identity as well as cue IDs, so do not strip `source_text_hash` from the batch payload when preparing the translations JSON.
 - If `prepare` auto-discovers an alignment diagnostics sidecar, expect `next-batch` payloads and diagnostics to carry advisory warnings for cues whose source timing was locally interpolated during alignment.
+- If the aligned words JSON preserves Gemini turn metadata, expect `next-batch` payloads and diagnostics to carry advisory turn-boundary context for cues that span multiple source turns.
 - If you intentionally restart with `prepare --force`, expect the helper to clear the old session, partial output, final output, and diagnostics so stale batch history does not leak into the new run.
 - After each `apply-batch`, immediately loop back to `next-batch` — do not pause or summarize between batches.
 

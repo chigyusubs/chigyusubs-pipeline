@@ -42,6 +42,8 @@ See [references/workflow.md](./references/workflow.md) for repo-specific command
 
 Use the maintained default:
 
+- if alignment diagnostics flag `possible_visual_narration_substitution`, run
+  `scripts/pre_reflow_second_opinion.py --words <stem>_ctc_words.json` before reflow review
 - `PYTHONPATH=. python3 scripts/reflow_words.py --line-level --stats`
 
 Do not switch to word-level reflow unless the user explicitly asks for it or the input is not a CTC-aligned artifact.
@@ -62,6 +64,7 @@ Review should combine:
 - spot-checks from early, middle, and late regions
 - deterministic diagnostics from the helper, including flagged region ranges and short/tiny cue counts
 - alignment-stage interpolation diagnostics when a sibling `*_ctc_words.json.diagnostics.json` sidecar exists
+- source turn-boundary context when the sibling `*_ctc_words.json` preserves Gemini turn metadata
 
 ### 3. Decision
 

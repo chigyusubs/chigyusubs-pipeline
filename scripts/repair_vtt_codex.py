@@ -15,6 +15,11 @@ from chigyusubs.alignment_diagnostics import (
     build_alignment_review,
     discover_alignment_diagnostics_path,
 )
+from chigyusubs.turn_context import (
+    build_turn_review,
+    discover_words_json_path,
+    turn_context_for_cue_ids,
+)
 from chigyusubs.reflow_repair import (
     RepairRegion,
     build_review,
@@ -155,6 +160,7 @@ def _write_diagnostics(session: dict, base_cues: list[Cue]) -> None:
         "partial_output": session["partial_output"],
         "words_path": session.get("words_path", ""),
         "alignment_review": _alignment_status_payload(session.get("alignment_review")),
+        "turn_review": _turn_status_payload(session.get("turn_review")),
         "prepared_review": prepared_review,
         "current_review": review,
         "regions_total": len(session["regions"]),
@@ -244,8 +250,10 @@ def cmd_prepare(args) -> int:
     preflight = structural_preflight(cues)
     regions = detect_regions(cues, context_cues=args.region_context_cues)
     review = build_review(cues, preflight, regions)
-    alignment_diagnostics = discover_alignment_diagnostics_path(words_path=args.words, input_path=input_path)
+    words_path = discover_words_json_path(words_path=args.words, input_path=input_path)
+    alignment_diagnostics = discover_alignment_diagnostics_path(words_path=words_path, input_path=input_path)
     alignment_review = build_alignment_review(cues, alignment_diagnostics) if alignment_diagnostics else None
+    turn_review = build_turn_review(cues, words_path) if words_path else None
     status = "ready"
     stop_reason = ""
     if review["review"] == "red":
@@ -261,9 +269,10 @@ def cmd_prepare(args) -> int:
         "output": str(output_path),
         "partial_output": str(_partial_output_path(output_path)),
         "diagnostics_path": str(_diagnostics_path(output_path)),
-        "words_path": args.words,
+        "words_path": str(words_path) if words_path else "",
         "alignment_diagnostics_path": str(alignment_diagnostics) if alignment_diagnostics else "",
         "alignment_review": alignment_review,
+        "turn_review": turn_review,
         "region_context_cues": args.region_context_cues,
         "prepared_review": review,
         "regions": _regions_payload(regions),
@@ -282,6 +291,11 @@ def cmd_prepare(args) -> int:
             "Alignment advisory: "
             f"{alignment_review['repaired_line_count']} interpolated source lines across "
             f"{alignment_review['affected_cues_count']} cues"
+        )
+    if turn_review:
+        print(
+            "Turn advisory: "
+            f"{turn_review['multi_turn_cues_count']} cues span multiple source turns"
         )
     if session["status"] == "stopped":
         print(f"Stopped: {session['stop_reason']}", file=sys.stderr)
@@ -310,6 +324,7 @@ def cmd_status(args) -> int:
         "current_review": current_review["review"],
         "current_metrics": current_review["metrics"],
         "alignment_review": _alignment_status_payload(session.get("alignment_review")),
+        "turn_review": _turn_status_payload(session.get("turn_review")),
         "regions_total": len(session["regions"]),
         "completed_regions": len(session.get("completed_regions", [])),
         "pending_regions": len(pending),
@@ -339,6 +354,10 @@ def cmd_next_region(args) -> int:
         "region": _region_payload(region, cues),
         "alignment_warnings": alignment_warnings_for_cue_ids(
             session.get("alignment_review"),
+            range(int(region["start_cue_id"]), int(region["end_cue_id"]) + 1),
+        ),
+        "turn_context": turn_context_for_cue_ids(
+            session.get("turn_review"),
             range(int(region["start_cue_id"]), int(region["end_cue_id"]) + 1),
         ),
         "review_policy": {
@@ -515,6 +534,23 @@ def _alignment_status_payload(alignment_review: dict | None) -> dict | None:
         "nearest_cue_mapped_lines_count": alignment_review.get("nearest_cue_mapped_lines_count", 0),
         "unmapped_repaired_lines_count": alignment_review.get("unmapped_repaired_lines_count", 0),
         "sample_unmapped_repaired_lines": alignment_review.get("sample_unmapped_repaired_lines", []),
+    }
+
+
+def _turn_status_payload(turn_review: dict | None) -> dict | None:
+    if not turn_review:
+        return None
+    return {
+        "advisory_only": True,
+        "words_path": turn_review["words_path"],
+        "source_turn_segments": turn_review["source_turn_segments"],
+        "source_turn_count": turn_review["source_turn_count"],
+        "cues_with_turn_metadata_count": turn_review["cues_with_turn_metadata_count"],
+        "multi_turn_cues_count": turn_review["multi_turn_cues_count"],
+        "multi_turn_cue_ids_sample": turn_review["multi_turn_cue_ids"][:8],
+        "sample_multi_turn_cues": turn_review.get("sample_multi_turn_cues", []),
+        "nearest_cue_mapped_segments_count": turn_review.get("nearest_cue_mapped_segments_count", 0),
+        "unmapped_turn_segments_count": turn_review.get("unmapped_turn_segments_count", 0),
     }
 
 

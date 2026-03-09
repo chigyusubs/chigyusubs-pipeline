@@ -69,6 +69,12 @@ When alignment diagnostics are available, the session and per-batch payloads sho
 - affected cue IDs
 - sampled repaired source lines for the current batch
 
+When aligned words JSON includes Gemini turn metadata, the session and per-batch payloads should also retain:
+
+- episode-level counts of cues that span multiple source turns
+- cue-level turn-span summaries for the current batch
+- advisory context only; no visible `-- ` markers in the subtitle text
+
 ## Trigger Phrases
 
 This skill should trigger on requests like:

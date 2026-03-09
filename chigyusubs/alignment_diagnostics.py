@@ -58,6 +58,19 @@ def load_alignment_diagnostics(path_value: str | Path) -> dict | None:
         return None
 
     repaired_lines = _flatten_repaired_lines(chunks)
+    visual_risk_chunks = [
+        {
+            "chunk": int(chunk.get("chunk", -1)),
+            "chunk_start_s": round(float(chunk.get("chunk_start_s", 0.0)), 3),
+            "chunk_end_s": round(float(chunk.get("chunk_end_s", 0.0)), 3),
+            "stripped_visual_lines": int(chunk.get("stripped_visual_lines", 0)),
+            "narration_like_visual_line_count": int(chunk.get("narration_like_visual_line_count", 0)),
+            "suspicious_visual_runs": list(chunk.get("suspicious_visual_runs", [])),
+            "review_reasons": list(chunk.get("review_reasons", [])),
+        }
+        for chunk in chunks
+        if bool(chunk.get("possible_visual_narration_substitution"))
+    ]
     return {
         "diagnostics_path": str(path),
         "chunks": chunks,
@@ -68,6 +81,8 @@ def load_alignment_diagnostics(path_value: str | Path) -> dict | None:
         "chunks_with_interpolated_unaligned_segments": sum(
             1 for chunk in chunks if int(chunk.get("repaired_unaligned_segments", 0)) > 0
         ),
+        "chunks_with_visual_narration_substitution_risk": len(visual_risk_chunks),
+        "visual_narration_risk_chunks": visual_risk_chunks,
         "repaired_lines": repaired_lines,
     }
 

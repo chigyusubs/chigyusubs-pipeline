@@ -16,6 +16,11 @@ from chigyusubs.alignment_diagnostics import (
     build_alignment_review,
     discover_alignment_diagnostics_path,
 )
+from chigyusubs.turn_context import (
+    build_turn_review,
+    discover_words_json_path,
+    turn_context_for_cue_ids,
+)
 from chigyusubs.translation import (
     Cue,
     batch_cues,
@@ -149,11 +154,13 @@ def _load_text_blob(path_value: str) -> str:
 
 def _initial_session(args, input_path: Path, output_path: Path, cues: list[Cue]) -> dict:
     preflight = _preflight(cues)
+    words_path = discover_words_json_path(input_path=input_path)
     alignment_diagnostics = discover_alignment_diagnostics_path(
         explicit_path=args.alignment_diagnostics,
         input_path=input_path,
     )
     alignment_review = build_alignment_review(cues, alignment_diagnostics) if alignment_diagnostics else None
+    turn_review = build_turn_review(cues, words_path) if words_path else None
     status = "ready"
     stop_reason = ""
     if preflight["negative_duration_cues"] or preflight["overlap_after_cues"]:
@@ -172,8 +179,10 @@ def _initial_session(args, input_path: Path, output_path: Path, cues: list[Cue])
         "output": str(output_path),
         "partial_output": str(_partial_output_path(output_path)),
         "diagnostics_path": str(_diagnostics_path(output_path)),
+        "words_path": str(words_path) if words_path else "",
         "alignment_diagnostics_path": str(alignment_diagnostics) if alignment_diagnostics else "",
         "alignment_review": alignment_review,
+        "turn_review": turn_review,
         "target_language": args.target_lang,
         "glossary_path": args.glossary or "",
         "summary_path": args.summary or "",
@@ -379,6 +388,7 @@ def _session_diagnostics(session: dict, cues: list[Cue]) -> dict:
         "current_batch_tier": session["current_batch_tier"],
         "batch_tiers": session["batch_tiers"],
         "alignment_warning_summary": _alignment_summary(session.get("alignment_review")),
+        "turn_context_summary": _turn_summary(session.get("turn_review")),
         "completed_cues": completed,
         "total_cues": len(cues),
         "completed_batches": len(session.get("completed_batches", [])),
@@ -389,6 +399,10 @@ def _session_diagnostics(session: dict, cues: list[Cue]) -> dict:
             "alignment_warning_batches": alignment_warning_batches,
             "alignment_warning_cues_total": alignment_warning_cues_total,
             "alignment_warning_lines_total": alignment_warning_lines_total,
+            "multi_turn_batches": sum(
+                1 for batch in batch_diags if int(batch.get("multi_turn_cues", 0)) > 0
+            ),
+            "multi_turn_cues_total": sum(int(batch.get("multi_turn_cues", 0)) for batch in batch_diags),
             "hard_cps_violations_total": hard_cps_total,
             "line_violations_total": line_violations_total,
         },
@@ -476,6 +490,11 @@ def cmd_prepare(args) -> int:
             f"{session['alignment_review']['repaired_line_count']} interpolated source lines across "
             f"{session['alignment_review']['affected_cues_count']} cues"
         )
+    if session.get("turn_review"):
+        print(
+            "Turn advisory: "
+            f"{session['turn_review']['multi_turn_cues_count']} cues span multiple source turns"
+        )
     if seed_path:
         print(f"Seeded from: {seed_path} ({session['seeded_cues']} cues)")
     if session["status"] == "stopped":
@@ -496,6 +515,7 @@ def cmd_next_batch(args) -> int:
     batch_end = batch["cues"][-1].end
     visual_cues = _load_visual_cues_for_batch(session.get("visual_cues_path", ""), batch_start, batch_end)
     target_alignment = alignment_warnings_for_cue_ids(session.get("alignment_review"), batch["cue_ids"])
+    target_turn_context = turn_context_for_cue_ids(session.get("turn_review"), batch["cue_ids"])
     context_ids = [
         batch["start_index"] - len(batch["prev_context"]) + idx + 1
         for idx, _ in enumerate(batch["prev_context"])
@@ -504,6 +524,7 @@ def cmd_next_batch(args) -> int:
         for idx, _ in enumerate(batch["next_context"])
     ]
     context_alignment = alignment_warnings_for_cue_ids(session.get("alignment_review"), context_ids)
+    context_turn_context = turn_context_for_cue_ids(session.get("turn_review"), context_ids)
     payload = {
         "batch_index": batch["batch_index"],
         "current_batch_tier": session["current_batch_tier"],
@@ -523,6 +544,7 @@ def cmd_next_batch(args) -> int:
         "glossary": _load_text_blob(session.get("glossary_path", "")),
         "summary": _load_text_blob(session.get("summary_path", "")),
         "alignment_warnings": _batch_alignment_payload(target_alignment, context_alignment),
+        "turn_context": _batch_turn_payload(target_turn_context, context_turn_context),
         "review_policy": {
             "allowed_reviews": ["green", "yellow", "red"],
             "green": "apply batch and continue",
@@ -598,6 +620,7 @@ def cmd_apply_batch(args) -> int:
 
     batch_index = batch["batch_index"]
     batch_alignment = alignment_warnings_for_cue_ids(session.get("alignment_review"), expected_ids)
+    batch_turn_context = turn_context_for_cue_ids(session.get("turn_review"), expected_ids)
     session["translations"] = {str(k): v for k, v in sorted(translations.items())}
     completed = _sorted_completed(session)
     completed.add(batch_index)
@@ -617,6 +640,9 @@ def cmd_apply_batch(args) -> int:
         "alignment_warning_lines": 0 if not batch_alignment else batch_alignment["repaired_line_count"],
         "alignment_warning_cue_ids": [] if not batch_alignment else batch_alignment["affected_cue_ids"],
         "alignment_warning_lines_sample": [] if not batch_alignment else batch_alignment["repaired_lines"],
+        "multi_turn_cues": 0 if not batch_turn_context else batch_turn_context["multi_turn_cues_count"],
+        "multi_turn_cue_ids": [] if not batch_turn_context else batch_turn_context["multi_turn_cue_ids"],
+        "multi_turn_cues_sample": [] if not batch_turn_context else batch_turn_context["sample_multi_turn_cues"],
         "cues": cue_diags,
     }
 
@@ -661,6 +687,7 @@ def cmd_status(args) -> int:
         "completed_batches": len(session.get("completed_batches", [])),
         "current_batch_tier": session["current_batch_tier"],
         "alignment_warning_summary": _alignment_summary(session.get("alignment_review")),
+        "turn_context_summary": _turn_summary(session.get("turn_review")),
         "next_batch_index": None if pending_batch is None else pending_batch["batch_index"],
         "next_batch_range": None if pending_batch is None else [pending_batch["cue_ids"][0], pending_batch["cue_ids"][-1]],
     }
@@ -768,6 +795,33 @@ def _batch_alignment_payload(target_alignment: dict | None, context_alignment: d
         "advisory_only": True,
         "target": target_alignment,
         "context": context_alignment,
+    }
+
+
+def _turn_summary(turn_review: dict | None) -> dict | None:
+    if not turn_review:
+        return None
+    return {
+        "advisory_only": True,
+        "words_path": turn_review["words_path"],
+        "source_turn_segments": turn_review["source_turn_segments"],
+        "source_turn_count": turn_review["source_turn_count"],
+        "cues_with_turn_metadata_count": turn_review["cues_with_turn_metadata_count"],
+        "multi_turn_cues_count": turn_review["multi_turn_cues_count"],
+        "multi_turn_cue_ids_sample": turn_review["multi_turn_cue_ids"][:8],
+        "sample_multi_turn_cues": turn_review.get("sample_multi_turn_cues", []),
+        "nearest_cue_mapped_segments_count": turn_review.get("nearest_cue_mapped_segments_count", 0),
+        "unmapped_turn_segments_count": turn_review.get("unmapped_turn_segments_count", 0),
+    }
+
+
+def _batch_turn_payload(target_turn_context: dict | None, context_turn_context: dict | None) -> dict | None:
+    if not target_turn_context and not context_turn_context:
+        return None
+    return {
+        "advisory_only": True,
+        "target": target_turn_context,
+        "context": context_turn_context,
     }
 
 

@@ -179,6 +179,7 @@ source video
 VAD chunks + OCR context + episode memory + bounded rolling transcript history
   -> Gemini or local transcription
   -> alignment
+  -> optional second-opinion coverage diff
   -> reflow
   -> optional Codex-interactive cue repair
   -> subtitle output
@@ -210,6 +211,39 @@ Current weak spots are:
 - local Gemma context is better, but still sometimes over-filters or keeps weak local terms
 - dense-board spans likely need a stricter or more structured selection strategy
 - `classify_ocr_spans_local.py` was initially batch-only and now checkpoints, but its output schema may still need a split between anchor terms and auxiliary local terms
+- Gemini video-only can sometimes substitute visual `[画面: ...]` text for near-identical spoken narration, especially in narrated status-summary inserts and premise/rule VO
+
+## Alignment Diagnostics as a Gate
+
+`scripts/align_ctc.py` remains speech-only by design: it strips `[画面: ...]` before alignment.
+
+That is still correct for the main path, but it creates a specific risk:
+
+- Gemini may capture a narrated insert only as visual text
+- CTC then aligns the remaining spoken lines cleanly
+- the resulting `*_ctc_words.json` can look healthy while spoken coverage is actually incomplete
+
+To make that inspectable, the alignment diagnostics sidecar now records advisory chunk-level visual-substitution risk:
+
+- `stripped_visual_lines`
+- `narration_like_visual_line_count`
+- `possible_visual_narration_substitution`
+- `suspicious_visual_runs`
+
+When those flags appear, the preferred next step is not to rerun Gemini blindly. Instead:
+
+1. run a full-episode or local-window `faster-whisper large-v3` second-opinion pass
+2. compare it against `*_ctc_words.json` with `scripts/compare_transcript_coverage.py`
+3. review only the flagged windows
+4. patch the Japanese source locally before translation if needed
+
+This keeps the pipeline artifact-first while giving the reflow handoff a deterministic review gate for missing narration.
+
+The maintained helper for this gate is:
+
+- `scripts/pre_reflow_second_opinion.py --words <stem>_ctc_words.json`
+
+It auto-discovers alignment diagnostics, skips episodes with no visual-substitution risk, and only runs the local second-opinion path when the alignment sidecar warrants it.
 
 ## Current Scripts By Role
 
@@ -236,15 +270,15 @@ Transcription and alignment:
 - `scripts/transcribe_pipeline.py`
 - `scripts/transcribe_gemini.py`
 - `scripts/transcribe_local.py`
-- `scripts/align_ctc.py` — CTC forced alignment using `NTQAI/wav2vec2-large-japanese` (recommended); writes per-chunk alignment diagnostics including interpolated all-unaligned lines
+- `scripts/align_ctc.py` — CTC forced alignment using `NTQAI/wav2vec2-large-japanese` (recommended); writes per-chunk alignment diagnostics including interpolated all-unaligned lines and preserves Gemini turn boundaries as metadata in the aligned words JSON
 - `scripts/align_chunkwise.py` — chunked stable-ts alignment (legacy)
 - `scripts/align_qwen_forced.py` — Qwen forced alignment benchmark (archived)
 - `scripts/align_qwen_forced_hf.py` — Qwen HF forced alignment benchmark (archived)
 - `scripts/align_stable_ts.py` — global stable-ts alignment (legacy)
-- `scripts/repair_vtt_codex.py` — Codex-interactive region-based reflow repair helper with session/checkpoint state, deterministic validation/final assembly, and advisory surfacing of alignment-stage interpolated-line diagnostics
+- `scripts/repair_vtt_codex.py` — Codex-interactive region-based reflow repair helper with session/checkpoint state, deterministic validation/final assembly, and advisory surfacing of both alignment-stage interpolated-line diagnostics and source turn-boundary context from aligned words JSON
 - `scripts/repair_vtt_local.py` — local Gemma cue-boundary repair on top of a reflowed VTT + aligned words (alternative path, no longer the default skill fallback)
 - `scripts/translate_vtt.py`
-- `scripts/translate_vtt_codex.py` — Codex-interactive one-episode translation helper with session/checkpoint, deterministic batch diagnostics, source-cue signature validation during `apply-batch`, alignment-warning carry-through from CTC diagnostics, clean restart via `prepare --force`, partial VTT assembly, and automatic batch-tier fallback
+- `scripts/translate_vtt_codex.py` — Codex-interactive one-episode translation helper with session/checkpoint, deterministic batch diagnostics, source-cue signature validation during `apply-batch`, alignment-warning carry-through from CTC diagnostics, advisory source turn-boundary context from aligned words JSON, clean restart via `prepare --force`, partial VTT assembly, and automatic batch-tier fallback
 - `scripts/translate_vtt_mistral.py` — experimental translation benchmark using the same batch/checkpoint flow against the Mistral API
 
 ## Recommended Operational Default
@@ -306,6 +340,6 @@ reflowed VTT
 ```
 
 This mode is region-based, preserves source text coverage inside each repaired region, and rebuilds timings deterministically inside the original region span.
-Its diagnostics now include deterministic before/after cue metrics, sampled flagged regions, advisory alignment-stage interpolation warnings, and one recommended Japanese VTT handoff path for translation.
+Its diagnostics now include deterministic before/after cue metrics, sampled flagged regions, advisory alignment-stage interpolation warnings, advisory source turn-boundary summaries, and one recommended Japanese VTT handoff path for translation.
 
 One important boundary remains: if Gemini never transcribed a spoken section, CTC cannot recover it later. In practice this shows up most often in narrated premise/rules VO that partially overlaps with explanatory telops. The operational workaround is local and artifact-preserving: extract the suspicious clip, transcribe that clip with `faster-whisper large-v3` as a saved second-opinion artifact, patch the affected Japanese cues, and only then rerun downstream reflow/translation for that region or episode.

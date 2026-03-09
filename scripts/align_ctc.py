@@ -37,7 +37,28 @@ CPU_THREADS = 24
 
 # Lines that should be stripped before alignment (visual-only context)
 _VISUAL_RE = re.compile(r"^\[画面:.*\]$")
+_VISUAL_CAPTURE_RE = re.compile(r"^\[画面:\s*(.*?)\]$")
 _SPEAKER_DASH_RE = re.compile(r"^--\s*")
+_VISUAL_NARRATION_HINTS = (
+    "ご覧の通り",
+    "現在地",
+    "現在位置",
+    "状況",
+    "一方",
+    "優勢",
+    "劣勢",
+    "スタートから",
+    "ルール",
+    "挑戦",
+    "設定",
+    "被害者",
+    "刑事",
+    "残り",
+    "得点",
+    "経過",
+    "順位",
+    "ここまで",
+)
 
 
 def load_model():
@@ -72,22 +93,96 @@ def extract_audio_slice(video_path, start_s, duration_s, out_path):
     )
 
 
-def clean_chunk_text(raw_text: str) -> list[str]:
-    """Extract spoken lines from a chunk, stripping visual context and speaker dashes."""
+def clean_chunk_text(raw_text: str) -> list[dict]:
+    """Extract spoken lines from a chunk, preserving Gemini turn boundaries."""
     lines = []
+    current_turn = -1
     for line in raw_text.split("\n"):
         line = line.strip()
         if not line:
             continue
         if _VISUAL_RE.match(line):
             continue
-        line = _SPEAKER_DASH_RE.sub("", line).strip()
-        if line:
-            lines.append(line)
+        starts_new_turn = bool(_SPEAKER_DASH_RE.match(line))
+        text = _SPEAKER_DASH_RE.sub("", line).strip()
+        if not text:
+            continue
+        if starts_new_turn or current_turn < 0:
+            current_turn += 1
+        lines.append(
+            {
+                "text": text,
+                "turn_index": current_turn,
+                "starts_new_turn": starts_new_turn,
+            }
+        )
     return lines
 
 
-def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> tuple[list[dict], list[dict]]:
+def inspect_visual_context(raw_text: str) -> dict:
+    """Flag chunks where visual-only text may be substituting for narration."""
+    items = []
+    visual_lines = []
+    for raw_line in raw_text.split("\n"):
+        raw_line = raw_line.strip()
+        if not raw_line:
+            continue
+        visual_match = _VISUAL_CAPTURE_RE.match(raw_line)
+        if visual_match:
+            text = visual_match.group(1).strip()
+            items.append({"type": "visual", "text": text})
+            visual_lines.append(text)
+            continue
+        spoken_text = _SPEAKER_DASH_RE.sub("", raw_line).strip()
+        if spoken_text:
+            items.append({"type": "spoken", "text": spoken_text})
+
+    suspicious_runs = []
+    idx = 0
+    while idx < len(items):
+        if items[idx]["type"] != "visual":
+            idx += 1
+            continue
+        run_start = idx
+        while idx < len(items) and items[idx]["type"] == "visual":
+            idx += 1
+        run_lines = [item["text"] for item in items[run_start:idx]]
+        matched_hints = sorted(
+            {
+                hint
+                for line in run_lines
+                for hint in _VISUAL_NARRATION_HINTS
+                if hint in line
+            }
+        )
+        has_spoken_before = any(item["type"] == "spoken" for item in items[:run_start])
+        has_spoken_after = any(item["type"] == "spoken" for item in items[idx:])
+        long_visual_count = sum(1 for line in run_lines if len(line) >= 14)
+        if len(run_lines) >= 2 and has_spoken_before and has_spoken_after and (matched_hints or long_visual_count >= 2):
+            suspicious_runs.append(
+                {
+                    "visual_line_count": len(run_lines),
+                    "lines": run_lines[:4],
+                    "matched_hints": matched_hints,
+                    "has_spoken_before": has_spoken_before,
+                    "has_spoken_after": has_spoken_after,
+                }
+            )
+
+    return {
+        "visual_line_count": len(visual_lines),
+        "visual_lines_sample": visual_lines[:6],
+        "narration_like_visual_line_count": sum(
+            1
+            for line in visual_lines
+            if any(hint in line for hint in _VISUAL_NARRATION_HINTS) or len(line) >= 14
+        ),
+        "possible_visual_narration_substitution": bool(suspicious_runs),
+        "suspicious_visual_runs": suspicious_runs[:4],
+    }
+
+
+def align_chunk(model, processor, waveform: torch.Tensor, lines: list[dict]) -> tuple[list[dict], list[dict]]:
     """Align spoken lines to audio using CTC forced alignment.
 
     Returns list of segment dicts with word-level timestamps.
@@ -113,7 +208,7 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> t
     audio_duration = waveform.shape[-1] / SAMPLE_RATE
 
     # Build full token sequence from all lines
-    full_text = "".join(lines)
+    full_text = "".join(line["text"] for line in lines)
     token_ids = []
     chars = []
     for ch in full_text:
@@ -164,9 +259,10 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> t
     segments = []
     char_idx = 0
     for line_idx, line in enumerate(lines):
+        line_text = str(line["text"])
         # First pass: match aligned chars and mark unaligned ones
         raw_entries = []
-        for ch in line:
+        for ch in line_text:
             if char_idx < len(char_timestamps) and char_timestamps[char_idx]["char"] == ch:
                 raw_entries.append(("aligned", char_timestamps[char_idx]))
                 char_idx += 1
@@ -200,10 +296,12 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> t
             segments.append({
                 "start": 0.0,
                 "end": 0.0,
-                "text": line,
+                "text": line_text,
                 "_line_index": line_idx,
                 "_unaligned": True,
-                "words": [{"start": 0.0, "end": 0.0, "word": line, "probability": 0.0}],
+                "turn_index": int(line.get("turn_index", line_idx)),
+                "starts_new_turn": bool(line.get("starts_new_turn", False)),
+                "words": [{"start": 0.0, "end": 0.0, "word": line_text, "probability": 0.0}],
             })
             continue
 
@@ -222,8 +320,10 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[str]) -> t
         segments.append({
             "start": seg_start,
             "end": seg_end,
-            "text": line,
+            "text": line_text,
             "_line_index": line_idx,
+            "turn_index": int(line.get("turn_index", line_idx)),
+            "starts_new_turn": bool(line.get("starts_new_turn", False)),
             "words": words,
         })
 
@@ -401,9 +501,15 @@ def main():
             c_end = chunk["chunk_end_s"]
             c_dur = c_end - c_start
             raw_text = chunk.get("text", "")
+            visual_context = inspect_visual_context(raw_text)
 
             lines = clean_chunk_text(raw_text)
             print(f"\nChunk {i+1}/{len(chunks_data)} ({c_start:.1f}s\u2013{c_end:.1f}s, {len(lines)} lines)")
+            if visual_context["possible_visual_narration_substitution"]:
+                print(
+                    "  advisory: visual-only text may be substituting for narrated speech "
+                    f"({len(visual_context['suspicious_visual_runs'])} suspicious run(s))"
+                )
 
             if not lines:
                 print("  Skipping empty chunk.")
@@ -412,14 +518,23 @@ def main():
                     "chunk_start_s": c_start,
                     "chunk_end_s": c_end,
                     "line_count": 0,
+                    "turn_count": 0,
                     "segments": 0,
                     "words": 0,
                     "zero_duration_segments": 0,
                     "zero_duration_words": 0,
                     "repaired_unaligned_segments": 0,
                     "repaired_unaligned_details": [],
-                    "needs_review": False,
-                    "status": "empty",
+                    "stripped_visual_lines": visual_context["visual_line_count"],
+                    "visual_lines_sample": visual_context["visual_lines_sample"],
+                    "narration_like_visual_line_count": visual_context["narration_like_visual_line_count"],
+                    "possible_visual_narration_substitution": visual_context["possible_visual_narration_substitution"],
+                    "suspicious_visual_runs": visual_context["suspicious_visual_runs"],
+                    "review_reasons": ["possible_visual_narration_substitution"]
+                    if visual_context["possible_visual_narration_substitution"]
+                    else [],
+                    "needs_review": bool(visual_context["possible_visual_narration_substitution"]),
+                    "status": "empty_visual_risk" if visual_context["possible_visual_narration_substitution"] else "empty",
                 })
                 continue
 
@@ -455,19 +570,43 @@ def main():
                 print(f"  repaired {len(repairs)}/{len(segments)} all-unaligned segments")
             if zero_dur:
                 print(f"  {zero_dur}/{len(segments)} zero-duration segments")
+            review_reasons = []
+            if repairs:
+                review_reasons.append("interpolated_unaligned_segments")
+            if zero_dur or zero_words:
+                review_reasons.append("zero_duration_alignment")
+            if not segments:
+                review_reasons.append("no_segments")
+            if visual_context["possible_visual_narration_substitution"]:
+                review_reasons.append("possible_visual_narration_substitution")
             all_chunk_diagnostics.append({
                 "chunk": i,
                 "chunk_start_s": c_start,
                 "chunk_end_s": c_end,
                 "line_count": len(lines),
+                "turn_count": len({int(line["turn_index"]) for line in lines}),
                 "segments": len(segments),
                 "words": sum(len(s["words"]) for s in segments),
                 "zero_duration_segments": zero_dur,
                 "zero_duration_words": zero_words,
                 "repaired_unaligned_segments": len(repairs),
                 "repaired_unaligned_details": repairs,
-                "needs_review": bool(repairs or zero_dur or zero_words or not segments),
-                "status": "ok_repaired" if repairs else ("ok" if segments else "no_segments"),
+                "stripped_visual_lines": visual_context["visual_line_count"],
+                "visual_lines_sample": visual_context["visual_lines_sample"],
+                "narration_like_visual_line_count": visual_context["narration_like_visual_line_count"],
+                "possible_visual_narration_substitution": visual_context["possible_visual_narration_substitution"],
+                "suspicious_visual_runs": visual_context["suspicious_visual_runs"],
+                "review_reasons": review_reasons,
+                "needs_review": bool(review_reasons),
+                "status": (
+                    "ok_repaired"
+                    if repairs
+                    else (
+                        "ok_visual_risk"
+                        if visual_context["possible_visual_narration_substitution"]
+                        else ("ok" if segments else "no_segments")
+                    )
+                ),
             })
 
     # Write output
@@ -476,11 +615,15 @@ def main():
     zero_words = sum(1 for s in all_segments for w in s["words"] if w["start"] == w["end"])
     repaired_segments = sum(item["repaired_unaligned_segments"] for item in all_chunk_diagnostics)
     repaired_chunks = sum(1 for item in all_chunk_diagnostics if item["repaired_unaligned_segments"] > 0)
+    visual_risk_chunks = sum(
+        1 for item in all_chunk_diagnostics if item.get("possible_visual_narration_substitution")
+    )
 
     print(f"\nResults: {len(all_segments)} segments, {total_words} words")
     print(f"Zero-duration: {zero_segs} segments ({zero_segs/max(len(all_segments),1)*100:.1f}%), "
           f"{zero_words} words ({zero_words/max(total_words,1)*100:.1f}%)")
     print(f"Interpolated all-unaligned segments: {repaired_segments} across {repaired_chunks} chunks")
+    print(f"Visual-only narration risk chunks: {visual_risk_chunks}")
 
     Path(args.output_words).parent.mkdir(parents=True, exist_ok=True)
     with open(args.output_words, "w", encoding="utf-8") as f:
@@ -499,10 +642,12 @@ def main():
             "chunks_loaded": len(chunks_data),
             "segments_written": len(all_segments),
             "words_written": total_words,
+            "source_turns": len({int(seg.get("turn_index", -1)) for seg in all_segments if "turn_index" in seg}),
             "zero_duration_segments": zero_segs,
             "zero_duration_words": zero_words,
             "interpolated_unaligned_segments": repaired_segments,
             "chunks_with_interpolated_unaligned_segments": repaired_chunks,
+            "chunks_with_visual_narration_substitution_risk": visual_risk_chunks,
         },
     )
     write_metadata(args.output_words, metadata)

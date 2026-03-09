@@ -143,6 +143,32 @@ Why:
 
 This format worked well on `great_escape1` and `dmm`.
 
+### 7a. Visual-text extraction can substitute for narration instead of complementing it
+
+Validated on `killah_kuts_s01e03`.
+
+Failure mode:
+
+- Gemini did capture map-summary/status text such as `それぞれの現在地はご覧の通り` and `未だウエストランドがやや優勢といった状況`
+- but it captured them as `[画面: ...]` lines instead of spoken `-- ...` narration
+- `align_ctc.py` correctly stripped those visual lines before speech alignment
+- the aligned words JSON and reflowed VTT therefore looked structurally healthy while the narrator VO was missing from the spoken transcript
+
+Operational conclusion:
+
+- asking for visual cues was not a mistake
+- but visual cues cannot be treated as proof that spoken coverage is complete
+- dense `[画面: ...]` runs in the middle of active chunk dialogue are a real warning sign, especially when the text looks like narration, rules, or status summaries
+
+Pipeline consequence:
+
+- `align_ctc.py` diagnostics should flag `possible_visual_narration_substitution`
+- `scripts/pre_reflow_second_opinion.py` should be the maintained gate that consumes that flag
+- when that flag appears, the preferred repair path is a local `faster-whisper large-v3` second-opinion pass plus a transcript coverage diff before reflow
+- do not assume CTC itself can detect missing speech when the text never reached the spoken transcript
+
+This is a manual-review aid, not a reason to remove visual cues from the Gemini format entirely.
+
 ### 8. OCR-first filtering became too conservative when it focused mainly on names
 
 The initial OCR cleanup/classification work improved safety, but it over-optimized for name/entity anchors.
@@ -258,6 +284,28 @@ Operational rule:
 
 - treat old English drafts as reusable only when cue count and cue timings match the current Japanese source exactly
 - if even one cue boundary changed, do not seed by cue index
+
+### 14. Full-episode faster-whisper is most useful as a deterministic second opinion, not the primary default path
+
+Validated on `killah_kuts_s01e03`.
+
+What worked:
+
+- a full-episode `faster-whisper large-v3` pass recovered several real spoken lines that Gemini+CTC had missed or compressed
+- the highest-signal misses were found by comparing the two transcripts as time-local coverage windows rather than by cue index
+
+What not to do:
+
+- do not switch the whole maintained pipeline to faster-whisper by default
+- do not auto-replace Gemini output wholesale from a second model
+
+Better rule:
+
+- keep Gemini + CTC as the main path
+- use faster-whisper as a saved second-opinion artifact when alignment diagnostics or manual review suggest missing narration
+- compare `*_ctc_words.json` against `*_faster_*_words.json` with a deterministic coverage-diff pass before reflow or source patching
+
+This preserves the main quality path while giving review a concrete way to find missing speech without rerunning Gemini.
 - any safe reuse path should validate exact cue-timeline equality before importing draft translations
 
 Pipeline consequence:
@@ -327,6 +375,22 @@ Why this is the right compromise:
 - it is much cheaper than rerunning Gemini
 - it gives a saved local comparison artifact for the exact repaired window
 - it avoids overreacting to a local Gemini miss by replacing the whole transcription path
+
+### 16. Gemini speaker turns are useful as downstream metadata, but not as visible subtitle text
+
+Validated on the maintained Gemini -> CTC -> reflow -> Codex workflow.
+
+Operational rule:
+
+- preserve Gemini turn boundaries in the aligned words JSON as metadata
+- do not restore literal `-- ` markers into Japanese or English VTT text
+- surface turn-boundary awareness to reflow review and translation as advisory context only
+
+Why:
+
+- visible turn markers make subtitle text read like a transcript
+- but losing turn metadata entirely makes it harder to notice cues that merge multiple rapid speaker turns
+- the right compromise is cue-level awareness such as "this cue spans 2 source turns", not visible markup
 
 ## Episode-Specific Findings
 
