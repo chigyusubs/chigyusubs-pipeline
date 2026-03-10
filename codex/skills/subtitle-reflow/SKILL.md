@@ -54,6 +54,7 @@ Inspect the resulting VTT for:
 
 - negative cue durations
 - cue overlaps
+- cue starts that visibly lead the first aligned speech
 - obvious split-word or split-clause artifacts
 - pathological short fragment clusters
 - clearly broken or translation-hostile line breaks
@@ -63,6 +64,7 @@ Review should combine:
 - objective file-level checks
 - spot-checks from early, middle, and late regions
 - deterministic diagnostics from the helper, including flagged region ranges and short/tiny cue counts
+- timing behavior around first-spoken-word alignment, especially on short reaction cues
 - alignment-stage interpolation diagnostics when a sibling `*_ctc_words.json.diagnostics.json` sidecar exists
 - raw-chunk omission diagnostics from the always-on second-opinion helper when a sibling `*_gemini_raw.json` exists
 - source turn-boundary context when the sibling `*_ctc_words.json` preserves Gemini turn metadata

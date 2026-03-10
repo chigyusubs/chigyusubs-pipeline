@@ -3,7 +3,7 @@
 This document records what the repo has actually taught us so far, based on real runs against:
 
 - `samples/episodes/great_escape1`
-- `samples/episodes/dmm`
+- `samples/episodes/oni_no_dokkiri_de_namida_ep2`
 
 It is intentionally operational. The goal is to capture what worked, what did not, and what still needs to be fixed.
 
@@ -22,11 +22,11 @@ What this unlocked:
 
 ### 2. CTC forced alignment replaced stable-ts and nearly eliminated stranded words
 
-stable-ts uses Whisper's cross-attention for alignment, which is a byproduct of the generative model. This caused 13.4% of words to get zero-duration timestamps on `dmm`, even with chunked alignment.
+stable-ts uses Whisper's cross-attention for alignment, which is a byproduct of the generative model. This caused 13.4% of words to get zero-duration timestamps on `oni_no_dokkiri_de_namida_ep2`, even with chunked alignment.
 
 CTC forced alignment (`scripts/align_ctc.py`) uses `NTQAI/wav2vec2-large-japanese` with `torchaudio.functional.forced_align`. This is a dedicated alignment mechanism — it finds the optimal path through frame-level character probabilities via Viterbi decoding.
 
-Results on `dmm`:
+Results on `oni_no_dokkiri_de_namida_ep2`:
 
 | | stable-ts (chunked) | CTC wav2vec2-ja |
 |---|---|---|
@@ -50,7 +50,7 @@ CTC forced alignment is now the recommended default for alignment.
 
 Whole-episode `stable-ts` alignment is too fragile. One bad transcript section can collapse a large tail of the episode to the final timestamp.
 
-Chunked alignment fixed the major failure mode on `dmm`:
+Chunked alignment fixed the major failure mode on `oni_no_dokkiri_de_namida_ep2`:
 
 - whole-episode alignment collapsed a large late tail to `2442.51`
 - chunked alignment removed the end-of-file collapse
@@ -60,7 +60,7 @@ Chunked alignment should remain the default. CTC forced alignment (lesson 2) als
 
 ### 4. Zero-duration alignment misses should not be dropped blindly
 
-With CTC alignment, zero-duration segments are now rare (0.3% on `dmm`) and were initially thought to be limited to non-Japanese text. But the principle still holds: do not drop them blindly.
+With CTC alignment, zero-duration segments are now rare (0.3% on `oni_no_dokkiri_de_namida_ep2`) and were initially thought to be limited to non-Japanese text. But the principle still holds: do not drop them blindly.
 
 The zero-duration segments from earlier stable-ts runs were not mostly garbage. Many were real short utterances or chunk-edge dialogue blocks.
 
@@ -100,7 +100,7 @@ The fix is to resolve repeated lines by nearest `(text, start, end)` match, not 
 
 ### 6. Video-only Gemini is a serious path, not just an experiment
 
-For both `great_escape1` and `dmm`, direct video transcription with Gemini was viable.
+For both `great_escape1` and `oni_no_dokkiri_de_namida_ep2`, direct video transcription with Gemini was viable.
 
 Why it matters:
 
@@ -141,7 +141,7 @@ Why:
 - visual scene/rule/question context is preserved
 - `[画面: ...]` lines can be stripped before alignment
 
-This format worked well on `great_escape1` and `dmm`.
+This format worked well on `great_escape1` and `oni_no_dokkiri_de_namida_ep2`.
 
 ### 7a. Visual-text extraction can substitute for narration instead of complementing it
 
@@ -190,12 +190,12 @@ The OCR filtering layer should keep more local semantic telop content, not just 
 
 ### 9. OCR still varies too much across show formats to over-classify early
 
-`great_escape1` and `dmm` share some properties, but the visual presentation differs a lot.
+`great_escape1` and `oni_no_dokkiri_de_namida_ep2` share some properties, but the visual presentation differs a lot.
 
 Examples:
 
 - `great_escape1`: puzzle boards, focused question frames, counters, rules
-- `dmm`: location cards, cast intros, premise cards, subtitle-like captions, constant service watermark
+- `oni_no_dokkiri_de_namida_ep2`: location cards, cast intros, premise cards, subtitle-like captions, constant service watermark
 
 This argues against a heavy semantic classifier early in the OCR pipeline.
 
@@ -215,7 +215,7 @@ The `translate_vtt_api.py` direction is correct:
 - target readable English subtitle CPS
 - allow local redistribution of meaning across adjacent target cues
 
-The partial `dmm` English results are already much better than literal cue-by-cue translation would be.
+The partial `oni_no_dokkiri_de_namida_ep2` English results are already much better than literal cue-by-cue translation would be.
 
 Examples:
 
@@ -420,7 +420,7 @@ Lesson:
 - chunk-local loop detection/retry is necessary
 - one localized failure can still ruin whole-episode alignment if not isolated
 
-### `dmm`
+### `oni_no_dokkiri_de_namida_ep2`
 
 What worked:
 
@@ -483,10 +483,13 @@ Line-level reflow (`reflow_words.py --line-level`) solved this by treating each 
 Additional fixes in the line-level reflow:
 - Comma-based fallback splitting for long lines without sentence-ending punctuation
 - Sparse-cue clamping: shrinks cues where CTC spreads few characters across disproportionately long audio windows (e.g., `なんなの!` spanning 10.8s → clamped to 7.0s)
+- Boundary expansion now caps pre-speech lead to `0.2s` so short reactions do not appear conspicuously early and blunt comedic timing
 
 Results after line-level reflow:
 - ge1: 0 overlong cues (was 9 with character-level), max 7.0s, 0 >20 CPS
-- dmm: 0 overlong cues (was 21), max 7.0s, 1 >20 CPS (real fast exchange)
+- oni_no_dokkiri_de_namida_ep2: 0 overlong cues (was 21), max 7.0s, 1 >20 CPS (real fast exchange)
+
+The cap matters because the previous readability-driven expansion could pull some cue starts well into silence before the first spoken line. On real episodes this reached `1.28s`, which looked sloppy even when the CTC alignment itself was accurate. The maintained default now preserves a small anticipatory lead for readability while preventing obviously early subtitle pop-in.
 
 The LLM-based `repair_vtt_local.py` is no longer needed in the default path. It solved symptoms (split words) that line-level reflow prevents at the source.
 
@@ -578,9 +581,9 @@ So the useful next step is better deterministic review diagnostics, not putting 
 
 Three alignment approaches were benchmarked:
 
-- `stable-ts` (Whisper cross-attention): 13.4% zero-duration words on `dmm`
+- `stable-ts` (Whisper cross-attention): 13.4% zero-duration words on `oni_no_dokkiri_de_namida_ep2`
 - `Qwen/Qwen3-ForcedAligner-0.6B`: high zero-duration word count in smoke test, not obviously better than stable-ts
-- `NTQAI/wav2vec2-large-japanese` CTC: 0.3% zero-duration words on `dmm`
+- `NTQAI/wav2vec2-large-japanese` CTC: 0.3% zero-duration words on `oni_no_dokkiri_de_namida_ep2`
 
 CTC forced alignment is the clear winner. The Qwen and stable-ts aligners remain as archived benchmarks.
 
@@ -626,7 +629,7 @@ Keep OCR reusable and local:
 
 ## Next High-Value Work
 
-1. Finish one full `dmm` translation run with checkpointing.
+1. Finish one full `oni_no_dokkiri_de_namida_ep2` translation run with checkpointing.
 2. Make translation diagnostics less noisy on very short cues.
 3. Decide whether Gemini video-only becomes the default cloud path.
 4. Simplify OCR context selection into a stable local `line_hints + keyword_hints` model if OCR remains part of the Gemini path.

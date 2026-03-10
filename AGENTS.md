@@ -127,6 +127,19 @@ But it should optimize for:
 
 Checkpoint after every translation batch. Long `gemini-2.5-pro` runs are not reliable enough without resume.
 
+For Codex-interactive translation with `scripts/translate_vtt_codex.py`:
+
+- prefer `next-batch --output-json /tmp/<episode>_batch<N>.json` over reading giant JSON payloads from stdout
+- keep using the helper session/checkpoint; do not hand-edit partial VTTs
+- repeated short acknowledgements (`ありがとうございます`, applause-like runs, etc.) should be translated minimally and consistently rather than literally expanding them
+- `yellow` batches caused only by short-cue CPS pressure are not a stop condition by themselves
+
+After a final English VTT is ready, publish it back to the episode `source/` folder with:
+
+- `python3 scripts/publish_vtt.py <final_translation_vtt>`
+
+Do not do ad hoc manual copies when the helper can infer the source video stem.
+
 ## Known Failure Modes
 
 ### Repetition loops
@@ -157,6 +170,10 @@ If you touch reflow, prioritize repairing these before translation.
 Hard CPS warnings are currently too noisy for very short cues.
 
 Do not assume every `>20 CPS` warning is a real subtitle-quality failure.
+
+Very short repeated cues can produce impossible-looking CPS even with good subtitle choices.
+
+Treat those as a signal to keep the English minimal, not as evidence that the whole translation batch is bad.
 
 ## Before Big Changes
 

@@ -118,7 +118,7 @@ samples/episodes/<episode_slug>/
 
 | Script | Purpose | Status |
 |---|---|---|
-| `reflow_words.py` | Reflow word/line timestamps into subtitle cues. `--line-level` (default for CTC) treats lines as atomic. Includes comma-fallback splitting, sparse-cue clamping, and micro-cue merging. | Maintained |
+| `reflow_words.py` | Reflow word/line timestamps into subtitle cues. `--line-level` (default for CTC) treats lines as atomic. Includes comma-fallback splitting, sparse-cue clamping, micro-cue merging, and a cap on backward cue expansion so subtitles do not appear far before the first aligned speech. | Maintained |
 | `repair_vtt_codex.py` | Codex-interactive reflow repair with region detection, session/checkpoint, alignment and turn-boundary advisory context, and deterministic before/after diagnostics | Maintained |
 | `repair_vtt_local.py` | Local Gemma cue-boundary repair. Alternative to the Codex-interactive path. | Alternative |
 
@@ -219,7 +219,7 @@ python3.12 scripts/align_ctc.py \
 
 # Uses NTQAI/wav2vec2-large-japanese + torchaudio CTC forced alignment.
 # Runs on system python3.12 with ROCm GPU.
-# 0.3% zero-duration words vs 13.4% with stable-ts on dmm.
+# 0.3% zero-duration words vs 13.4% with stable-ts on oni_no_dokkiri_de_namida_ep2.
 # Preserves Gemini turn-boundary metadata per aligned line in the words JSON.
 # Note: this only aligns text that already exists in the Gemini transcript.
 # The alignment diagnostics sidecar now also flags chunks where visual-only
@@ -281,10 +281,10 @@ python3 scripts/repair_vtt_codex.py finalize \
   --session samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt.checkpoint.json
 
 # 8. Translate
-# dmm example from the current CTC + reflow path
+# oni_no_dokkiri_de_namida_ep2 example from the current CTC + reflow path
 python scripts/translate_vtt_api.py \
-  --input samples/episodes/dmm/transcription/dmm_ctc_reflow.vtt \
-  --output samples/episodes/dmm/translation/dmm_ctc_reflow_en.vtt \
+  --input samples/episodes/oni_no_dokkiri_de_namida_ep2/transcription/oni_no_dokkiri_de_namida_ep2_ctc_reflow.vtt \
+  --output samples/episodes/oni_no_dokkiri_de_namida_ep2/translation/oni_no_dokkiri_de_namida_ep2_ctc_reflow_en.vtt \
   --batch-cues 12 \
   --batch-seconds 45
 
@@ -330,8 +330,8 @@ python scripts/translate_vtt_codex.py apply-batch \
 # Mistral via the OpenAI-compatible backend
 python scripts/translate_vtt_api.py --backend openai \
   --url https://api.mistral.ai --api-key $MISTRAL_API_KEY --model mistral-small-latest \
-  --input samples/episodes/dmm/transcription/dmm_ctc_reflow.vtt \
-  --output samples/episodes/dmm/translation/dmm_ctc_reflow_en_mistral.vtt
+  --input samples/episodes/oni_no_dokkiri_de_namida_ep2/transcription/oni_no_dokkiri_de_namida_ep2_ctc_reflow.vtt \
+  --output samples/episodes/oni_no_dokkiri_de_namida_ep2/translation/oni_no_dokkiri_de_namida_ep2_ctc_reflow_en_mistral.vtt
 ```
 
 ### Local Pipeline

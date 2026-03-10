@@ -11,6 +11,7 @@ _INTERJECTION_MAX_CHARS = 8
 _TARGET_CPS = 14.0
 _MAX_CPS = 20.0
 _HARD_MIN_CUE_S = 0.5
+_MAX_PRE_SPEECH_LEAD_S = 0.2
 _SENTENCE_END_RE = re.compile(r"[。！？!?」』）】]$")
 _COMMA_RE = re.compile(r"[、,]$")
 
@@ -538,6 +539,13 @@ def _clamp_sparse_cues(cues: list[dict], *, max_cue_s: float, target_cps: float)
         new_end = min(right_bound, new_start + desired_dur)
         new_start = max(left_bound, new_end - desired_dur)
 
+        new_start, new_end = _cap_pre_speech_lead(
+            cue,
+            new_start,
+            new_end,
+            left_bound=left_bound,
+            right_bound=right_bound,
+        )
         cue["start"] = round(new_start, 3)
         cue["end"] = round(new_end, 3)
 
@@ -689,8 +697,19 @@ def _expand_cue_boundaries(cues: list[dict], *, min_cue_s: float, max_cue_s: flo
         if remaining > 0 and right_gap > right_take:
             add = min(right_gap - right_take, remaining)
             right_take += add
-        cue["start"] -= left_take
-        cue["end"] += right_take
+        new_start = cue["start"] - left_take
+        new_end = cue["end"] + right_take
+        left_bound = cues[i - 1]["end"] if i > 0 else 0.0
+        right_bound = cues[i + 1]["start"] if i + 1 < len(cues) else float("inf")
+        new_start, new_end = _cap_pre_speech_lead(
+            cue,
+            new_start,
+            new_end,
+            left_bound=left_bound,
+            right_bound=right_bound,
+        )
+        cue["start"] = new_start
+        cue["end"] = new_end
 
 
 def _merge_problem_cues(
@@ -823,6 +842,43 @@ def _cue_chars(cue: dict) -> int:
 
 def _cue_cps(cue: dict) -> float:
     return _cue_chars(cue) / _cue_duration(cue)
+
+
+def _cue_anchor_span(cue: dict) -> tuple[float, float]:
+    lines = cue.get("lines") or []
+    if lines:
+        return float(lines[0]["start"]), float(lines[-1]["end"])
+
+    words = cue.get("words") or []
+    if words:
+        return float(words[0]["start"]), float(words[-1]["end"])
+
+    return float(cue["start"]), float(cue["end"])
+
+
+def _cap_pre_speech_lead(
+    cue: dict,
+    start: float,
+    end: float,
+    *,
+    left_bound: float,
+    right_bound: float,
+    max_pre_speech_lead_s: float = _MAX_PRE_SPEECH_LEAD_S,
+) -> tuple[float, float]:
+    anchor_start, anchor_end = _cue_anchor_span(cue)
+    min_start = max(left_bound, anchor_start - max_pre_speech_lead_s)
+
+    if start < min_start:
+        shift = min_start - start
+        start = min_start
+        end = min(right_bound, end + shift)
+
+    if end < anchor_end:
+        end = min(right_bound, anchor_end)
+        if end < anchor_end:
+            start = min(start, end)
+
+    return round(start, 3), round(end, 3)
 
 
 def _split_group(

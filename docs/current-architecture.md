@@ -306,6 +306,7 @@ Gemini transcription
   -> CTC forced alignment (wav2vec2-ja)
   -> always-on Whisper second-opinion coverage diff
   -> reflow
+     with cue starts kept close to first aligned speech
   -> optional Codex-interactive cue repair
   -> batch-based CPS-aware English subtitle editing
 ```

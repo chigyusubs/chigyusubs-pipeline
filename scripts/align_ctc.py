@@ -7,9 +7,9 @@ utterances and chunk edges.
 
 Usage:
   python scripts/align_ctc.py \
-    --video samples/episodes/dmm/source/dmm.webm \
-    --chunks samples/episodes/dmm/transcription/dmm_video_only_v2_gemini_raw.json \
-    --output-words samples/episodes/dmm/transcription/dmm_ctc_words.json
+    --video samples/episodes/oni_no_dokkiri_de_namida_ep2/source/oni_no_dokkiri_de_namida_ep2.webm \
+    --chunks samples/episodes/oni_no_dokkiri_de_namida_ep2/transcription/oni_no_dokkiri_de_namida_ep2_video_only_v2_gemini_raw.json \
+    --output-words samples/episodes/oni_no_dokkiri_de_namida_ep2/transcription/oni_no_dokkiri_de_namida_ep2_ctc_words.json
 """
 
 import argparse

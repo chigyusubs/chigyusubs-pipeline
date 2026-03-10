@@ -75,6 +75,7 @@ On `red`, stop. Do not run repair in this workflow.
 
 Use `yellow` when the file is structurally valid but clearly weak for translation, for example:
 
+- cue timing visibly starts too early before the spoken line in sampled regions
 - obvious split-word or split-clause artifacts in sampled regions
 - artifact-like short clusters or non-terminal fragments
 - localized pathological regions that would clearly damage translation
@@ -95,6 +96,7 @@ Check all of:
 
 - structural timing sanity
 - cue density and fragment patterns
+- whether cue starts are anchored near the first spoken line instead of popping in conspicuously early
 - opening sample
 - middle sample
 - ending sample
@@ -112,6 +114,7 @@ Important policy:
 - short/tiny cues above that threshold alone should not force repair
 - interpolated alignment warnings alone should not force repair
 - plausible fast reactions and one-word answers are acceptable
+- a small anticipatory lead is acceptable, but cues that sit in silence long before the line are not
 - repair should target artifact-like boundaries, not optimize the metrics mechanically
 
 The purpose is not exhaustive QA. The purpose is to decide whether the VTT is safe to hand to translation.
