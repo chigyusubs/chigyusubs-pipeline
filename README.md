@@ -11,8 +11,9 @@ Video file
   ├─ VAD (Silero) → chunk boundaries
   │
   ├─ Transcription (Gemini or local faster-whisper)
-  │     uses: chunk boundaries + OCR context + glossary
+  │     uses: chunk boundaries + optional OCR context / hotwords
   │
+  ├─ Raw transcript → glossary/context extraction
   ├─ CTC forced alignment (wav2vec2-ja)
   ├─ Whisper second-opinion coverage check
   ├─ Reflow → timed Japanese VTT
@@ -20,6 +21,7 @@ Video file
   │
   └─ Translation → timed English VTT
         interactive (Codex) or unattended (API)
+        └─ publish back to source/<video_stem>.vtt
 ```
 
 Each stage writes stable artifacts under `samples/episodes/<slug>/`. Later stages consume earlier artifacts without recomputing them.
@@ -29,6 +31,12 @@ Each stage writes stable artifacts under `samples/episodes/<slug>/`. Later stage
 **Interactive (primary)** — `translate_vtt_codex.py`. Codex translates batch-by-batch with human review, checkpointed session state, and automatic batch-tier fallback. Best quality.
 
 **Unattended (API)** — `translate_vtt_api.py`. Sends batches to Vertex Gemini or any OpenAI-compatible API. Good for benchmarking, testing model capability, or fully local pipelines.
+
+After an interactive translation run, publish the finished VTT next to the source video with:
+
+```bash
+python3 scripts/publish_vtt.py samples/episodes/<slug>/translation/<final>.vtt
+```
 
 ## Requirements
 
@@ -77,17 +85,40 @@ python scripts/transcribe_pipeline.py --episode-dir samples/episodes/<slug>
 
 ## Codex Skills
 
-Two interactive skills for use with [Codex](https://openai.com/index/introducing-codex/):
+Three interactive skills for use with [Codex](https://openai.com/index/introducing-codex/):
 
 - **`subtitle-reflow`** — reflows aligned words into subtitle cues, reviews for translation-risk issues, optionally runs interactive cue repair
+- **`glossary-context`** — builds `glossary/glossary.json` and `glossary/episode_context.json` from the Gemini raw transcript
 - **`subtitle-translation`** — batch-by-batch English translation with checkpointed session, source-hash validation, and CPS diagnostics
 
 ```text
 Use $subtitle-reflow on samples/episodes/<slug>/transcription/<stem>_ctc_words.json
-Use $subtitle-translation on samples/episodes/<slug>/transcription/<stem>_reflow.vtt
+Use $glossary-context on samples/episodes/<slug>/transcription/<stem>_gemini_raw.json
+Use $subtitle-translation on samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt
 ```
 
 Skills are tracked in `codex/skills/` and installed with `python3 scripts/install_codex_skills.py`.
+
+## Recommended Interactive Handoff
+
+For the maintained Codex workflow, the intended order is:
+
+```text
+aligned words JSON
+  -> subtitle-reflow
+  -> recommended Japanese VTT
+  -> glossary-context
+  -> subtitle-translation
+  -> publish_vtt.py
+  -> source/<video_stem>.vtt
+```
+
+In practice this means:
+
+1. Reflow and review `*_ctc_words.json`
+2. Build glossary/context from `*_gemini_raw.json`
+3. Translate the recommended Japanese VTT into `translation/`
+4. Publish the final English VTT back into `source/`
 
 ## Docs
 

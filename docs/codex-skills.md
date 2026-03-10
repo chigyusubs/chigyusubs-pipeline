@@ -1,8 +1,9 @@
 # Codex Skills
 
-This repo now has two Codex-interactive skills for subtitle work:
+This repo now has three Codex-interactive skills for subtitle work:
 
 - `subtitle-reflow`
+- `glossary-context`
 - `subtitle-translation`
 
 These skills are not replacements for the maintained scripts. They are Codex
@@ -26,6 +27,8 @@ Use the repo helper to install or refresh them:
 ```bash
 python3 scripts/install_codex_skills.py
 python3 scripts/install_codex_skills.py --skill subtitle-reflow
+python3 scripts/install_codex_skills.py --skill glossary-context
+python3 scripts/install_codex_skills.py --skill subtitle-translation
 ```
 
 ## When To Use Them
@@ -107,6 +110,36 @@ Example invocation in Codex:
 Use $subtitle-reflow on samples/episodes/<slug>/transcription/<stem>_ctc_words.json
 ```
 
+## `glossary-context`
+
+Purpose:
+
+- build episode translation context before English subtitle editing
+- extract stable show terms and episode-local names/rules from the Gemini raw transcript
+
+Default behavior:
+
+1. Read `transcription/<slug>_gemini_raw.json`
+2. Use both spoken `-- ...` lines and visual `[画面: ...]` lines
+3. Write:
+
+```text
+glossary/glossary.json
+glossary/episode_context.json
+```
+
+Important:
+
+- `glossary.json` should hold stable cross-episode terms
+- `episode_context.json` should hold episode-local cast, guests, rule text, and one-off terms
+- the maintained interactive flow expects this step between Japanese reflow review and English translation
+
+Example invocation in Codex:
+
+```text
+Use $glossary-context on samples/episodes/<slug>/transcription/<slug>_gemini_raw.json
+```
+
 ## `subtitle-translation`
 
 Purpose:
@@ -160,12 +193,19 @@ The intended order is:
 aligned words
   -> subtitle-reflow
   -> recommended Japanese VTT
+  -> glossary-context
+  -> glossary/episode_context.json
   -> subtitle-translation
   -> English VTT in translation/
+  -> publish_vtt.py
+  -> source/<video_stem>.vtt
 ```
 
 Use `subtitle-reflow` first when the Japanese subtitle artifact still needs
 boundary review or repair.
+
+Use `glossary-context` once the raw transcript is available and before English
+translation starts.
 
 Use `subtitle-translation` once there is a single recommended Japanese VTT that
 is safe to hand to English subtitle editing.
