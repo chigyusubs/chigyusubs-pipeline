@@ -5,7 +5,7 @@ description: Translate subtitle files such as VTT and SRT into natural English u
 
 # Subtitle Translation
 
-Use this skill when Codex should perform the translation work directly in the session. Do not default to `scripts/translate_vtt.py` or another external model call unless the user explicitly asks for an API-backed run.
+Use this skill when Codex should perform the translation work directly in the session. Do not default to `scripts/translate_vtt_api.py` or another external model call unless the user explicitly asks for an API-backed run.
 
 Use `scripts/translate_vtt_codex.py` as the maintained helper workflow:
 
@@ -146,6 +146,6 @@ Important:
 
 ## When To Use The Script Instead
 
-Use `scripts/translate_vtt.py` only when the user explicitly wants an API-backed run or hard runtime controls for backend/model/location/temperature.
+Use `scripts/translate_vtt_api.py` only when the user explicitly wants an API-backed run or hard runtime controls for backend/model/location/temperature.
 
 If the user wants Codex itself to do the translator role, stay in the interactive workflow and do not offload the actual translation to Gemini/OpenAI automatically.

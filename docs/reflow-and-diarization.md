@@ -3,7 +3,7 @@
 Two new pipeline stages that sit between transcription and translation:
 
 ```
-run_faster_whisper.py  -->  reflow_words.py  -->  diarize_gemini.py  -->  translate_vtt.py
+run_faster_whisper.py  -->  reflow_words.py  -->  diarize_gemini.py  -->  translate_vtt_api.py
     (ASR + words.json)      (pause-aligned      (speaker labels via       (translation with
                               VTT cues)           Gemini audio)            speaker context)
 ```
@@ -138,7 +138,7 @@ A 45-minute episode at mono 64kbps MP3 is ~20MB, well within Vertex's 100MB inli
 
 ## Translation with speaker labels
 
-`translate_vtt.py` automatically detects speaker-labeled cues (the `Name: text` pattern). When >20% of cues have labels, it adds an instruction to the system prompt:
+`translate_vtt_api.py` automatically detects speaker-labeled cues (the `Name: text` pattern). When >20% of cues have labels, it adds an instruction to the system prompt:
 
 > Speaker labels are provided. Preserve them in the output as-is. Maintain consistent voice characterization per speaker.
 
@@ -159,7 +159,7 @@ python scripts/diarize_gemini.py \
   --glossary samples/episodes/ep406/glossary/translation_glossary_v2.tsv
 
 # 3. Translate (speaker labels passed through automatically)
-python scripts/translate_vtt.py \
+python scripts/translate_vtt_api.py \
   --backend vertex \
   --input samples/episodes/ep406/transcription/video_faster_stock_diarized.vtt \
   --glossary samples/episodes/ep406/glossary/translation_glossary_v2.tsv

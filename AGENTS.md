@@ -113,7 +113,7 @@ Current lesson:
 
 Translation is subtitle editing, not literal translation.
 
-`scripts/translate_vtt.py` should preserve:
+`scripts/translate_vtt_api.py` should preserve:
 
 - cue count
 - cue order

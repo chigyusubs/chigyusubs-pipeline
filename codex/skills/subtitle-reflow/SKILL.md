@@ -64,6 +64,7 @@ Review should combine:
 - spot-checks from early, middle, and late regions
 - deterministic diagnostics from the helper, including flagged region ranges and short/tiny cue counts
 - alignment-stage interpolation diagnostics when a sibling `*_ctc_words.json.diagnostics.json` sidecar exists
+- raw-chunk omission diagnostics from the always-on second-opinion helper when a sibling `*_gemini_raw.json` exists
 - source turn-boundary context when the sibling `*_ctc_words.json` preserves Gemini turn metadata
 
 ### 3. Decision

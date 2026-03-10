@@ -208,7 +208,7 @@ Better approach:
 
 ### 10. Translation should be subtitle editing, not literal translation
 
-The new `translate_vtt.py` direction is correct:
+The `translate_vtt_api.py` direction is correct:
 
 - translate in local cue batches
 - preserve cue count/timing
@@ -306,6 +306,10 @@ Current rule:
 - keep Gemini + CTC as the main path
 - always run faster-whisper as a second-opinion artifact — it is cheap (~2-3 min/episode) and catches both visible (visual-substitution) and invisible (silent omission) Gemini drops
 - compare `*_ctc_words.json` against `*_faster_*_words.json` with a deterministic coverage-diff pass before reflow or source patching
+- when `*_gemini_raw.json` exists, classify the remaining gaps against raw Gemini spoken lines and visual `[画面: ...]` lines so review can separate:
+  - `visual_substituted_narration`
+  - `missing_narration_high_confidence`
+  - `compressed_vs_missing_unclear`
 - when VAD segments are available, the coverage diff marks each flagged region as `vad_confirmed` or `possible_hallucination`
 
 This preserves the main quality path while giving review a concrete way to find missing speech without rerunning Gemini.

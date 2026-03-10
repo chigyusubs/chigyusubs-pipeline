@@ -187,6 +187,25 @@ def alignment_warnings_for_cue_ids(
     }
 
 
+def alignment_summary_payload(alignment_review: dict | None) -> dict | None:
+    """Format an alignment review dict for Codex session status/diagnostics output."""
+    if not alignment_review:
+        return None
+    return {
+        "advisory_only": True,
+        "diagnostics_path": alignment_review["diagnostics_path"],
+        "interpolated_unaligned_segments": alignment_review["interpolated_unaligned_segments"],
+        "chunks_with_interpolated_unaligned_segments": alignment_review["chunks_with_interpolated_unaligned_segments"],
+        "repaired_line_count": alignment_review["repaired_line_count"],
+        "affected_cues_count": alignment_review["affected_cues_count"],
+        "affected_cue_ids_sample": alignment_review["affected_cue_ids"][:8],
+        "sample_repaired_lines": alignment_review.get("sample_repaired_lines", []),
+        "nearest_cue_mapped_lines_count": alignment_review.get("nearest_cue_mapped_lines_count", 0),
+        "unmapped_repaired_lines_count": alignment_review.get("unmapped_repaired_lines_count", 0),
+        "sample_unmapped_repaired_lines": alignment_review.get("sample_unmapped_repaired_lines", []),
+    }
+
+
 def _candidate_words_stems(stem: str) -> list[str]:
     candidates = [stem]
     for suffix in ("_reflow_repaired", "_repaired", "_reflow"):

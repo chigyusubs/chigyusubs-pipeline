@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from chigyusubs.alignment_diagnostics import (
+    alignment_summary_payload,
     alignment_warnings_for_cue_ids,
     build_alignment_review,
     discover_alignment_diagnostics_path,
@@ -20,6 +21,7 @@ from chigyusubs.turn_context import (
     build_turn_review,
     discover_words_json_path,
     turn_context_for_cue_ids,
+    turn_summary_payload,
 )
 from chigyusubs.translation import (
     Cue,
@@ -387,8 +389,8 @@ def _session_diagnostics(session: dict, cues: list[Cue]) -> dict:
         "seeded_cues": int(session.get("seeded_cues", 0)),
         "current_batch_tier": session["current_batch_tier"],
         "batch_tiers": session["batch_tiers"],
-        "alignment_warning_summary": _alignment_summary(session.get("alignment_review")),
-        "turn_context_summary": _turn_summary(session.get("turn_review")),
+        "alignment_warning_summary": alignment_summary_payload(session.get("alignment_review")),
+        "turn_context_summary": turn_summary_payload(session.get("turn_review")),
         "completed_cues": completed,
         "total_cues": len(cues),
         "completed_batches": len(session.get("completed_batches", [])),
@@ -686,8 +688,8 @@ def cmd_status(args) -> int:
         "total_cues": len(cues),
         "completed_batches": len(session.get("completed_batches", [])),
         "current_batch_tier": session["current_batch_tier"],
-        "alignment_warning_summary": _alignment_summary(session.get("alignment_review")),
-        "turn_context_summary": _turn_summary(session.get("turn_review")),
+        "alignment_warning_summary": alignment_summary_payload(session.get("alignment_review")),
+        "turn_context_summary": turn_summary_payload(session.get("turn_review")),
         "next_batch_index": None if pending_batch is None else pending_batch["batch_index"],
         "next_batch_range": None if pending_batch is None else [pending_batch["cue_ids"][0], pending_batch["cue_ids"][-1]],
     }
@@ -771,23 +773,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _alignment_summary(alignment_review: dict | None) -> dict | None:
-    if not alignment_review:
-        return None
-    return {
-        "advisory_only": True,
-        "diagnostics_path": alignment_review["diagnostics_path"],
-        "interpolated_unaligned_segments": alignment_review["interpolated_unaligned_segments"],
-        "chunks_with_interpolated_unaligned_segments": alignment_review["chunks_with_interpolated_unaligned_segments"],
-        "repaired_line_count": alignment_review["repaired_line_count"],
-        "affected_cues_count": alignment_review["affected_cues_count"],
-        "affected_cue_ids_sample": alignment_review["affected_cue_ids"][:8],
-        "sample_repaired_lines": alignment_review.get("sample_repaired_lines", []),
-        "nearest_cue_mapped_lines_count": alignment_review.get("nearest_cue_mapped_lines_count", 0),
-        "unmapped_repaired_lines_count": alignment_review.get("unmapped_repaired_lines_count", 0),
-    }
-
-
 def _batch_alignment_payload(target_alignment: dict | None, context_alignment: dict | None) -> dict | None:
     if not target_alignment and not context_alignment:
         return None
@@ -795,23 +780,6 @@ def _batch_alignment_payload(target_alignment: dict | None, context_alignment: d
         "advisory_only": True,
         "target": target_alignment,
         "context": context_alignment,
-    }
-
-
-def _turn_summary(turn_review: dict | None) -> dict | None:
-    if not turn_review:
-        return None
-    return {
-        "advisory_only": True,
-        "words_path": turn_review["words_path"],
-        "source_turn_segments": turn_review["source_turn_segments"],
-        "source_turn_count": turn_review["source_turn_count"],
-        "cues_with_turn_metadata_count": turn_review["cues_with_turn_metadata_count"],
-        "multi_turn_cues_count": turn_review["multi_turn_cues_count"],
-        "multi_turn_cue_ids_sample": turn_review["multi_turn_cue_ids"][:8],
-        "sample_multi_turn_cues": turn_review.get("sample_multi_turn_cues", []),
-        "nearest_cue_mapped_segments_count": turn_review.get("nearest_cue_mapped_segments_count", 0),
-        "unmapped_turn_segments_count": turn_review.get("unmapped_turn_segments_count", 0),
     }
 
 

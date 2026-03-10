@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from chigyusubs.alignment_diagnostics import (
+    alignment_summary_payload,
     alignment_warnings_for_cue_ids,
     build_alignment_review,
     discover_alignment_diagnostics_path,
@@ -19,6 +20,7 @@ from chigyusubs.turn_context import (
     build_turn_review,
     discover_words_json_path,
     turn_context_for_cue_ids,
+    turn_summary_payload,
 )
 from chigyusubs.reflow_repair import (
     RepairRegion,
@@ -159,8 +161,8 @@ def _write_diagnostics(session: dict, base_cues: list[Cue]) -> None:
         "output": session["output"],
         "partial_output": session["partial_output"],
         "words_path": session.get("words_path", ""),
-        "alignment_review": _alignment_status_payload(session.get("alignment_review")),
-        "turn_review": _turn_status_payload(session.get("turn_review")),
+        "alignment_review": alignment_summary_payload(session.get("alignment_review")),
+        "turn_review": turn_summary_payload(session.get("turn_review")),
         "prepared_review": prepared_review,
         "current_review": review,
         "regions_total": len(session["regions"]),
@@ -323,8 +325,8 @@ def cmd_status(args) -> int:
         "prepared_metrics": session["prepared_review"]["metrics"],
         "current_review": current_review["review"],
         "current_metrics": current_review["metrics"],
-        "alignment_review": _alignment_status_payload(session.get("alignment_review")),
-        "turn_review": _turn_status_payload(session.get("turn_review")),
+        "alignment_review": alignment_summary_payload(session.get("alignment_review")),
+        "turn_review": turn_summary_payload(session.get("turn_review")),
         "regions_total": len(session["regions"]),
         "completed_regions": len(session.get("completed_regions", [])),
         "pending_regions": len(pending),
@@ -517,41 +519,6 @@ def _alignment_review_reasons(alignment_review: dict | None) -> list[str]:
         f"{alignment_review['repaired_line_count']} source lines were locally interpolated during alignment "
         f"and overlap {alignment_review['affected_cues_count']} cues"
     ]
-
-
-def _alignment_status_payload(alignment_review: dict | None) -> dict | None:
-    if not alignment_review:
-        return None
-    return {
-        "advisory_only": True,
-        "diagnostics_path": alignment_review["diagnostics_path"],
-        "interpolated_unaligned_segments": alignment_review["interpolated_unaligned_segments"],
-        "chunks_with_interpolated_unaligned_segments": alignment_review["chunks_with_interpolated_unaligned_segments"],
-        "repaired_line_count": alignment_review["repaired_line_count"],
-        "affected_cues_count": alignment_review["affected_cues_count"],
-        "affected_cue_ids_sample": alignment_review["affected_cue_ids"][:8],
-        "sample_repaired_lines": alignment_review.get("sample_repaired_lines", []),
-        "nearest_cue_mapped_lines_count": alignment_review.get("nearest_cue_mapped_lines_count", 0),
-        "unmapped_repaired_lines_count": alignment_review.get("unmapped_repaired_lines_count", 0),
-        "sample_unmapped_repaired_lines": alignment_review.get("sample_unmapped_repaired_lines", []),
-    }
-
-
-def _turn_status_payload(turn_review: dict | None) -> dict | None:
-    if not turn_review:
-        return None
-    return {
-        "advisory_only": True,
-        "words_path": turn_review["words_path"],
-        "source_turn_segments": turn_review["source_turn_segments"],
-        "source_turn_count": turn_review["source_turn_count"],
-        "cues_with_turn_metadata_count": turn_review["cues_with_turn_metadata_count"],
-        "multi_turn_cues_count": turn_review["multi_turn_cues_count"],
-        "multi_turn_cue_ids_sample": turn_review["multi_turn_cue_ids"][:8],
-        "sample_multi_turn_cues": turn_review.get("sample_multi_turn_cues", []),
-        "nearest_cue_mapped_segments_count": turn_review.get("nearest_cue_mapped_segments_count", 0),
-        "unmapped_turn_segments_count": turn_review.get("unmapped_turn_segments_count", 0),
-    }
 
 
 def main(argv: list[str] | None = None) -> int:

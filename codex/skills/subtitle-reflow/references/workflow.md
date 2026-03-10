@@ -21,9 +21,10 @@ python3.12 scripts/pre_reflow_second_opinion.py \
   --words samples/episodes/<slug>/transcription/<stem>_ctc_words.json
 
 # This helper auto-discovers the sibling alignment diagnostics sidecar and
-# skips clean episodes. When `possible_visual_narration_substitution` is
-# present, it runs faster-whisper + compare_transcript_coverage and writes
+# always runs faster-whisper + compare_transcript_coverage and writes
 # a reusable summary JSON under transcription/diagnostics/.
+# When a sibling <stem>_gemini_raw.json exists, it also writes a raw-chunk
+# omission report that classifies likely visual-substituted or missing narration.
 
 PYTHONPATH=. python3 scripts/reflow_words.py \
   --input samples/episodes/<slug>/transcription/<stem>_ctc_words.json \

@@ -214,6 +214,24 @@ def turn_context_for_cue_ids(
     }
 
 
+def turn_summary_payload(turn_review: dict | None) -> dict | None:
+    """Format a turn review dict for Codex session status/diagnostics output."""
+    if not turn_review:
+        return None
+    return {
+        "advisory_only": True,
+        "words_path": turn_review["words_path"],
+        "source_turn_segments": turn_review["source_turn_segments"],
+        "source_turn_count": turn_review["source_turn_count"],
+        "cues_with_turn_metadata_count": turn_review["cues_with_turn_metadata_count"],
+        "multi_turn_cues_count": turn_review["multi_turn_cues_count"],
+        "multi_turn_cue_ids_sample": turn_review["multi_turn_cue_ids"][:8],
+        "sample_multi_turn_cues": turn_review.get("sample_multi_turn_cues", []),
+        "nearest_cue_mapped_segments_count": turn_review.get("nearest_cue_mapped_segments_count", 0),
+        "unmapped_turn_segments_count": turn_review.get("unmapped_turn_segments_count", 0),
+    }
+
+
 def _candidate_words_stems(stem: str) -> list[str]:
     candidates = [stem]
     for suffix in ("_reflow_repaired", "_repaired", "_reflow"):

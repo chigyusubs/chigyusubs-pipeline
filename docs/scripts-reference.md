@@ -30,8 +30,7 @@ Silero VAD -> VAD chunk boundaries
 5. `build_vad_chunks.py` — reusable chunk boundaries
 6. `transcribe_pipeline.py` — Gemini transcription + alignment + reflow
 7. `repair_vtt_codex.py` — optional Codex-interactive cue-boundary repair on reflowed VTT
-8. `translate_vtt.py` — LLM translation to English
-9. `translate_vtt_mistral.py` — experimental Mistral translation benchmark
+8. `translate_vtt_api.py` — unattended LLM translation to English (Vertex/OpenAI-compatible)
 
 `transcribe_pipeline.py` can now consume the saved VAD/chunk/OCR artifacts instead of recomputing them.
 
@@ -42,8 +41,7 @@ Fully local, no API calls. Lower quality but zero cost.
 1. `run_qwen_ocr_episode.py ocr` + `spans` + `context`
 2. `run_vad_episode.py` + `build_vad_chunks.py`
 3. `transcribe_local.py` — local ASR path
-4. `translate_vtt.py`
-5. `translate_vtt_mistral.py` (experimental benchmark)
+4. `translate_vtt_api.py`
 
 ## Episode Layout
 
@@ -60,101 +58,126 @@ samples/episodes/<episode_slug>/
 
 ## Script Catalog
 
-### Core Pipeline
+### Setup
 
 | Script | Purpose | Status |
 |---|---|---|
-| `episode_paths.py` | Shared path inference helpers for episode-aware defaults | Maintained |
-| `transcribe_pipeline.py` | Integrated 4-phase pipeline: Silero VAD -> Gemini -> chunked stable-ts -> reflow | Maintained |
-| `transcribe_gemini_raw.py` | Gemini raw text transcription with chunk-wise local OCR filtering | Maintained |
-| `transcribe_gemini.py` | Gemini transcription (JSON schema mode, used by pipeline) | Maintained |
-| `transcribe_local.py` | Fully local pipeline: Silero VAD + local OCR filter + faster-whisper | Maintained |
-| `align_ctc.py` | CTC forced alignment using `NTQAI/wav2vec2-large-japanese` + `torchaudio.functional.forced_align`. 0.3% zero-duration words vs 13.4% with stable-ts on `dmm`. Runs on system python3.12 with ROCm GPU for wav2vec2 inference, keeps `forced_align` on CPU, and caps PyTorch CPU threads to 24 to avoid runaway thread fanout. Repairs fully unaligned lines into small local fallback slots, enforces monotonic segment timing so short answers do not jump to chunk start and disappear in reflow, preserves Gemini turn-boundary metadata per aligned line, and writes an `.diagnostics.json` sidecar with per-chunk repaired-unaligned counts, line-level details, and advisory `possible_visual_narration_substitution` flags when dense `[画面: ...]` runs may be standing in for spoken narration. | Maintained |
-| `pre_reflow_second_opinion.py` | Always-on pre-reflow helper that runs a faster-whisper second-opinion pass on every episode plus `compare_transcript_coverage.py` coverage diff. Auto-discovers episode glossary for Whisper initial_prompt conditioning (glossary.json source terms or legacy whisper_prompt_condensed.txt) and passes VAD segments to the coverage comparison when available. Visual-substitution risk from alignment diagnostics is collected as informational metadata. Use `--force` to rerun whisper even when artifacts exist. Writes a reusable summary JSON under `transcription/diagnostics/`. | Maintained |
-| `align_chunkwise.py` | Chunk-wise stable-ts forced alignment from `_chunks.json` | Legacy |
-| `align_qwen_forced.py` | Chunk-wise Qwen forced-alignment benchmark via `py-qwen3-asr-cpp` GGUF backend | Archived |
-| `align_qwen_forced_hf.py` | Chunk-wise Qwen forced-alignment benchmark via official `qwen-asr` on system Python / ROCm | Archived |
-| `align_stable_ts.py` | Global stable-ts alignment (single pass) | Legacy |
-| `reflow_words.py` | Reflow word/line timestamps into subtitle cues. `--line-level` (default for CTC) treats lines as atomic, preventing mid-word splits. Includes comma-fallback splitting, repeated-line-safe word-timestamp lookup, sparse-cue clamping for CTC artifacts, and display-line rewrapping during residual micro-cue merges so sub-`0.5s` cues do not survive just because the raw merged line count is temporarily >2. | Maintained |
-| `repair_vtt_codex.py` | Codex-interactive reflow review/repair helper. Prepares flagged cue regions, checkpoints progress, validates region repairs, regenerates a partial repaired VTT, and finalizes a repaired Japanese VTT with deterministic before/after diagnostics and one recommended translation-input path. If a sibling CTC alignment diagnostics sidecar exists, it is loaded automatically and surfaced as advisory alignment-risk context in session status, diagnostics, and region payloads, attaching repaired lines by cue overlap first and nearest-cue fallback second. If the aligned words JSON contains Gemini turn metadata, prepare also surfaces cue-level turn-boundary context so merged multi-turn cues remain visible during review. Cues under `0.5s` are treated as structural blockers; otherwise short/tiny cue counts stay advisory and repair triggering is driven by artifact-like boundary risks. | Maintained |
-| `repair_vtt_local.py` | Repair an existing reflowed VTT using aligned words + local Gemma as a constrained merge/split/extend chooser. Optional legacy/benchmark alternative to the default Codex-interactive repair path. | Alternative |
-| `translate_vtt.py` | LLM translation of Japanese VTT to English (Vertex or local) | Maintained |
-| `translate_vtt_codex.py` | Codex-interactive translation helper with session/checkpoint state, deterministic batch diagnostics, source-cue signature validation during `apply-batch`, clean restart via `prepare --force`, optional `--seed-from` draft reuse guarded by exact cue-count and cue-timeline matching, optional `--alignment-diagnostics` override with best-effort auto-discovery from the input VTT, partial VTT assembly, automatic `84 -> 60 -> 48` batch-tier fallback, and preflight stop on structural timing blockers including cues under `0.5s`. Interpolated alignment warnings remain advisory and are carried into batch payloads and diagnostics instead of stopping translation, using nearest-cue fallback when a repaired line sits in a reflow gap. When aligned words JSON includes Gemini turn metadata, `next-batch` also carries advisory turn-boundary context so translators can see which cues span multiple source turns without polluting subtitle text with visible markers. | Maintained |
-| `translate_vtt_mistral.py` | Mistral API translation benchmark. Keeps the same batch/checkpoint/diagnostics flow as `translate_vtt.py`, but targets Mistral chat completions directly. | Experimental |
 | `init_episode_from_media.py` | Create episode workspace from media, optionally extracting fixed-rate frames | Maintained |
+| `install_codex_skills.py` | Install Codex skills from the repo to `~/.codex/skills/` | Maintained |
 
 ### OCR & Glossary
 
 | Script | Purpose | Status |
 |---|---|---|
-| `run_qwen_ocr_episode.py` | Qwen-VL OCR over frames + frequency/run-length glossary filter, with per-run metadata sidecars | Maintained |
+| `run_qwen_ocr_episode.py` | Qwen-VL frame OCR (`ocr`), span merging (`spans`), context derivation (`context`), glossary filtering (`filter`) | Maintained |
 | `classify_ocr_spans_local.py` | Local Gemma OCR-span cleanup/classification into reusable chunk context | Maintained |
 | `condense_glossary_vertex.py` | Build structured glossary with Gemini on Vertex | Maintained |
 | `condense_glossary_qwen.py` | Build structured glossary with local Qwen | Maintained |
 | `condense_glossary_llm.py` | Older local LLM condensation via OpenAI-compatible endpoint | Legacy |
-| `clean_candidates.py` | Clean/deduplicate OCR candidate text | Utility |
+| `clean_candidates.py` | Clean/deduplicate OCR candidate text for glossary scripts | Utility |
 
-### ASR Backends
+### Audio Preprocessing
+
+| Script | Purpose | Status |
+|---|---|---|
+| `run_vad_episode.py` | Silero VAD segmentation — reusable artifact | Maintained |
+| `build_vad_chunks.py` | Build chunk boundaries from saved VAD segments | Maintained |
+
+### Transcription
+
+| Script | Purpose | Status |
+|---|---|---|
+| `transcribe_gemini_video.py` | Gemini video-only transcription (sends compressed video inline, no OCR needed) | Maintained |
+| `transcribe_gemini_raw.py` | Gemini audio transcription with chunk-wise local OCR context | Maintained |
+| `transcribe_gemini.py` | Gemini transcription (JSON schema mode, used by `transcribe_pipeline.py`) | Maintained |
+| `transcribe_pipeline.py` | Integrated pipeline: VAD → Gemini → alignment → reflow | Maintained |
+| `transcribe_local.py` | Fully local pipeline: Silero VAD + OCR filter + faster-whisper | Maintained |
+
+### ASR Backends & Quality
 
 | Script | Purpose | Status |
 |---|---|---|
 | `run_faster_whisper.py` | faster-whisper ASR (ROCm/CUDA), initial prompt + hotwords | Maintained |
-| `compare_transcript_coverage.py` | Compare a primary aligned words JSON against a secondary ASR words JSON (typically Gemini+CTC vs faster-whisper) and emit time-local coverage-gap regions where the second opinion contains substantially more speech than the primary transcript. Optional `--vad-json` cross-references flagged regions against VAD speech segments, marking each as `vad_confirmed` or `possible_hallucination`. Intended as a deterministic pre-reflow diagnostic. | Maintained |
 | `run_whisper_cpp.py` | whisper.cpp ASR via `whisper-cli` | Maintained |
 | `run_local_whisper.py` | OpenAI Whisper Python package ASR | Maintained |
-| `start_qwen_ocr_server.sh` | Start llama-server for Qwen OCR with recommended deterministic settings | Maintained |
-| `start_gemma_ocr_filter_server.sh` | Start llama-server for local Gemma OCR cleanup/classification | Maintained |
-| `start_gemma_cue_repair_server.sh` | Start llama-server for local Gemma cue-boundary repair decisions. Not part of the default Codex skill path. | Alternative |
-| `start_qwen_cue_repair_server.sh` | Start llama-server for Qwen3.5-35B-A3B cue-boundary repair decisions. Not part of the default Codex skill path. | Alternative |
-| `run_vad_episode.py` | Standalone reusable Silero VAD artifact builder | Maintained |
-| `build_vad_chunks.py` | Build reusable chunk boundaries from saved VAD | Maintained |
+| `pre_reflow_second_opinion.py` | Always-on faster-whisper second-opinion coverage check with VAD cross-reference and optional raw-chunk omission classification | Maintained |
+| `compare_transcript_coverage.py` | Time-local coverage-gap comparison between primary and secondary transcripts, with optional VAD confirmation | Maintained |
+| `report_raw_chunk_omissions.py` | Classify omissions from `*_gemini_raw.json` as `visual_substituted_narration`, `missing_narration_high_confidence`, or `compressed_vs_missing_unclear` | Maintained |
 
-### Subtitle Post-processing
+### Alignment
 
 | Script | Purpose | Status |
 |---|---|---|
-| `reflow_subtitles_vertex.py` | LLM-based cue regrouping using Vertex Gemini | Experimental |
-| `reflow_subtitles_local.py` | LLM-based cue regrouping using local llama.cpp | Experimental |
-| `format_vtt_netflix.py` | Netflix-style VTT formatting using Gemini | Utility |
+| `align_ctc.py` | CTC forced alignment using `NTQAI/wav2vec2-large-japanese`. Default alignment path. 0.3% zero-duration words vs 13.4% with stable-ts. Writes `.diagnostics.json` sidecar with per-chunk repair details and visual-substitution risk flags. | Maintained |
+| `align_chunkwise.py` | Chunk-wise stable-ts forced alignment | Legacy |
+| `align_stable_ts.py` | Global stable-ts alignment (single pass) | Legacy |
+| `align_qwen_forced.py` | Qwen forced-alignment benchmark (GGUF backend) | Archived |
+| `align_qwen_forced_hf.py` | Qwen forced-alignment benchmark (HF backend) | Archived |
+
+### Reflow & Repair
+
+| Script | Purpose | Status |
+|---|---|---|
+| `reflow_words.py` | Reflow word/line timestamps into subtitle cues. `--line-level` (default for CTC) treats lines as atomic. Includes comma-fallback splitting, sparse-cue clamping, and micro-cue merging. | Maintained |
+| `repair_vtt_codex.py` | Codex-interactive reflow repair with region detection, session/checkpoint, alignment and turn-boundary advisory context, and deterministic before/after diagnostics | Maintained |
+| `repair_vtt_local.py` | Local Gemma cue-boundary repair. Alternative to the Codex-interactive path. | Alternative |
+
+### Translation
+
+| Script | Purpose | Status |
+|---|---|---|
+| `translate_vtt_codex.py` | Codex-interactive translation with session/checkpoint, batch-tier auto-fallback (84→60→48), source hash validation, seed draft import, alignment/turn advisory context, and CPS diagnostics | Maintained |
+| `translate_vtt_api.py` | Unattended LLM translation (Vertex Gemini or any OpenAI-compatible API). For benchmarking, testing model capability, or use without Codex. | Maintained |
+
+### Local LLM Servers
+
+| Script | Purpose | Status |
+|---|---|---|
+| `start_qwen_ocr_server.sh` | llama-server for Qwen-VL OCR | Maintained |
+| `start_gemma_ocr_filter_server.sh` | llama-server for Gemma OCR span classification | Maintained |
+| `start_gemma_cue_repair_server.sh` | llama-server for Gemma cue-boundary repair | Alternative |
+| `start_qwen_cue_repair_server.sh` | llama-server for Qwen cue-boundary repair | Alternative |
+
+### Utilities
+
+| Script | Purpose | Status |
+|---|---|---|
+| `extract_visual_cues.py` | Extract visual cue text from Gemini raw transcripts | Utility |
+| `format_vtt_netflix.py` | Netflix-style VTT formatting | Utility |
 | `json_to_smart_vtt.py` | Word-timestamp JSON to pause-split VTT (no LLM) | Utility |
 | `restore_speaker_turns.py` | Re-insert speaker turn markers into reflowed VTT | Utility |
 | `restore_speaker_turns_ocr.py` | Speaker turn restoration using OCR data | Experimental |
-
-### Vertex / LLM Utilities
-
-| Script | Purpose | Status |
-|---|---|---|
+| `reflow_subtitles_vertex.py` | LLM-based cue regrouping using Vertex Gemini | Experimental |
+| `reflow_subtitles_local.py` | LLM-based cue regrouping using local llama.cpp | Experimental |
 | `run_vertex.py` | Generic CLI wrapper for Vertex Gemini text generation | Utility |
 
-### Experiment / Test Scripts
+### Experiments (`scripts/experiments/`)
 
 | Script | Purpose | Status |
 |---|---|---|
-| `run_reazonspeech_nemo.py` | ReazonSpeech NeMo ASR (broken on ROCm, see docs) | Archived |
-| `run_reazonspeech_nemo_chunked.py` | Chunked ReazonSpeech NeMo (broken on ROCm) | Archived |
-| `transcribe_nemo_vibevoice.py` | VibeVoice ASR experiment | Archived |
-| `test_vibevoice_4bit.py` | VibeVoice 4-bit inference test | Archived |
+| `build_whisper_glossary.py` | Early glossary-building experiment | Archived |
+| `extract_glossary.py` | Early glossary extraction experiment | Archived |
+| `run_reazonspeech_nemo.py` | ReazonSpeech NeMo ASR experiment | Archived |
+| `run_reazonspeech_nemo_chunked.py` | ReazonSpeech NeMo chunked ASR experiment | Archived |
+| `test_easyocr.py` | EasyOCR evaluation | Archived |
+| `test_faster_whisper.py` | faster-whisper evaluation | Archived |
+| `test_paddleocr.py` | PaddleOCR evaluation | Archived |
+| `test_qwen_json_schema.py` | Qwen JSON schema mode test | Archived |
+| `test_qwen_ocr.py` | Qwen OCR evaluation | Archived |
+| `test_reflow_quality.py` | Reflow quality metrics experiment | Archived |
+| `test_vibevoice_4bit.py` | VibeVoice 4-bit quantization test | Archived |
 | `test_vibevoice_load.py` | VibeVoice model loading test | Archived |
-| `build_whisper_glossary.py` | Older EasyOCR-based glossary builder | Legacy |
-| `extract_glossary.py` | Older MangaOCR-based glossary extraction | Legacy |
-| `test_easyocr.py` | EasyOCR sanity test | Test |
-| `test_paddleocr.py` | PaddleOCR sanity test | Test |
-| `test_faster_whisper.py` | faster-whisper runtime check | Test |
-| `test_qwen_ocr.py` | Qwen-VL OCR spot-check | Test |
-| `test_qwen_json_schema.py` | JSON reliability mode comparison | Test |
-| `test_vlm_extraction.py` | VLM extraction prompt comparison | Test |
-| `test_reflow_quality.py` | Reflow quality evaluation | Test |
+| `test_vlm_extraction.py` | VLM text extraction evaluation | Archived |
+| `transcribe_nemo_vibevoice.py` | NeMo + VibeVoice transcription experiment | Archived |
 
-### `scripts/kotoba_test/`
-
-Older Kotoba-whisper and NeMo diarization experiments.
+### Experiments (`scripts/experiments/kotoba_test/`)
 
 | Script | Purpose | Status |
 |---|---|---|
-| `run_kotoba.py` | Kotoba-whisper transcription | Legacy |
-| `run_kotoba_clean.py` | Cleaned Kotoba pipeline | Legacy |
-| `run_kotoba_diarized.py` | Kotoba + diarization | Legacy |
-| `run_nemo_diarized.py` | NeMo MSDD diarization + Kotoba merge | Legacy |
+| `run_kotoba.py` | Kotoba Whisper ASR experiment | Archived |
+| `run_kotoba_clean.py` | Kotoba Whisper with clean audio | Archived |
+| `run_kotoba_diarized.py` | Kotoba Whisper with diarization | Archived |
+| `run_nemo_diarized.py` | NeMo diarized ASR experiment | Archived |
 
 ## CLI Cheatsheet
 
@@ -227,7 +250,9 @@ python3.12 scripts/pre_reflow_second_opinion.py \
 
 # Runs faster-whisper on every episode and compares coverage against the primary
 # transcript. Auto-discovers episode glossary for Whisper initial_prompt and
-# passes VAD segments to the coverage comparison.
+# passes VAD segments to the coverage comparison. When a sibling
+# <stem>_gemini_raw.json exists, it also writes a raw-chunk omission report that
+# compares Gemini spoken lines, Gemini visual lines, and Whisper speech.
 # Use --force to rerun whisper even when artifacts already exist.
 # Use --glossary to override glossary auto-discovery.
 
@@ -257,20 +282,20 @@ python3 scripts/repair_vtt_codex.py finalize \
 
 # 8. Translate
 # dmm example from the current CTC + reflow path
-python scripts/translate_vtt.py \
+python scripts/translate_vtt_api.py \
   --input samples/episodes/dmm/transcription/dmm_ctc_reflow.vtt \
   --output samples/episodes/dmm/translation/dmm_ctc_reflow_en.vtt \
   --batch-cues 12 \
   --batch-seconds 45
 
 # great_escape1 example from the current reflow path
-python scripts/translate_vtt.py \
+python scripts/translate_vtt_api.py \
   --input samples/episodes/great_escape1/transcription/ge1_reflow.vtt \
   --output samples/episodes/great_escape1/translation/ge1_reflow_en.vtt \
   --batch-cues 12 \
   --batch-seconds 45
 
-# `translate_vtt.py` now translates in local cue batches, preserves cue timings,
+# `translate_vtt_api.py` translates in local cue batches, preserves cue timings,
 # targets readable English subtitle CPS, retries overlong batches once, and
 # writes `<output>.diagnostics.json`.
 
@@ -302,16 +327,11 @@ python scripts/translate_vtt_codex.py apply-batch \
 # Restart with `prepare --force` to clear stale session/output/diagnostics
 # artifacts before beginning a fresh run.
 
-# Experimental Mistral benchmark with the same cue-preserving translation flow.
-# dmm
-python scripts/translate_vtt_mistral.py \
+# Mistral via the OpenAI-compatible backend
+python scripts/translate_vtt_api.py --backend openai \
+  --url https://api.mistral.ai --api-key $MISTRAL_API_KEY --model mistral-small-latest \
   --input samples/episodes/dmm/transcription/dmm_ctc_reflow.vtt \
   --output samples/episodes/dmm/translation/dmm_ctc_reflow_en_mistral.vtt
-
-# great_escape1
-python scripts/translate_vtt_mistral.py \
-  --input samples/episodes/great_escape1/transcription/ge1_reflow.vtt \
-  --output samples/episodes/great_escape1/translation/ge1_reflow_en_mistral.vtt
 ```
 
 ### Local Pipeline

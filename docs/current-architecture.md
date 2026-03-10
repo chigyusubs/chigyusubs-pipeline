@@ -234,9 +234,10 @@ The preferred next step is not to rerun Gemini blindly. Instead:
 
 1. run a full-episode `faster-whisper large-v3` second-opinion pass (always-on, ~2-3 min/episode)
 2. compare it against `*_ctc_words.json` with `scripts/compare_transcript_coverage.py`
-3. when VAD segments are available, mark flagged regions as `vad_confirmed` or `possible_hallucination`
-4. review only the flagged windows
-5. patch the Japanese source locally before translation if needed
+3. when `*_gemini_raw.json` exists, classify likely omission types with `scripts/report_raw_chunk_omissions.py`
+4. when VAD segments are available, mark flagged regions as `vad_confirmed` or `possible_hallucination`
+5. review only the flagged windows / classified omission candidates
+6. patch the Japanese source locally before translation if needed
 
 This keeps the pipeline artifact-first while giving the reflow handoff a deterministic review gate for missing narration.
 
@@ -244,7 +245,7 @@ The maintained helper for this is:
 
 - `scripts/pre_reflow_second_opinion.py --words <stem>_ctc_words.json`
 
-It always runs the faster-whisper second opinion, auto-discovers episode glossary for Whisper initial_prompt conditioning, and passes VAD segments to the coverage comparison when available. Visual-substitution risk from alignment diagnostics is still collected as informational metadata but no longer gates execution.
+It always runs the faster-whisper second opinion, auto-discovers episode glossary for Whisper initial_prompt conditioning, passes VAD segments to the coverage comparison when available, and emits a raw-chunk omission report when the sibling Gemini raw artifact exists. Visual-substitution risk from alignment diagnostics is still collected as informational metadata but no longer gates execution.
 
 ## Current Scripts By Role
 
@@ -278,9 +279,8 @@ Transcription and alignment:
 - `scripts/align_stable_ts.py` — global stable-ts alignment (legacy)
 - `scripts/repair_vtt_codex.py` — Codex-interactive region-based reflow repair helper with session/checkpoint state, deterministic validation/final assembly, and advisory surfacing of both alignment-stage interpolated-line diagnostics and source turn-boundary context from aligned words JSON
 - `scripts/repair_vtt_local.py` — local Gemma cue-boundary repair on top of a reflowed VTT + aligned words (alternative path, no longer the default skill fallback)
-- `scripts/translate_vtt.py`
+- `scripts/translate_vtt_api.py` — unattended LLM translation (Vertex Gemini or any OpenAI-compatible API)
 - `scripts/translate_vtt_codex.py` — Codex-interactive one-episode translation helper with session/checkpoint, deterministic batch diagnostics, source-cue signature validation during `apply-batch`, alignment-warning carry-through from CTC diagnostics, advisory source turn-boundary context from aligned words JSON, clean restart via `prepare --force`, partial VTT assembly, and automatic batch-tier fallback
-- `scripts/translate_vtt_mistral.py` — experimental translation benchmark using the same batch/checkpoint flow against the Mistral API
 
 ## Recommended Operational Default
 

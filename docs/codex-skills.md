@@ -177,7 +177,7 @@ The skills are interactive Codex workflows, not callable model backends.
 That means:
 
 - they help Codex perform the work here in-session
-- they do not replace `translate_vtt.py` or `repair_vtt_codex.py` as local
+- they do not replace `translate_vtt_api.py` or `repair_vtt_codex.py` as local
   libraries
 - model/thinking/temperature settings in the Codex-interactive path are working
   preferences unless the product runtime exposes hard controls

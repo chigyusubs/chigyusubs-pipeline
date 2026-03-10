@@ -41,12 +41,7 @@ Optional but common:
 - `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`
   - Needed for Vertex workflows.
 - `MISTRAL_API_KEY`
-  - Needed for `scripts/translate_vtt_mistral.py`.
-- `MISTRAL_MODEL`
-  - Default in the Mistral translation experiment: `mistral-small-latest`.
-- `MISTRAL_API_BASE`
-  - Optional override for the Mistral API base URL. Defaults to `https://api.mistral.ai`.
-  - Not used by the Codex-interactive translation helper.
+  - For Mistral translation via `scripts/translate_vtt_api.py --backend openai --url https://api.mistral.ai`.
 
 ## Directory Layout
 
@@ -133,18 +128,13 @@ python scripts/condense_glossary_vertex.py \
 python scripts/run_faster_whisper.py --model large-v3 --compute-type float16
 ```
 
-Experimental translation benchmark with Mistral:
+Mistral translation via the OpenAI-compatible backend:
 
 ```bash
-# dmm
-python scripts/translate_vtt_mistral.py \
+python scripts/translate_vtt_api.py --backend openai \
+  --url https://api.mistral.ai --api-key $MISTRAL_API_KEY --model mistral-small-latest \
   --input samples/episodes/dmm/transcription/dmm_ctc_reflow.vtt \
   --output samples/episodes/dmm/translation/dmm_ctc_reflow_en_mistral.vtt
-
-# great_escape1
-python scripts/translate_vtt_mistral.py \
-  --input samples/episodes/great_escape1/transcription/ge1_reflow.vtt \
-  --output samples/episodes/great_escape1/translation/ge1_reflow_en_mistral.vtt
 ```
 
 ## Codex Skills
