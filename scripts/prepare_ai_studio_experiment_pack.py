@@ -40,6 +40,41 @@ def _system_and_user_prompt(*, include_visual_brackets: bool) -> tuple[str, str]
     return system_prompt, user_prompt
 
 
+def _ocr_only_prompts() -> tuple[str, str]:
+    system_prompt = "\n".join(
+        [
+            "You are extracting visible on-screen text from a Japanese variety/comedy show clip.",
+            "",
+            "Instructions:",
+            "1. Extract only text that is visibly present on screen.",
+            "2. Do NOT transcribe spoken dialogue unless the same words are also visibly shown on screen.",
+            "3. Output ONLY plain text. Do NOT use JSON, markdown, commentary, timestamps, or speaker labels.",
+            "4. Put each extracted item on its own line as `[画面: ...]`.",
+            "5. Preserve exact visible wording when readable, including kanji, kana, katakana, digits, and Latin text.",
+            "6. Prefer exact text over paraphrase or summary.",
+            "7. If text is only partially readable, output only the confidently readable portion. Do NOT guess missing characters.",
+            "8. Ignore scenery, faces, clothing, and actions unless there is visible text attached to them.",
+            "9. Prioritize cast/name cards, rule cards, mission prompts, labels, counters, maps, and signs.",
+            "10. Keep duplicate lines minimal. Do not repeat the same visible text unless the screen state clearly changed.",
+            "11. If there is no meaningful readable on-screen text, output nothing.",
+            "",
+            "The goal is reusable visual-text extraction, not speech transcription.",
+        ]
+    )
+    user_prompt = "\n".join(
+        [
+            "Extract only meaningful readable on-screen text from this clip.",
+            "",
+            "Return one line per item as `[画面: ...]`.",
+            "",
+            "Do not transcribe speech unless the same words are visibly shown on screen.",
+            "Do not summarize.",
+            "Do not guess unreadable characters.",
+        ]
+    )
+    return system_prompt, user_prompt
+
+
 def _write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text.rstrip() + "\n", encoding="utf-8")
@@ -135,6 +170,8 @@ def _top_readme(spec: dict, video_path: Path, pack_dir: Path) -> str:
         "- `prompts/spoken_only_user.txt`",
         "- `prompts/spoken_plus_visual_system.txt`",
         "- `prompts/spoken_plus_visual_user.txt`",
+        "- `prompts/ocr_only_system.txt`",
+        "- `prompts/ocr_only_user.txt`",
         "",
         "## Scene Clips",
         "",
@@ -157,7 +194,11 @@ def _top_readme(spec: dict, video_path: Path, pack_dir: Path) -> str:
         "## Result Templates",
         "",
         "Each result file starts with a metadata comment block so settings stay attached to the pasted output.",
-        "Both `spoken_only` and `spoken_plus_visual` prompt profiles are scaffolded.",
+        "`spoken_only` and `spoken_plus_visual` are scaffolded for video; `spoken_only` for audio; `ocr_only` for video OCR probes.",
+        "",
+        "Notes:",
+        "",
+        "- `ocr_only` is for video clips only.",
         "",
     ]
     )
@@ -184,10 +225,13 @@ def build_pack(episode_dir: Path, spec_path: Path, pack_dir: Path, *, force: boo
 
     spoken_system, spoken_user = _system_and_user_prompt(include_visual_brackets=False)
     visual_system, visual_user = _system_and_user_prompt(include_visual_brackets=True)
+    ocr_system, ocr_user = _ocr_only_prompts()
     _write_text(pack_dir / "prompts" / "spoken_only_system.txt", spoken_system)
     _write_text(pack_dir / "prompts" / "spoken_only_user.txt", spoken_user)
     _write_text(pack_dir / "prompts" / "spoken_plus_visual_system.txt", visual_system)
     _write_text(pack_dir / "prompts" / "spoken_plus_visual_user.txt", visual_user)
+    _write_text(pack_dir / "prompts" / "ocr_only_system.txt", ocr_system)
+    _write_text(pack_dir / "prompts" / "ocr_only_user.txt", ocr_user)
 
     resolved_scenes = []
     for scene in spec["scenes"]:
@@ -220,7 +264,11 @@ def build_pack(episode_dir: Path, spec_path: Path, pack_dir: Path, *, force: boo
         result_scene_dir.mkdir(parents=True, exist_ok=True)
         for model in spec["models"]:
             for mode in ("video", "audio"):
-                prompt_profiles = ("spoken_only", "spoken_plus_visual") if mode == "video" else ("spoken_only",)
+                prompt_profiles = (
+                    ("spoken_only", "spoken_plus_visual", "ocr_only")
+                    if mode == "video"
+                    else ("spoken_only",)
+                )
                 for prompt_profile in prompt_profiles:
                     filename = f"{model['id']}__{mode}__{prompt_profile}.md"
                     _write_text(
@@ -241,6 +289,8 @@ def build_pack(episode_dir: Path, spec_path: Path, pack_dir: Path, *, force: boo
             "spoken_only_user": "prompts/spoken_only_user.txt",
             "spoken_plus_visual_system": "prompts/spoken_plus_visual_system.txt",
             "spoken_plus_visual_user": "prompts/spoken_plus_visual_user.txt",
+            "ocr_only_system": "prompts/ocr_only_system.txt",
+            "ocr_only_user": "prompts/ocr_only_user.txt",
         },
     }
     _write_text(pack_dir / "manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))

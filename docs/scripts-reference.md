@@ -213,7 +213,7 @@ python3 scripts/prepare_ai_studio_experiment_pack.py \
 This prepares:
 
 - extracted `video.mp4` and `audio.mp3` clips per scene
-- `prompts/` with separate system and user prompts
+- `prompts/` with separate system and user prompts, including `ocr_only`
 - `results/` templates with settings metadata headers ready for pasted outputs
 
 ### Gemini Pipeline (recommended)
