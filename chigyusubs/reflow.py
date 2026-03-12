@@ -146,7 +146,12 @@ def reflow_lines(
         text = (seg.get("text") or "").strip()
         if not text:
             continue
-        entry = {"start": start, "end": end, "text": text}
+        entry = {
+            "start": start,
+            "end": end,
+            "text": text,
+            "starts_new_turn": bool(seg.get("starts_new_turn", False)),
+        }
         if end <= start:
             zero_lines.append(entry)
         else:
@@ -171,7 +176,8 @@ def reflow_lines(
         merged_chars = sum(len(ln["text"]) for ln in current_lines) + len(curr["text"])
 
         # Break conditions
-        if merged_dur > max_cue_s or merged_chars > max_cue_chars or len(current_lines) >= max_lines:
+        is_turn_boundary = curr.get("starts_new_turn", False)
+        if is_turn_boundary or merged_dur > max_cue_s or merged_chars > max_cue_chars or len(current_lines) >= max_lines:
             cues.append(_lines_to_cue(current_lines))
             current_lines = [curr]
         elif gap > max_cue_s * 0.5:
@@ -223,11 +229,15 @@ def reflow_lines(
 
 def _lines_to_cue(lines: list[dict]) -> dict:
     text = "\n".join(ln["text"] for ln in lines)
+    starts_new_turn = bool(lines[0].get("starts_new_turn", False))
+    if starts_new_turn:
+        text = "- " + text
     return {
         "start": lines[0]["start"],
         "end": lines[-1]["end"],
         "text": text,
         "lines": lines,
+        "starts_new_turn": starts_new_turn,
     }
 
 
@@ -264,6 +274,10 @@ def _merge_short_cues(
             best_score = float("inf")
             for j in [i - 1, i + 1]:
                 if j < 0 or j >= len(cues):
+                    continue
+                # Don't merge across turn boundaries
+                right_idx = max(i, j)
+                if cues[right_idx].get("starts_new_turn", False):
                     continue
                 merged_lines = _cue_line_count(cues[i]) + _cue_line_count(cues[j])
                 merged_dur = max(cues[i]["end"], cues[j]["end"]) - min(cues[i]["start"], cues[j]["start"])
@@ -335,9 +349,11 @@ def _split_long_cues(
                 continue
 
             # Score: prefer balanced splits, bonus for sentence-ending punctuation
+            # and strong bonus for turn boundaries
             balance = abs(left_chars - right_chars)
             punct_bonus = -10 if _SENTENCE_END_RE.search(left_lines[-1]["text"]) else 0
-            score = balance + punct_bonus
+            turn_bonus = -20 if right_lines[0].get("starts_new_turn", False) else 0
+            score = balance + punct_bonus + turn_bonus
 
             if score < best_score:
                 best_score = score
@@ -487,6 +503,10 @@ def _merge_micro_cues(
             best_score = float("inf")
             for j in (i - 1, i + 1):
                 if j < 0 or j >= len(cues):
+                    continue
+                # Don't merge across turn boundaries
+                right_idx = max(i, j)
+                if cues[right_idx].get("starts_new_turn", False):
                     continue
                 merged = _merge_adjacent_cues_rewrapped(cues[min(i, j)], cues[max(i, j)], max_lines=max_lines)
                 if merged is None:

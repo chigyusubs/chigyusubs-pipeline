@@ -26,6 +26,37 @@ The main goal is:
 
 The pipeline is now organized around stable artifacts under `samples/episodes/<slug>/...`.
 
+Canonical artifacts still live at stable episode paths such as `transcription/...`, `ocr/...`, and `translation/...` so downstream scripts can discover them deterministically.
+
+Manual site-driven experiment packs can live separately under `samples/experiments/<pack>/...`.
+Those are intentionally non-canonical and exist for fixed-clip benchmarking with UIs like AI Studio.
+
+In addition, every metadata-emitting step now mirrors a run record under:
+
+- `logs/runs/<run_id>/run.json`
+- `logs/runs/<run_id>/artifacts/*.meta.json`
+- `logs/runs/<run_id>/README.md`
+
+This gives the repo two views of the same work:
+
+- canonical artifact view for the maintained pipeline
+- run-oriented view for auditing, debugging, and comparing experiments
+
+There is also a third, explicitly manual experiment view:
+
+- experiment-pack view under `samples/experiments/<pack>/`
+
+That layout is meant for:
+
+- uploading fixed video/audio clips to hosted UIs
+- keeping prompts, scene notes, and settings together
+- pasting manual outputs back into versioned templates
+
+The run mirror is versioned and self-describing:
+
+- `run.json` is the machine-readable manifest
+- `README.md` includes a top metadata comment block plus a short human summary of settings, workflow, and recorded artifacts
+
 ### 1. Raw OCR
 
 Produced by:

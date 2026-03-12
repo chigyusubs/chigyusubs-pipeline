@@ -54,6 +54,12 @@ samples/episodes/<episode_slug>/
   transcription/ # VTT, word JSON, chunks JSON
   translation/  # translated VTT
   logs/
+
+samples/experiments/<pack>/
+  prompts/      # manual experiment system/user prompts
+  scenes/       # extracted clip media and notes
+  results/      # paste-back result templates
+  manifest.json # experiment metadata and model matrix
 ```
 
 ## Script Catalog
@@ -64,6 +70,7 @@ samples/episodes/<episode_slug>/
 |---|---|---|
 | `init_episode_from_media.py` | Create episode workspace from media, optionally extracting fixed-rate frames | Maintained |
 | `install_codex_skills.py` | Install Codex skills from the repo to `~/.codex/skills/` | Maintained |
+| `prepare_ai_studio_experiment_pack.py` | Build a manual AI Studio pack with fixed clips, prompts, scene notes, and result templates under `samples/experiments/<pack>/` | Maintained |
 
 ### OCR & Glossary
 
@@ -92,6 +99,18 @@ samples/episodes/<episode_slug>/
 | `transcribe_gemini.py` | Gemini transcription (JSON schema mode, used by `transcribe_pipeline.py`) | Maintained |
 | `transcribe_pipeline.py` | Integrated pipeline: VAD → Gemini → alignment → reflow | Maintained |
 | `transcribe_local.py` | Fully local pipeline: Silero VAD + OCR filter + faster-whisper | Maintained |
+
+`transcribe_gemini_video.py` supports `--spoken-only` for experiments that ask Gemini to return spoken dialogue only and not emit `[画面: ...]` visual cue lines.
+
+`transcribe_gemini_video.py` also supports cost/token inspection:
+- `--preview-cost` encodes the real inline video chunks and calls Gemini `count_tokens` without generating a transcript. This gives an exact input-token preview for the request payload and writes a `*_gemini_cost_preview.json` artifact.
+- `--count-tokens` records per-chunk prompt-token previews during a real transcription run.
+- streamed Gemini responses are now saved with `usage_metadata` when available, so post-run metadata can include actual prompt/output token counts and a cost summary.
+- `--media-resolution {unspecified,low,medium,high}` lets Gemini choose a different multimodal processing resolution for the same inline media payload.
+- `--thinking-level {unspecified,minimal,low,medium,high}` and `--thinking-budget` expose Gemini thinking controls for transcription experiments.
+
+Important limitation:
+- Gemini API `count_tokens` does not currently accept generation-config overrides such as `media_resolution` or thinking settings. Exact preflight counts for those configurations require Vertex AI, or a real generation request followed by inspection of `usage_metadata.prompt_token_count`.
 
 ### ASR Backends & Quality
 
@@ -181,6 +200,22 @@ samples/episodes/<episode_slug>/
 
 ## CLI Cheatsheet
 
+### Manual AI Studio Pack
+
+```bash
+python3 scripts/prepare_ai_studio_experiment_pack.py \
+  --episode-dir samples/episodes/<slug> \
+  --scene-spec samples/experiments/specs/<pack>.json \
+  --pack-dir samples/experiments/<pack> \
+  --force
+```
+
+This prepares:
+
+- extracted `video.mp4` and `audio.mp3` clips per scene
+- `prompts/` with separate system and user prompts
+- `results/` templates with settings metadata headers ready for pasted outputs
+
 ### Gemini Pipeline (recommended)
 
 ```bash
@@ -197,6 +232,11 @@ python scripts/run_qwen_ocr_episode.py filter \
 
 # `ocr`, `filter`, and the maintained transcription/alignment scripts emit
 # `*.meta.json` sidecars recording invocation details, settings, and run timing.
+# Those metadata-emitting scripts also mirror a run record under
+# `samples/episodes/<slug>/logs/runs/<run_id>/`.
+# Each run mirror now includes:
+# - `run.json` for machine-readable metadata
+# - `README.md` with a top metadata comment block and a short human summary
 
 # 3. Condense glossary
 python scripts/condense_glossary_vertex.py \

@@ -118,7 +118,27 @@ chunk-level timestamps, not cue-level precision.
 - They are context only — do not emit them as subtitle lines
 - On-screen instructions often clarify what speakers are referring to
 
-### 5. Write Incrementally
+### 5. Visual Context (Optional)
+
+When a cue is ambiguous, references something visual, or the source text seems to describe on-screen content, you can extract a keyframe to see what is on screen:
+
+```
+python scripts/extract_keyframes.py \
+  --video <video_path> \
+  --cues <source_vtt> \
+  --cue-ids 42 --cue-points mid \
+  --output-dir <episode>/keyframes
+```
+
+Use this when:
+
+- A cue references a quiz question, game rule, or on-screen instruction you cannot infer from text alone
+- A name plate or location text would help resolve an ambiguous reference
+- The source text contains deictic expressions (これ、あれ、ここ) pointing at something visual
+
+Do not extract frames for every batch. Use this selectively when translation quality would genuinely benefit from seeing the frame.
+
+### 6. Write Incrementally
 
 - Save progress after every batch through `apply-batch`.
 - Let the helper regenerate the partial VTT and diagnostics.
@@ -129,7 +149,7 @@ chunk-level timestamps, not cue-level precision.
 - If you intentionally restart with `prepare --force`, expect the helper to clear the old session, partial output, final output, and diagnostics so stale batch history does not leak into the new run.
 - After each `apply-batch`, immediately loop back to `next-batch` — do not pause or summarize between batches.
 
-### 6. Review
+### 7. Review
 
 After translation:
 

@@ -169,6 +169,306 @@ Pipeline consequence:
 
 This is a manual-review aid, not a reason to remove visual cues from the Gemini format entirely.
 
+### 7b. Gemini 3 default media resolution is a real confounder in cost and quality comparisons
+
+Validated on `great_escape_s02e01` chunk 1 with `gemini-3.1-flash-lite-preview`.
+
+On the same inline video payload:
+
+- default / unspecified:
+  - `prompt_token_count=15982`
+  - video tokens `15738`
+  - output tokens `386`
+- `HIGH`:
+  - `prompt_token_count=50236`
+  - video tokens `49992`
+  - output tokens `410`
+
+That is roughly a `3.1x` prompt-token increase, driven almost entirely by video tokens.
+
+Quality also changed in meaningful ways:
+
+- `袋` became `ブクロ`
+- `解いてっててた` became `解いてって言ってた`
+- but `HIGH` did not make Flash Lite fully trustworthy; the same chunk still produced questionable lines like `偽物や` and `勝ち目せんわ`
+
+Operational implication:
+
+- comparisons between `gemini-2.5-pro` and Gemini 3.x are not apples-to-apples if Gemini 3 is left at default media resolution
+- for text-heavy or cast-identification-heavy video-only transcription, test `HIGH` before concluding Gemini 3 quality is inherently worse
+- Gemini API `count_tokens` currently does not support `media_resolution` overrides, so exact preflight counts for `low`/`medium`/`high` need Vertex or a real generation request with `usage_metadata`
+
+### 7c. Flash Lite chunk length and temperature tuning help at the margins, but they do not remove model instability
+
+Validated on a stable non-looping `great_escape_s02e01` section around the beach / panel-banter opening using `gemini-3.1-flash-lite-preview` with `media_resolution=high`.
+
+Chunk-length sweep from the same start time:
+
+- `60s`: completed in `4.8s`
+- `90s`: failed with `504 DEADLINE_EXCEEDED`
+- `120s`: completed in `6.8s`
+- `150s`: completed in `7.5s`
+
+This is important because it means Flash Lite instability is not monotonic with chunk duration. A failing chunk length does not imply that every longer chunk will also fail, and a successful shorter chunk does not prove the neighboring lengths are safe.
+
+Temperature sweep on the same `120s` section:
+
+- `0.0`: completed in `4.9s`
+- `0.1`: completed in `4.6s`
+- `0.2`: completed in `3.5s`
+- `0.3`: failed with `504 DEADLINE_EXCEEDED`
+
+Quality differences were modest but still directional:
+
+- `0.0` preserved the dialogue structure best among the cheap Flash Lite probes
+- `0.1` compressed adjacent short reactions more aggressively
+- `0.2` stayed fast but introduced slightly more drift
+- none of the successful temperatures fixed the core lexical miss around `オーシャンビュー`
+
+Operational implication:
+
+- for cheap Flash Lite probing, keep temperature at `0.0` or `0.1`
+- avoid treating chunk length as a clean monotonic tuning knob on Flash Lite
+- use these probes to compare settings cheaply, but do not interpret a locally good Flash Lite result as evidence that the model is ready for full-episode production
+
+### 7d. On Flash Lite, video can improve exact rule-text capture while making surrounding speech less literal
+
+Validated on a short `30s` rule-card slice from `great_escape_s02e01` using `gemini-3.1-flash-lite-preview` at `temperature=0.0`.
+
+Compared paths:
+
+- video input with `media_resolution=high`
+- audio-only input
+- same spoken-only prompt
+
+What happened:
+
+- video captured the rule line cleanly as `クイズに正解してこの部屋から脱出してください`
+- audio also captured the same line, but with tokenized spacing artifacts
+- however, video made the surrounding spoken banter worse in several places:
+  - `せやろな` drifted into `捨てたろな` / `捨てやろな`
+  - early complaint lines were less faithful than the audio-only version
+- audio-only preserved the spoken Kansai lines more plausibly, even though formatting was rougher
+
+Operational implication:
+
+- on Flash Lite, video is not automatically better for faithful spoken transcription
+- video may be worth paying for when exact rule cards or title text matter
+- audio-only can still be the better literal speech-recognition path on short dialogue-heavy slices
+- if the workflow needs both, treat Whisper or audio-only as the spoken-truth check and treat video as context / rule-text support
+
+Follow-up multiscene probe on `great_escape_s02e01` with `gemini-3.1-flash-lite-preview`, `temperature=0.0`, and a spoken-only prompt showed the pattern is scene-dependent:
+
+- opening cast-card / room-reveal section:
+  - audio-only was cheaper and generally more literal
+  - video introduced invented or more distorted lines like `偽物や` and `勝ち目ないわ`
+- beach / panel-banter section:
+  - both video and audio missed `オーシャンビュー`
+  - audio preserved names a bit better (`シンイチ` vs video's `真一`)
+  - video remained slightly more normalized and visually grounded, but not clearly more faithful
+- later quiz-prompt block:
+  - video clearly helped with exact rule / prompt text
+  - audio degraded proper nouns and dense prompt reading much more badly
+
+So for Flash Lite, the practical rule is not “video good” or “audio good.” It is:
+
+- dialogue-heavy banter sections: audio-only may be the cleaner spoken-truth probe
+- prompt / rule / on-screen-information sections: video is worth it if those details matter
+
+### 7e. `gemini-2.5-flash` handles the same video-vs-audio rule-card slice much better than Flash Lite
+
+Validated on the same short `30s` `great_escape_s02e01` rule-card slice at `temperature=0.0` with the same spoken-only prompt.
+
+Compared with Flash Lite:
+
+- `2.5-flash` video captured the rule line cleanly and also preserved the surrounding spoken banter much better
+- `2.5-flash` audio also preserved the spoken banter well, with only minor tokenization artifacts like `いち` for `1`
+- the damaging Flash Lite video failure (`せやろな` -> `捨てたろな` / `捨てやろな`) did not recur on `2.5-flash`
+
+Residual differences still matter:
+
+- `2.5-flash` video wrote `なんてな` where audio had the more plausible `なんでな`
+- `2.5-flash` audio wrote `なんぼ言ってもいいってこと？`, which is more plausible for the spoken line than video's `なんも言ってもいいってこと。`
+- `2.5-flash` video incurred a much larger prompt-token cost than audio, and exposed `thoughts_token_count=45` on this probe
+
+Operational implication:
+
+- the “video helps visual text but hurts spoken banter” result should currently be treated as a Flash Lite weakness, not a general Gemini rule
+- on `2.5-flash`, video is a much more defensible default for visual-heavy comedy/game content
+- audio-only remains a useful comparison path when a spoken regional phrase looks suspicious
+
+Follow-up multiscene probe on `great_escape_s02e01` with the opening cast-card section and the beach / panel-banter section strengthened that conclusion:
+
+- opening section:
+  - neither modality was clean, but `2.5-flash` still avoided the worst Flash Lite beach-level lexical collapse
+  - audio was cheaper and somewhat more grounded on obvious visible content like `1000万`
+  - video incurred large extra cost and even exposed `thoughts_token_count=1055` on this probe
+- beach section:
+  - both video and audio got `オーシャンビューよ` right
+  - this is a major quality difference from Flash Lite, where both modalities still missed it
+  - video remained more compressive than audio, but not catastrophically so
+
+Operational implication:
+
+- on `2.5-flash`, the main value of audio-only is cost and occasional spoken-phrase sanity checking
+- on `2.5-flash`, video is generally a defensible default even outside dense rule cards
+- the strongest anti-video caution from current evidence is specific to Flash Lite, not to Flash-tier Gemini as a whole
+
+### 7f. `gemini-3-flash-preview` currently looks operationally friendlier on video than on audio in this workflow
+
+Validated on the same `great_escape_s02e01` multiscene probe setup used for Flash Lite and `2.5-flash`:
+
+- spoken-only prompt
+- `temperature=0.0`
+- three scenes: opening, beach, later prompt block
+
+Observed behavior on this run:
+
+- all three video probes completed
+- all three audio probes failed before returning usable text
+  - two ended with read timeouts
+  - one ended with `503 UNAVAILABLE`
+
+This is not enough to conclude that `gemini-3-flash-preview` audio transcription is inherently worse. It is enough to conclude that, under the current API conditions and prompt path, the model was operationally less reliable on audio-only than on video for this experiment.
+
+The completed video outputs were useful but not perfect:
+
+- opening section recovered visible-value details like `1000万`
+- beach section still reduced `オーシャンビュー` to `オーサンビュー`
+- rule/prompt section preserved the important prompt text well
+
+Operational implication:
+
+- do not assume `gemini-3-flash-preview` audio-only is the safer or cheaper default path until it proves stable on repeated probes
+- for now, `gemini-3-flash-preview` video-only remains the more validated path in this repo
+
+### 7g. AI Studio safety filters can block spoken-only beach/distress scenes even when the transcription task is legitimate
+
+Validated on the `great_escape_s02e01` beach / panel-banter scene in manual AI Studio runs.
+
+Observed behavior:
+
+- spoken-only prompting on the beach scene triggered safety blocks related to sexual / harassment categories
+- the run became possible only after lowering safety settings in the AI Studio UI
+
+Most plausible explanation:
+
+- the scene contains distressed shouted speech (`助けて`, `埋められてんじゃん`) plus beach/burial context
+- without visual-cue framing, the moderation layer appears to over-read the content as abusive or sexualized
+
+Operational implication:
+
+- treat UI-level safety refusals as a separate experimental variable from model transcription quality
+- for manual AI Studio comparisons, record when safety had to be lowered to get a result
+- do not compare a safety-blocked spoken-only run against an unblocked spoken-plus-visual run as if they were equivalent conditions
+
+### 7h. On `gemini-3.1-pro-preview`, lower thinking improved the beach-scene result shape but did not fully fix lexical drift
+
+Validated on the manual AI Studio `great_escape_s02e01` beach / panel-banter scene.
+
+Compared outcomes:
+
+- `spoken_plus_visual` with higher/default thinking recovered visual cues well but missed `オーシャンビュー`
+- `spoken_only` with lower thinking produced cleaner plain-text formatting once, but another run regressed badly into `王様ビーチ` / `砂浜`
+- `spoken_plus_visual` with low thinking recovered `オーシャンビュー` and kept output shape stable
+
+Residual issues still remained in the low-thinking visual run:
+
+- `サラバ` instead of `さらば`
+- `すごい番組` instead of the more plausible `すごいメンバー`
+- `俺サイコロなんすか` / `あれなんかあれ怖い` remained degraded
+
+Operational implication:
+
+- on `gemini-3.1-pro-preview`, lowering thinking looks more promising than leaving it high for strict transcription
+- but even with low thinking, `3.1-pro-preview` still does not clearly beat the best `2.5-flash` result on this chunk
+
+### 7i. `faster-whisper large-v3` remains a stronger speech-truth benchmark than Flash Lite audio-only on the beach scene
+
+Validated on the `great_escape_s02e01` `beach_panel_banter` experiment clip, comparing:
+
+- `faster-whisper large-v3` on the extracted audio clip
+- `gemini-3.1-flash-lite-preview` with `audio + spoken_only + high thinking`
+
+Key result:
+
+- Whisper recovered the core lexical trap correctly as `オーシャンビューよ`
+- Flash Lite still misheard it as `大さん橋よ`
+
+Whisper was not clean enough to be treated as a final transcript on its own. The same run still had visible roughness:
+
+- `あの街で` for the buried-beach distress line
+- `地面いたつき`
+- `黒ちゃん`
+- `サラバ`
+- a split-cue artifact around `オ / ーシャンビュー`
+
+But the comparison still matters operationally:
+
+- Flash Lite audio-only did improve over Flash Lite video on some name-shape and speech-only details
+- even so, Flash Lite did not catch up to Whisper on the key contested spoken line
+- Whisper remains the better benchmark and second-opinion artifact when we want to know what was actually said
+
+Operational implication:
+
+- treat `faster-whisper large-v3` as the speech-truth benchmark for cheap-model experiments
+- treat Flash Lite audio-only as an auxiliary draft path only
+- do not promote Flash Lite to the primary transcript source just because audio-only plus higher thinking looks better than its video runs
+
+### 7j. `gemini-3-flash-preview` audio-only can get much closer to Whisper on banter-heavy speech than Flash Lite does
+
+Validated on the same `great_escape_s02e01` `beach_panel_banter` clip, comparing:
+
+- `gemini-3-flash-preview` with `audio + spoken_only + high thinking`
+- `faster-whisper large-v3`
+
+Compared with Flash Lite, `3-flash` closed most of the important gap:
+
+- it recovered `オーシャンビューよ`
+- it preserved `さらば`
+- it kept `信一` instead of collapsing the name to a wrong place-like reading
+
+Residual differences versus Whisper still remained:
+
+- `地面板付き` / `地面いたつき` were still both wrong in different ways
+- `リピーター。 / いらっしゃいますけどね。` was more normalized than the rougher Whisper read
+- `どこ、ここ？` and some short reaction lines were cleaned up rather than kept maximally literal
+
+Operational implication:
+
+- on this scene, `gemini-3-flash-preview` audio-only is much closer to Whisper than Flash Lite audio-only is
+- Whisper still remains the better benchmark when the question is “what was actually said?”
+- but `3-flash` audio-only is strong enough to be treated as a real comparison path, not just a failed experiment
+
+### 7k. On current free-tier models, `gemini-3-flash-preview` is the strongest non-Pro compromise path so far
+
+Validated on `great_escape_s02e01` across the beach / panel-banter chunk and the rule / prompt block.
+
+Most important current finding:
+
+- `gemini-3-flash-preview` with `video + spoken_only + low thinking + media_resolution=high + temperature=0.0` is the best single compromise mode we have tested on the free tier
+
+Why it currently leads:
+
+- better spoken cleanliness than `spoken_plus_visual` on banter-heavy chunks
+- better visual disambiguation than audio-only
+- fewer meaning-changing regressions than `gemini-2.5-flash` on the beach scene
+- much stronger overall quality than `gemini-3.1-flash-lite-preview`
+
+Counterpoints:
+
+- `gemini-2.5-flash` is still competitive and remains useful as a secondary comparison path
+- `gemini-2.5-flash` should stay at default thinking; turning thinking fully off regressed badly
+- `gemini-3-flash-preview` still benefits from chunk-type awareness, and `spoken_plus_visual` may still be preferable on dense rule-card sections when the visual artifact itself matters
+
+Operational implication:
+
+- for free-tier daily episode work, prefer `gemini-3-flash-preview` first
+- keep `media_resolution=high`
+- keep `temperature=0.0`
+- prefer `spoken_only`
+- prefer `thinking=low` on video
+
 ### 8. OCR-first filtering became too conservative when it focused mainly on names
 
 The initial OCR cleanup/classification work improved safety, but it over-optimized for name/entity anchors.
@@ -198,6 +498,66 @@ Examples:
 - `oni_no_dokkiri_de_namida_ep2`: location cards, cast intros, premise cards, subtitle-like captions, constant service watermark
 
 This argues against a heavy semantic classifier early in the OCR pipeline.
+
+### 9a. Chunk-wise OCR-only prompting may be useful, but beach/banter scenes can collapse to low-recall name-card extraction
+
+Validated on the `great_escape_s02e01` `beach_panel_banter` clip with a manual AI Studio `ocr_only` prompt on `gemini-2.5-flash`.
+
+Observed output:
+
+- `クロちゃん`
+- `安田大サーカス`
+- `バカリズム`
+- `バイきんぐ`
+- `小峠英二`
+
+This is not useless, but it is narrow:
+
+- it mostly captured visible name cards
+- it did not surface richer contextual telops
+- it did not add much beyond what the stronger video-transcription runs were already implicitly using
+
+Operational implication:
+
+- chunk-wise OCR-only prompting is probably not worth the extra step on banter-heavy scenes
+- it is still worth testing on dense rule/prompt scenes, where the visible text is the point
+- if OCR-only is kept, treat it as a chunk-type-specific tool, not a global preprocessing default
+
+### 9b. The same OCR-only prompt becomes much more valuable on dense rule/prompt chunks
+
+Validated on the `great_escape_s02e01` `rule_prompt_block_2` clip with manual AI Studio `ocr_only` prompting on `gemini-3.1-flash-lite-preview`.
+
+Observed output included:
+
+- the full `Take2深沢邦之...一番高い山...` prompt
+- the full `TSUTAYA西五反田店18禁ナンパコーナー...` prompt
+- the full `本日東京地方裁判所...` prompt
+- the full `日比谷公園の噴水...` prompt
+- smaller local items like `テレホンカード` and `料金 100.000円`
+
+This is materially more useful than the beach-scene OCR-only result:
+
+- the visible text is the main information-bearing content of the chunk
+- OCR-only output captures reusable prompt text that can support transcription, glossary building, and translation review
+- even Flash Lite is good enough here as a cheap visual-text extractor
+
+Operational implication:
+
+- OCR-only prompting is worth keeping as a chunk-type-specific tool for dense visual prompt sections
+- it should not be run blindly on every chunk
+- the best current role for Flash Lite may be exactly this: cheap OCR-like visual extraction on text-heavy chunks
+
+Follow-up comparison on the same chunk with `thinking=minimal`:
+
+- retained the major prompt cards cleanly
+- improved a numeric format detail (`100,000円` instead of `100.000円`)
+- added a few extra low-value arithmetic fragments (`12+12=`, `10+12=`, `3+7=?`)
+
+Current practical read:
+
+- Flash Lite OCR-only is promising because it is fast, free-tier friendly, and preserves reusable visual text on the chunks where visual text actually matters
+- `minimal` and `high` are both usable here
+- `minimal` may recover slightly more literal surface text, but it can also admit more low-value visual clutter
 
 Better approach:
 
@@ -448,7 +808,11 @@ That solved the resumability problem.
 What is still open:
 
 - `gemini-2.5-pro` still hits intermittent `429 RESOURCE_EXHAUSTED` depending on region
-- the diagnostics need better cost/token accounting and less noisy short-cue CPS review logic
+- the diagnostics still need less noisy short-cue CPS review logic
+- Gemini API cost accounting is now partially solved for the video-only path:
+  - `count_tokens` can preflight exact multimodal input tokens for the real inline video request payload
+  - streamed responses expose `usage_metadata`, so prompt/output/total token counts can be recorded after a real run
+  - output tokens still cannot be known exactly before generation, only estimated
 - Codex-interactive translation restarts should clear stale session/output/diagnostics history when intentionally restarted from a clean base
 
 ### 2. CPS validation is still too strict for very short cues
@@ -522,9 +886,44 @@ Current best behavior:
 - slightly higher temperature on retry
 - no rolling context on retry
 
+New failure mode from `great_escape_s02e01` on `gemini-3.1-flash-lite-preview`:
+
+- some video-only chunks returned thousands of short reaction lines like `-- おお。` or `-- うわあ。`
+- the current loop detector missed these because the lines were short, not abnormally long, and each line was individually plausible
+- shrinking VAD-derived chunks from ~240s to ~180s helped, but did not eliminate the problem
+- setting `rolling_context_chunks=0` materially improved stability and stopped repeated deadline failures on the next chunk
+- two chunks still required targeted single-chunk repair with a stronger anti-repeat retry prompt and a higher temperature
+
+Operational consequence:
+
+- loop detection must count dominant repeated short lines, not just repeated clauses inside one line or overlong line lengths
+- for `gemini-3.1-flash-lite-preview` video-only runs, defaulting to no rolling context is currently safer than carrying prior chunk text
+
 This should become standard for video-only Gemini transcription.
 
-### 6. Translation is now local-batch aware, but subtitle polishing is not finished
+### 6. `gemini-3-flash-preview` looks usable; `flash-lite` still looks like a budget fallback
+
+Validated on `great_escape_s02e01`.
+
+Comparison against `gemini-3.1-flash-lite-preview`:
+
+- `gemini-3-flash-preview` finished the episode without catastrophic looped chunks
+- most chunks completed on the first attempt; one chunk had a fast `500` retry and one chunk needed three attempts due to read timeouts
+- saved chunk outputs stayed in a sane line-count range and did not require the manual loop repairs that `flash-lite` needed
+- transcript fidelity was still imperfect: likely `オーシャンビューよ` was misheard as `大三廟`
+- alignment on the `gemini-3-flash-preview` run also surfaced one visual-substitution-risk chunk, so it is still not a literal-truth model
+
+Operational conclusion:
+
+- `gemini-3-flash-preview` is currently good enough as the primary cloud transcription draft when paired with:
+  - ~180s VAD-derived chunk boundaries
+  - `rolling_context_chunks=0`
+  - CTC alignment
+  - faster-whisper second-opinion coverage check
+- `gemini-3.1-flash-lite-preview` remains useful only as a cheaper fallback path, not the preferred model
+- based on this run alone, stepping up to a paid Pro model is not yet justified; first validate `gemini-3-flash-preview` on a few more real episodes and measure whether the remaining errors are mostly local lexical misses or true spoken-coverage failures
+
+### 7. Translation is now local-batch aware, but subtitle polishing is not finished
 
 The English translation quality is already promising, but still incomplete:
 
@@ -534,7 +933,7 @@ The English translation quality is already promising, but still incomplete:
   - true bad subtitles
   - acceptable short-cue CPS spikes
 
-### 7. Codex-interactive translation has a practical batch ceiling
+### 8. Codex-interactive translation has a practical batch ceiling
 
 When Codex itself did the subtitle translation interactively, quality degraded gradually rather than catastrophically:
 
@@ -561,7 +960,7 @@ Follow-up correction:
   - real structural blockers
   - obsolete history from a superseded session
 
-### 8. Codex-interactive reflow repair should be the default skill fallback, not local LLM repair
+### 9. Codex-interactive reflow repair should be the default skill fallback, not local LLM repair
 
 After running the Codex repair path on weak reflowed VTTs:
 
@@ -577,7 +976,7 @@ What turned out to matter most in practice:
 
 So the useful next step is better deterministic review diagnostics, not putting a local server back into the default skill path.
 
-### 9. CTC wav2vec2 alignment outperformed both stable-ts and Qwen forced alignment
+### 10. CTC wav2vec2 alignment outperformed both stable-ts and Qwen forced alignment
 
 Three alignment approaches were benchmarked:
 
@@ -596,6 +995,9 @@ Use video-only Gemini as a real baseline:
 - Silero VAD
 - VAD chunk boundaries
 - Gemini video-only transcription
+- prefer `gemini-3-flash-preview` over `gemini-3.1-flash-lite-preview` when quota allows
+- use ~180s VAD-derived chunks for the current video-only path
+- default `rolling_context_chunks=0` for the current Gemini video-only path
 - spoken text as `-- ...`
 - visual-only text as `[画面: ...]`
 - strip `[画面: ...]` before alignment

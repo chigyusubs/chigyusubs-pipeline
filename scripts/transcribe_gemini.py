@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 from chigyusubs.audio import extract_audio_chunk, get_duration
 from chigyusubs.chunking import find_chunk_boundaries
@@ -126,16 +127,133 @@ def _countdown(seconds: float):
     print("\r" + " " * 30 + "\r", end="", flush=True)
 
 
-def _make_client(location: str, api_key: str = ""):
-    """Build a genai Client for either Gemini API (free tier) or Vertex AI."""
+def _make_client(location: str, api_key: str = "", vertex: bool = False):
+    """Build a genai Client for either Gemini API (default) or Vertex AI."""
     from google import genai
 
-    if api_key:
-        # The SDK checks GOOGLE_GENAI_USE_VERTEXAI and forces Vertex routing
-        # even when api_key is explicitly provided. Override it.
-        os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
-        return genai.Client(api_key=api_key)
-    return genai.Client(vertexai=True, location=location)
+    if vertex:
+        return genai.Client(vertexai=True, location=location)
+    # The SDK checks GOOGLE_GENAI_USE_VERTEXAI and forces Vertex routing
+    # even when api_key is explicitly provided. Override it.
+    os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
+    if not api_key:
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        print("Error: GEMINI_API_KEY not set. Use --vertex for Vertex AI.", file=sys.stderr)
+        sys.exit(1)
+    return genai.Client(api_key=api_key)
+
+
+def _usage_metadata_to_dict(usage: Any) -> dict[str, Any] | None:
+    if usage is None:
+        return None
+    fields = [
+        "prompt_token_count",
+        "candidates_token_count",
+        "total_token_count",
+        "thoughts_token_count",
+        "cached_content_token_count",
+    ]
+    out = {field: getattr(usage, field, None) for field in fields}
+    prompt_details = getattr(usage, "prompt_tokens_details", None)
+    candidate_details = getattr(usage, "candidates_tokens_details", None)
+    if prompt_details:
+        out["prompt_tokens_details"] = [
+            {"modality": getattr(item, "modality", None), "token_count": getattr(item, "token_count", None)}
+            for item in prompt_details
+        ]
+    if candidate_details:
+        out["candidates_tokens_details"] = [
+            {"modality": getattr(item, "modality", None), "token_count": getattr(item, "token_count", None)}
+            for item in candidate_details
+        ]
+    return out
+
+
+def _build_request_parts(media_bytes: bytes, prompt: str, mime_type: str):
+    from google.genai import types
+
+    return [
+        types.Part.from_bytes(data=media_bytes, mime_type=mime_type),
+        types.Part.from_text(text=prompt),
+    ]
+
+
+def _build_thinking_config(thinking_level: str = "unspecified", thinking_budget: int | None = None):
+    from google.genai import types
+
+    thinking_level = thinking_level.lower()
+    if thinking_level == "unspecified" and thinking_budget is None:
+        return None
+    level_map = {
+        "unspecified": None,
+        "minimal": types.ThinkingLevel.MINIMAL,
+        "low": types.ThinkingLevel.LOW,
+        "medium": types.ThinkingLevel.MEDIUM,
+        "high": types.ThinkingLevel.HIGH,
+    }
+    if thinking_level not in level_map:
+        raise ValueError(f"Unsupported thinking_level: {thinking_level}")
+    kwargs: dict[str, Any] = {}
+    if level_map[thinking_level] is not None:
+        kwargs["thinking_level"] = level_map[thinking_level]
+    if thinking_budget is not None:
+        kwargs["thinking_budget"] = thinking_budget
+    return types.ThinkingConfig(**kwargs)
+
+
+def count_request_tokens(
+    media_bytes: bytes,
+    prompt: str,
+    model: str,
+    location: str,
+    mime_type: str = "audio/mpeg",
+    media_resolution: str = "unspecified",
+    thinking_level: str = "unspecified",
+    thinking_budget: int | None = None,
+    api_key: str = "",
+    vertex: bool = False,
+) -> dict[str, Any]:
+    from google.genai import types
+
+    client = _make_client(location, api_key=api_key, vertex=vertex)
+    config = None
+    media_resolution = media_resolution.lower()
+    if media_resolution != "unspecified" or thinking_level != "unspecified" or thinking_budget is not None:
+        if not vertex:
+            raise ValueError(
+                "Gemini API count_tokens does not support generation-config overrides such as "
+                "media_resolution or thinking settings. "
+                "Use Vertex AI for preflight counts, or run a real generation request and read usage_metadata."
+            )
+        media_map = {
+            "low": types.MediaResolution.MEDIA_RESOLUTION_LOW,
+            "medium": types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+            "high": types.MediaResolution.MEDIA_RESOLUTION_HIGH,
+        }
+        if media_resolution not in {"unspecified", *media_map.keys()}:
+            raise ValueError(f"Unsupported media_resolution: {media_resolution}")
+        generation_kwargs: dict[str, Any] = {}
+        if media_resolution in media_map:
+            generation_kwargs["media_resolution"] = media_map[media_resolution]
+        thinking_config = _build_thinking_config(thinking_level=thinking_level, thinking_budget=thinking_budget)
+        if thinking_config is not None:
+            generation_kwargs["thinking_config"] = thinking_config
+        config = types.CountTokensConfig(
+            generation_config=types.GenerationConfig(**generation_kwargs)
+        )
+    response = client.models.count_tokens(
+        model=model,
+        contents=_build_request_parts(media_bytes, prompt, mime_type),
+        config=config,
+    )
+    return {
+        "total_tokens": getattr(response, "total_tokens", None),
+        "cached_content_token_count": getattr(response, "cached_content_token_count", None),
+        "media_resolution": media_resolution,
+        "thinking_level": thinking_level,
+        "thinking_budget": thinking_budget,
+    }
 
 
 def transcribe_chunk(
@@ -146,25 +264,68 @@ def transcribe_chunk(
     max_retries: int = 10,
     temperature: float = 0.1,
     mime_type: str = "audio/mpeg",
+    media_resolution: str = "unspecified",
+    thinking_level: str = "unspecified",
+    thinking_budget: int | None = None,
     api_key: str = "",
+    vertex: bool = False,
 ) -> str:
-    """Send a media chunk to Gemini via streaming, return plain transcript text.
+    result = transcribe_chunk_result(
+        audio_bytes,
+        prompt,
+        model,
+        location,
+        max_retries=max_retries,
+        temperature=temperature,
+        mime_type=mime_type,
+        media_resolution=media_resolution,
+        thinking_level=thinking_level,
+        thinking_budget=thinking_budget,
+        api_key=api_key,
+        vertex=vertex,
+    )
+    return result["text"]
 
-    When api_key is provided, uses the Gemini API (Google AI Studio free tier)
-    instead of Vertex AI.
-    """
+
+def transcribe_chunk_result(
+    audio_bytes: bytes,
+    prompt: str,
+    model: str,
+    location: str,
+    max_retries: int = 10,
+    temperature: float = 0.1,
+    mime_type: str = "audio/mpeg",
+    media_resolution: str = "unspecified",
+    thinking_level: str = "unspecified",
+    thinking_budget: int | None = None,
+    api_key: str = "",
+    vertex: bool = False,
+) -> dict[str, Any]:
+    """Send a media chunk to Gemini via streaming, return plain transcript text."""
     from google.genai import types
 
-    client = _make_client(location, api_key)
+    client = _make_client(location, api_key=api_key, vertex=vertex)
 
-    audio_part = types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
-    text_part = types.Part.from_text(text=prompt)
+    parts = _build_request_parts(audio_bytes, prompt, mime_type)
+
+    media_map = {
+        "unspecified": types.MediaResolution.MEDIA_RESOLUTION_UNSPECIFIED,
+        "low": types.MediaResolution.MEDIA_RESOLUTION_LOW,
+        "medium": types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+        "high": types.MediaResolution.MEDIA_RESOLUTION_HIGH,
+    }
+    media_resolution = media_resolution.lower()
+    if media_resolution not in media_map:
+        raise ValueError(f"Unsupported media_resolution: {media_resolution}")
+    thinking_config = _build_thinking_config(thinking_level=thinking_level, thinking_budget=thinking_budget)
 
     config = types.GenerateContentConfig(
         temperature=temperature,
         response_mime_type="text/plain",
         max_output_tokens=65536,
         httpOptions=types.HttpOptions(timeout=180_000),
+        media_resolution=media_map[media_resolution],
+        thinking_config=thinking_config,
     )
 
     for attempt in range(max_retries):
@@ -176,12 +337,21 @@ def transcribe_chunk(
             chunks: list[str] = []
             char_count = 0
             first_chunk = True
+            usage_metadata = None
+            response_id = None
+            model_version = None
             for chunk in client.models.generate_content_stream(
                 model=model,
-                contents=[audio_part, text_part],
+                contents=parts,
                 config=config,
             ):
                 text = chunk.text or ""
+                if getattr(chunk, "usage_metadata", None) is not None:
+                    usage_metadata = _usage_metadata_to_dict(chunk.usage_metadata)
+                if getattr(chunk, "response_id", None):
+                    response_id = chunk.response_id
+                if getattr(chunk, "model_version", None):
+                    model_version = chunk.model_version
                 if first_chunk and text:
                     ttfb = time.time() - t0
                     print(f" first token in {ttfb:.1f}s, streaming", end="", flush=True)
@@ -195,7 +365,16 @@ def transcribe_chunk(
             raw = "".join(chunks)
             normalized = _normalize_transcript_text(raw)
             print(f" {len(normalized)} chars in {elapsed:.1f}s", flush=True)
-            return normalized
+            return {
+                "text": normalized,
+                "usage_metadata": usage_metadata,
+                "response_id": response_id,
+                "model_version": model_version,
+                "media_resolution": media_resolution,
+                "thinking_level": thinking_level,
+                "thinking_budget": thinking_budget,
+                "elapsed_seconds": round(elapsed, 3),
+            }
         except Exception as e:
             elapsed = time.time() - t0
             print(flush=True)
@@ -224,6 +403,7 @@ def transcribe_full(
     model: str,
     chunk_minutes: float,
     api_key: str = "",
+    vertex: bool = False,
 ) -> list[dict]:
     """Transcribe full video in chunks, return chunk texts."""
     duration = get_duration(video_path)
@@ -259,6 +439,7 @@ def transcribe_full(
                 chunk_bytes, prompt, model,
                 os.environ.get("GOOGLE_CLOUD_LOCATION", "global"),
                 api_key=api_key,
+                vertex=vertex,
             )
             all_chunks.append({"chunk": i, "chunk_start_s": start, "text": text})
             prev_context = text
@@ -301,10 +482,8 @@ def main():
         help="Chunk duration in minutes (default: 10).",
     )
     parser.add_argument(
-        "--api-key",
-        default=os.environ.get("GEMINI_API_KEY", ""),
-        help="Gemini API key for Google AI Studio free tier. "
-        "Defaults to GEMINI_API_KEY env var. When set, uses the Gemini API instead of Vertex AI.",
+        "--vertex", action="store_true",
+        help="Use Vertex AI instead of Gemini API. Default uses GEMINI_API_KEY.",
     )
     args = parser.parse_args()
 
@@ -323,17 +502,17 @@ def main():
         glossary_entries = load_glossary_names(args.glossary)
         print(f"Loaded {len(glossary_entries)} glossary entries")
 
-    if args.api_key:
-        print("Using Gemini API (Google AI Studio)")
-    else:
+    if args.vertex:
         print("Using Vertex AI")
+    else:
+        print("Using Gemini API")
 
     chunks = transcribe_full(
         video_path=video_path,
         glossary_entries=glossary_entries,
         model=args.model,
         chunk_minutes=args.chunk_minutes,
-        api_key=args.api_key,
+        vertex=args.vertex,
     )
 
     txt_path = write_outputs(chunks, args.output)

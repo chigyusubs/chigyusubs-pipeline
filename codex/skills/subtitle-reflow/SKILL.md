@@ -102,7 +102,27 @@ Do not overwrite the original reflow VTT.
 When repair runs, rely on the helper's deterministic before/after diagnostics and one recommended translation-input path. Do not fall back to a local model server in the normal skill path.
 Interpolated all-unaligned source lines are advisory only: surface them during review and repair, but do not treat them as structural blockers by themselves.
 
-### 5. Handoff
+### 5. Visual Context (Optional)
+
+When reviewing cue boundaries or short-fragment clusters, you can extract keyframes to check what is on screen at a specific moment:
+
+```
+python scripts/extract_keyframes.py \
+  --video <video_path> \
+  --cues <reflow_vtt> \
+  --cue-ids 15,16,17 --cue-points start,end \
+  --output-dir <episode>/keyframes
+```
+
+Use this when:
+
+- A cue split looks suspicious and you want to see if a telop spans the boundary
+- A very short cue might be a visual reaction that needs different timing
+- You need to verify whether on-screen text aligns with the transcript at a boundary
+
+Do not extract frames for every cue. Use this selectively when the reflow diagnostics or spot-checks raise uncertainty.
+
+### 6. Handoff
 
 End by naming the single recommended Japanese VTT path for translation and summarizing:
 

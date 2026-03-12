@@ -25,6 +25,7 @@ Video file
 ```
 
 Each stage writes stable artifacts under `samples/episodes/<slug>/`. Later stages consume earlier artifacts without recomputing them.
+Manual benchmark packs for site-driven experiments can live separately under `samples/experiments/<pack>/`.
 
 ## Translation Paths
 
@@ -63,6 +64,12 @@ samples/episodes/<slug>/
   transcription/  # VTT, aligned words, chunks, diagnostics
   translation/    # translated VTT
   logs/
+
+samples/experiments/<pack>/
+  prompts/        # system + user prompts for manual site experiments
+  scenes/         # extracted video/audio clips plus per-scene notes
+  results/        # paste-back result templates
+  manifest.json   # experiment metadata and model matrix
 ```
 
 ## Quick Start
@@ -124,5 +131,8 @@ In practice this means:
 
 - `docs/scripts-reference.md` — full script catalog and CLI cheatsheet
 - `docs/current-architecture.md` — artifact-level pipeline design
+- `docs/gemini-transcription-playbook.md` — current model/chunking/media-resolution policy for Gemini transcription
+- `docs/gemini-pricing-notes.md` — practical model pricing/value conclusions for transcript + OCR combinations
 - `docs/codex-skills.md` — Codex skill scope, defaults, and handoff
 - `docs/lessons-learned.md` — validated findings from real episode runs
+- `docs/transcription-research-roadmap.md` — non-default ideas and experiment directions for chunking, OCR context, and hybrid modality routing

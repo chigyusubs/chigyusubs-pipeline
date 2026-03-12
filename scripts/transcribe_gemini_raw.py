@@ -87,15 +87,21 @@ def transcribe_raw_chunk(
     max_retries: int = 10,
     api_key: str = "",
     location: str = "europe-west4",
+    vertex: bool = False,
 ) -> str:
     from google import genai
     from google.genai import types
 
-    if api_key:
-        os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
-        client = genai.Client(api_key=api_key)
-    else:
+    if vertex:
         client = genai.Client(vertexai=True, location=location)
+    else:
+        os.environ.pop("GOOGLE_GENAI_USE_VERTEXAI", None)
+        if not api_key:
+            api_key = os.environ.get("GEMINI_API_KEY", "")
+        if not api_key:
+            print("Error: GEMINI_API_KEY not set. Use --vertex for Vertex AI.", file=sys.stderr)
+            sys.exit(1)
+        client = genai.Client(api_key=api_key)
 
     audio_part = types.Part.from_bytes(data=audio_bytes, mime_type="audio/mpeg")
     text_part = types.Part.from_text(text=prompt)
@@ -175,10 +181,8 @@ def main():
         help="Model name for local OCR filter endpoint (e.g. gemma3-27b, qwen3.5-9b).",
     )
     parser.add_argument(
-        "--api-key",
-        default=os.environ.get("GEMINI_API_KEY", ""),
-        help="Gemini API key for Google AI Studio free tier. "
-        "Defaults to GEMINI_API_KEY env var. When set, uses the Gemini API instead of Vertex AI.",
+        "--vertex", action="store_true",
+        help="Use Vertex AI instead of Gemini API. Default uses GEMINI_API_KEY.",
     )
     args = parser.parse_args()
 
@@ -262,7 +266,7 @@ def main():
                 
                 text_result = transcribe_raw_chunk(
                     chunk_bytes, prompt, args.model, max_retries=10,
-                    api_key=args.api_key,
+                    vertex=args.vertex,
                 )
                 
                 all_text.append(text_result)
