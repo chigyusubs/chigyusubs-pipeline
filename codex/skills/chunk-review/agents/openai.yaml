@@ -1,0 +1,4 @@
+interface:
+  display_name: "Chunk Review"
+  short_description: "Review VAD chunk boundaries semantically using faster-whisper transcript context"
+  default_prompt: "Use $chunk-review to interactively review and approve chunk boundaries for this episode before transcription."

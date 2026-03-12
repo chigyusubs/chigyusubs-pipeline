@@ -1,7 +1,8 @@
 # Codex Skills
 
-This repo now has three Codex-interactive skills for subtitle work:
+This repo now has four Codex-interactive skills for subtitle work:
 
+- `chunk-review`
 - `subtitle-reflow`
 - `glossary-context`
 - `subtitle-translation`
@@ -26,6 +27,7 @@ Use the repo helper to install or refresh them:
 
 ```bash
 python3 scripts/install_codex_skills.py
+python3 scripts/install_codex_skills.py --skill chunk-review
 python3 scripts/install_codex_skills.py --skill subtitle-reflow
 python3 scripts/install_codex_skills.py --skill glossary-context
 python3 scripts/install_codex_skills.py --skill subtitle-translation
@@ -42,6 +44,46 @@ Use the maintained scripts directly when:
 - you want a fully API-backed run
 - you need hard backend/model/location controls
 - you are benchmarking non-Codex paths
+
+## `chunk-review`
+
+Purpose:
+
+- replace purely acoustic VAD-based chunking with semantically informed boundaries
+- use a faster-whisper pre-pass transcript so Codex can judge whether each
+  silence gap is a natural sentence boundary
+
+Default behavior:
+
+1. Run the prepare step (Silero VAD + faster-whisper pre-pass):
+
+```bash
+python scripts/build_semantic_chunks.py prepare \
+  --video samples/episodes/<slug>/source/video.mp4
+```
+
+2. Loop through candidates: `next-candidate` -> Codex decision -> `apply-candidate`
+
+3. Finalize:
+
+```bash
+python scripts/build_semantic_chunks.py finalize \
+  --session samples/episodes/<slug>/transcription/vad_chunks.json.checkpoint.json
+```
+
+Important:
+
+- the only decision per candidate is: sentence boundary (split) or mid-sentence (skip)
+- do not evaluate topic/scene changes, only sentence boundaries
+- use both duration and transcript density as chunk budgets
+- when approaching max chunk duration or transcript character budget, bias toward splitting
+- output is standard `vad_chunks.json` consumed by downstream transcription scripts
+
+Example invocation in Codex:
+
+```text
+Use $chunk-review on samples/episodes/<slug>/source/video.mp4
+```
 
 ## `subtitle-reflow`
 
@@ -121,7 +163,8 @@ Default behavior:
 
 1. Read `transcription/<slug>_gemini_raw.json`
 2. Use both spoken `-- ...` lines and visual `[画面: ...]` lines
-3. Write:
+3. If present, also use `ocr/*_flash_lite_chunk_ocr.json` as supporting evidence for visible spellings, names, title cards, and rule text
+4. Write:
 
 ```text
 glossary/glossary.json
@@ -173,6 +216,7 @@ The maintained helper automatically:
 - writes a checkpoint/session JSON
 - writes a partial VTT in `translation/`
 - writes a deterministic batch summary in diagnostics
+- auto-discovers a sibling chunkwise OCR sidecar in `ocr/*_flash_lite_chunk_ocr.json` and includes filtered visual cues in batch payloads when present
 - carries advisory alignment warnings from CTC diagnostics into batch payloads and diagnostics when present
 - uses the `84 -> 60 -> 48` batch-tier fallback
 - keeps minimum-tier CPS overruns as diagnostics/warnings instead of auto-stopping the whole run
@@ -190,7 +234,11 @@ Use $subtitle-translation on samples/episodes/<slug>/transcription/<stem>_reflow
 The intended order is:
 
 ```text
-aligned words
+video
+  -> chunk-review
+  -> vad_chunks.json
+  -> transcription (Gemini or local)
+  -> aligned words
   -> subtitle-reflow
   -> recommended Japanese VTT
   -> glossary-context
@@ -200,6 +248,9 @@ aligned words
   -> publish_vtt.py
   -> source/<video_stem>.vtt
 ```
+
+Use `chunk-review` before transcription when you want semantically informed
+chunk boundaries instead of pure VAD-based splitting.
 
 Use `subtitle-reflow` first when the Japanese subtitle artifact still needs
 boundary review or repair.
