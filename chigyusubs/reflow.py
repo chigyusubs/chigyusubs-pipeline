@@ -228,10 +228,8 @@ def reflow_lines(
 
 
 def _lines_to_cue(lines: list[dict]) -> dict:
-    text = "\n".join(ln["text"] for ln in lines)
     starts_new_turn = bool(lines[0].get("starts_new_turn", False))
-    if starts_new_turn:
-        text = "- " + text
+    text = _render_cue_text(lines)
     return {
         "start": lines[0]["start"],
         "end": lines[-1]["end"],
@@ -247,6 +245,15 @@ def _cue_text_chars(cue: dict) -> int:
 
 def _cue_line_count(cue: dict) -> int:
     return cue["text"].count("\n") + 1
+
+
+def _display_line_text(line: dict) -> str:
+    text = str(line.get("text", ""))
+    return f"- {text}" if line.get("starts_new_turn", False) else text
+
+
+def _render_cue_text(lines: list[dict]) -> str:
+    return "\n".join(_display_line_text(line) for line in lines)
 
 
 def _merge_short_cues(
@@ -307,8 +314,9 @@ def _merge_adjacent_cues(left: dict, right: dict) -> dict:
     return {
         "start": left["start"],
         "end": right["end"],
-        "text": left["text"] + "\n" + right["text"],
+        "text": _render_cue_text(merged_lines),
         "lines": merged_lines,
+        "starts_new_turn": bool(merged_lines[0].get("starts_new_turn", False)),
     }
 
 
@@ -503,10 +511,6 @@ def _merge_micro_cues(
             best_score = float("inf")
             for j in (i - 1, i + 1):
                 if j < 0 or j >= len(cues):
-                    continue
-                # Don't merge across turn boundaries
-                right_idx = max(i, j)
-                if cues[right_idx].get("starts_new_turn", False):
                     continue
                 merged = _merge_adjacent_cues_rewrapped(cues[min(i, j)], cues[max(i, j)], max_lines=max_lines)
                 if merged is None:
@@ -808,6 +812,7 @@ def _merge_two_cues(left: dict, right: dict) -> dict:
         "end": max(float(left["end"]), float(right["end"])),
         "text": f"{left['text']}\n{right['text']}".strip(),
         "words": list(left.get("words", [])) + list(right.get("words", [])),
+        "starts_new_turn": bool(left.get("starts_new_turn", False)),
     }
     repaired = list(left.get("repaired_zero_duration_texts", [])) + list(right.get("repaired_zero_duration_texts", []))
     if repaired:
@@ -819,7 +824,7 @@ def _merge_adjacent_cues_rewrapped(left: dict, right: dict, *, max_lines: int) -
     merged = _merge_two_cues(left, right)
     raw_lines = list(left.get("lines", [{"start": left["start"], "end": left["end"], "text": left["text"]}]))
     raw_lines += list(right.get("lines", [{"start": right["start"], "end": right["end"], "text": right["text"]}]))
-    display_text = _rewrap_line_texts([line["text"] for line in raw_lines], max_lines=max_lines)
+    display_text = _rewrap_line_texts([_display_line_text(line) for line in raw_lines], max_lines=max_lines)
     if display_text is None:
         return None
     merged["text"] = display_text

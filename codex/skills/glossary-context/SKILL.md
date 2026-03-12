@@ -11,6 +11,7 @@ Use this skill to build structured glossary and episode context from a Gemini ra
 
 1. **Gemini raw JSON** — path to `transcription/<slug>_gemini_raw.json`
 2. **Existing global glossary** (optional) — path to `glossary/glossary.json` if one already exists for the show
+3. **Chunkwise OCR sidecar** (optional) — path to `ocr/*_flash_lite_chunk_ocr.json` if present
 
 ## Extraction Process
 
@@ -20,6 +21,15 @@ Read all chunks from the Gemini raw JSON. Process both:
 
 - `-- ` dialogue lines (spoken text)
 - `[画面: ...]` visual cue lines (on-screen text)
+
+If a chunkwise OCR sidecar is present, also read:
+
+- OCR `name_card`
+- OCR `title_card`
+- OCR `info_card`
+- OCR `label` items with meaningful names, prices, locations, or quiz text
+
+Treat OCR as supporting evidence, not as the only source of truth.
 
 ### 2. Identify entities
 
@@ -71,6 +81,7 @@ When an existing global glossary is provided:
 - Common variety-show terms (e.g., MC, VTR, CM) should use standard English equivalents
 - If a name appears in both dialogue and visual cues, cross-reference for accuracy
 - Visual cues with English text are high-confidence sources for romanizations
+- If OCR and transcript disagree, prefer transcript for spoken content and OCR for visible spellings/names
 
 ## Trigger Phrases
 

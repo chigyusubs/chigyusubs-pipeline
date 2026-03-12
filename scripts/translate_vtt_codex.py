@@ -108,6 +108,25 @@ def _diagnostics_path(output_path: Path) -> Path:
     return Path(f"{output_path}.diagnostics.json")
 
 
+def _discover_visual_cues_path(input_path: Path) -> str:
+    parent = input_path.parent
+    if parent.name in {"transcription", "translation"}:
+        episode_dir = parent.parent
+    else:
+        episode_dir = parent
+    ocr_dir = episode_dir / "ocr"
+    if not ocr_dir.exists():
+        return ""
+    candidates = sorted(
+        ocr_dir.glob("*_flash_lite_chunk_ocr.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    if not candidates:
+        return ""
+    return str(candidates[0])
+
+
 def _parse_tiers(raw: str) -> list[int]:
     tiers = [int(part.strip()) for part in raw.split(",") if part.strip()]
     if not tiers:
@@ -141,6 +160,33 @@ def _load_visual_cues_for_batch(visual_cues_path: str, batch_start: float, batch
     if not visual_cues_path:
         return []
     data = json.loads(Path(visual_cues_path).read_text(encoding="utf-8"))
+    if isinstance(data, list) and data and isinstance(data[0], dict) and "items" in data[0]:
+        visual_cues: list[dict] = []
+        for chunk in data:
+            chunk_start = float(chunk["chunk_start_s"])
+            chunk_end = float(chunk["chunk_end_s"])
+            if chunk_end <= batch_start or chunk_start >= batch_end:
+                continue
+            for item in chunk.get("items", []):
+                kind = str(item.get("kind_guess", "other"))
+                importance = str(item.get("importance", "medium"))
+                if kind not in {"title_card", "name_card", "info_card", "rule_text"} and not (
+                    kind == "label" and importance in {"high", "medium"}
+                ):
+                    continue
+                text = str(item.get("text", "")).strip()
+                if not text:
+                    continue
+                visual_cues.append(
+                    {
+                        "chunk_start_s": chunk_start,
+                        "chunk_end_s": chunk_end,
+                        "text": text,
+                        "kind_guess": kind,
+                        "importance": importance,
+                    }
+                )
+        return visual_cues
     return [
         {"chunk_start_s": vc["chunk_start_s"], "chunk_end_s": vc["chunk_end_s"], "text": vc["text"]}
         for vc in data
@@ -156,6 +202,7 @@ def _load_text_blob(path_value: str) -> str:
 
 def _initial_session(args, input_path: Path, output_path: Path, cues: list[Cue]) -> dict:
     preflight = _preflight(cues)
+    visual_cues_path = args.visual_cues or _discover_visual_cues_path(input_path)
     words_path = discover_words_json_path(input_path=input_path)
     alignment_diagnostics = discover_alignment_diagnostics_path(
         explicit_path=args.alignment_diagnostics,
@@ -188,7 +235,7 @@ def _initial_session(args, input_path: Path, output_path: Path, cues: list[Cue])
         "target_language": args.target_lang,
         "glossary_path": args.glossary or "",
         "summary_path": args.summary or "",
-        "visual_cues_path": args.visual_cues or "",
+        "visual_cues_path": visual_cues_path,
         "preferred_model": args.preferred_model,
         "preferred_thinking": args.preferred_thinking,
         "preferred_temperature": args.preferred_temperature,
@@ -486,6 +533,8 @@ def cmd_prepare(args) -> int:
     _write_diagnostics(session, cues)
     print(f"Prepared session: {session_path}")
     print(f"Partial output: {session['partial_output']}")
+    if session.get("visual_cues_path"):
+        print(f"Visual cues: {session['visual_cues_path']}")
     if session.get("alignment_review"):
         print(
             "Alignment advisory: "
@@ -729,7 +778,11 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--target-lang", default="English")
     prepare.add_argument("--glossary", default="", help="Optional glossary text file.")
     prepare.add_argument("--summary", default="", help="Optional summary text file.")
-    prepare.add_argument("--visual-cues", default="", help="Optional visual cues JSON file.")
+    prepare.add_argument(
+        "--visual-cues",
+        default="",
+        help="Optional visual cues JSON file. Defaults to latest sibling *_flash_lite_chunk_ocr.json if present.",
+    )
     prepare.add_argument(
         "--alignment-diagnostics",
         default="",

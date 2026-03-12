@@ -20,6 +20,7 @@ source video
   -> Silero VAD
   -> VAD chunk boundaries
   -> Gemini transcription
+  -> optional chunkwise Flash Lite OCR sidecar
   -> CTC forced alignment
   -> faster-whisper second opinion
   -> reflow
@@ -134,6 +135,34 @@ Maintained default behavior:
 - visual cues optional depending on prompt mode
 
 OCR is not required here.
+
+### 3b. Optional Chunkwise OCR Sidecar
+
+Produced by:
+
+- `scripts/extract_gemini_chunk_ocr.py`
+
+Main output:
+
+- `ocr/*_flash_lite_chunk_ocr.json`
+
+Purpose:
+
+- extract meaningful visible text as a reusable side artifact
+- keep OCR separate from the main spoken transcript call
+- store chunk-scoped items with a tiny classifier:
+  - `title_card`
+  - `name_card`
+  - `info_card`
+  - `label`
+  - `other`
+
+Important:
+
+- timings are chunk-scoped only (`timing_basis=chunk_span`)
+- this is for review/glossary/translation support
+- it is not automatically injected back into transcription by default
+- Codex glossary/translation helpers may auto-discover it later as supporting context
 
 ### 4. Alignment
 

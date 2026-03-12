@@ -6,12 +6,14 @@ Subtitle pipeline for Japanese variety shows. Takes a raw episode video and prod
 
 ```text
 Video file
-  ├─ Frame extraction (fixed-rate 0.5 fps)
-  ├─ OCR (local Qwen-VL) → spans → context
   ├─ VAD (Silero) → chunk boundaries
   │
   ├─ Transcription (Gemini or local faster-whisper)
-  │     uses: chunk boundaries, with optional OCR-like side artifacts when useful
+  │     uses: chunk boundaries
+  │
+  ├─ Optional OCR-like side artifacts
+  │     ├─ chunkwise Gemini Flash-Lite OCR sidecar
+  │     └─ older local Qwen-VL OCR → spans → context
   │
   ├─ Raw transcript → glossary/context extraction
   ├─ CTC forced alignment (wav2vec2-ja)
@@ -70,6 +72,7 @@ The maintained practical path is no longer “local OCR first.” It is:
 
 - VAD
 - Gemini transcription
+- optional chunkwise Flash Lite OCR sidecar
 - CTC alignment
 - faster-whisper second opinion
 - reflow
@@ -83,7 +86,7 @@ Local OCR and manual AI Studio experiment packs still exist, but they are second
 samples/episodes/<slug>/
   source/         # video files
   frames/         # extracted frames for OCR
-  ocr/            # OCR results, spans, context
+  ocr/            # OCR sidecars, spans, context
   glossary/       # ASR glossary, translation glossary
   transcription/  # VTT, aligned words, chunks, diagnostics
   translation/    # translated VTT
@@ -106,6 +109,11 @@ python scripts/init_episode_from_media.py --extract-frames samples/new_episode.m
 python scripts/run_vad_episode.py --episode-dir samples/episodes/<slug>
 python scripts/build_vad_chunks.py --episode-dir samples/episodes/<slug>
 python scripts/transcribe_pipeline.py --episode-dir samples/episodes/<slug>
+
+# Optional structured OCR sidecar for the same chunk plan
+python scripts/extract_gemini_chunk_ocr.py \
+  --video samples/episodes/<slug>/source/<video>.mp4 \
+  --chunk-json samples/episodes/<slug>/transcription/vad_chunks.json
 
 # Or step by step — see docs/scripts-reference.md for the full CLI cheatsheet
 ```

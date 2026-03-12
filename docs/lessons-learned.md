@@ -986,6 +986,170 @@ Three alignment approaches were benchmarked:
 
 CTC forced alignment is the clear winner. The Qwen and stable-ts aligners remain as archived benchmarks.
 
+### 11. Semantic chunk review is workable on a real episode, but the candidate surface is still too noisy
+
+The new `chunk-review` skill and `scripts/build_semantic_chunks.py` were tried on
+`great_escape_s02e02` using:
+
+- cached Silero VAD
+- faster-whisper `large-v3` pre-pass
+- semantic review of silence gaps
+
+Observed behavior:
+
+- the helper produced `139` candidate gaps for a `48.0 min` episode
+- the pre-pass transcript was usable enough to judge many boundaries
+- a first semantic pass accepted `11` split gaps and produced `12` chunks
+- the resulting chunk durations were reasonable: `181.4s` min, `237.5s` avg, `276.4s` max
+
+Comparison with the existing acoustic chunking:
+
+- existing `vad_chunks.json`: `12` chunks, `191.1s` min, `238.2s` avg, `282.8s` max
+- semantic first pass: also `12` chunks, but with a few different boundary choices
+
+Main lesson:
+
+- the idea is viable, but `139` review candidates is too many for a literal
+  one-by-one manual pass on a normal episode
+- the helper needs either:
+  - tighter candidate generation
+  - ranking/prioritization of likely good boundaries
+  - or a guided first-pass heuristic before Codex reviews edge cases
+
+So semantic chunking is promising, but not yet a drop-in default replacement for
+`build_vad_chunks.py`.
+
+### 12. Whisper transcript density is a better secondary chunk budget than duration alone
+
+The semantic chunking helper was then extended to track a faster-whisper
+character budget in addition to wall-clock duration:
+
+- target chars: derived from pre-pass transcript density at the target chunk duration
+- max chars: `1.2x` the target transcript budget
+- `approaching_max` now becomes true when either duration or transcript density
+  is near its configured ceiling
+
+On `great_escape_s02e02`, a density-aware first pass produced:
+
+- `12` chunks
+- durations: min `187.1s`, avg `237.9s`, max `268.4s`
+- transcript chars: min `971`, avg `1325.8`, max `1603`
+
+Compared with the existing acoustic chunks:
+
+- old durations: min `191.1s`, avg `238.2s`, max `282.8s`
+- old transcript chars: min `846`, avg `1356.9`, max `1857`
+
+Main lesson:
+
+- duration alone hides very dense chunks that are harder to transcribe
+- the whisper pre-pass character budget made chunk density more even on a real episode
+- the late dense chunks in `great_escape_s02e02` were pulled earlier and the
+  worst transcript-heavy chunk dropped from `1857` chars to `1603`
+
+So the best direction for semantic chunk review is:
+
+- keep duration as the hard ceiling
+- use faster-whisper transcript density as the secondary split budget
+- avoid treating all `240s` chunks as equivalent workloads
+
+### 13. A repaired semantic-density raw transcript aligned cleanly on a real episode
+
+On `great_escape_s02e02`, a mixed-model repaired raw transcript was assembled from:
+
+- mostly `gemini-3-flash-preview`
+- targeted repair chunks from `gemini-2.5-flash`
+- density-aware semantic chunking
+
+CTC alignment result on the merged raw JSON:
+
+- `15` chunks
+- `1567` segments
+- `11987` words
+- `0` zero-duration segments
+- `0` zero-duration words
+- `6` interpolated all-unaligned segments across `3` chunks
+- `0` visual-only narration risk chunks
+
+Main lesson:
+
+- the mixed-model repair strategy is alignment-safe
+- replacing only the unstable chunks is a viable recovery path
+- the repaired semantic-density raw artifact stayed structurally clean enough to
+  continue into reflow/translation without special alignment handling
+
+### 14. Flash Lite chunkwise OCR is useful as a separate structured sidecar, not as inline transcript context by default
+
+The best current role for `gemini-3.1-flash-lite-preview` is no longer primary
+transcription. It is:
+
+- chunkwise video OCR
+- reusable side artifact
+- free-tier abundant
+- especially useful on dense rule/prompt chunks
+
+Implementation direction:
+
+- keep OCR separate from the main spoken transcript call
+- store chunk-scoped JSON items rather than only raw `[画面: ...]` lines
+- use a tiny classifier only:
+  - `title_card`
+  - `name_card`
+  - `info_card`
+  - `label`
+  - `other`
+- keep timings chunk-scoped (`timing_basis=chunk_span`) instead of inventing
+  fake precise timings
+
+So the current maintained OCR-like path is:
+
+- `scripts/extract_gemini_chunk_ocr.py`
+- usually `gemini-3.1-flash-lite-preview`
+- `video`
+- `media_resolution=high`
+- separate artifact for review/glossary/translation support
+- not automatically injected into transcription prompts by default
+
+Downstream use should stay conservative:
+
+- glossary/context building should consume the sidecar when present
+- translation should consume filtered local OCR context when present
+- OCR should remain supporting evidence, not a replacement for spoken transcript review
+
+### 15. Deterministic line-level reflow must preserve internal turn markers when rescuing micro-cues
+
+On `great_escape_s02e01`, the first line-level reflow from the `gemini-3-flash`
+CTC words artifact produced `65` cues under `0.5s`, which made the file a hard
+`red` blocker for the maintained repair workflow.
+
+The important fix was not raising `--min-cue-s`. That did not help. The actual
+problem was:
+
+- residual micro-cue rescue refused to merge across turn boundaries
+- merged cues only rendered a visible turn marker for the first source turn
+
+That left unreadable one-word or reaction-only cues like `- ん。` stranded at
+`0.04-0.24s`, even though merging them into an adjacent cue would have been safe.
+
+The maintained deterministic fix is:
+
+- preserve visible turn markers for internal turn starts inside merged cues
+- allow the hard micro-cue rescue pass to merge across turn boundaries
+
+This improved the same `e01` reflow from:
+
+- `1112` cues
+- `65` cues under `0.5s`
+- `33` cues over `20 CPS`
+
+to:
+
+- `1048` cues
+- `0` cues under `0.5s`
+- `2` cues over `20 CPS`
+
+and downgraded the file from `red` to `yellow` for Codex repair.
+
 ## Current Best Practical Defaults
 
 ### For transcription experiments
@@ -1028,6 +1192,15 @@ Keep OCR reusable and local:
 - preserve cue count/timing
 - enforce CPS-aware diagnostics
 - checkpoint after every batch
+
+### Gap audit after chunking/transcription
+
+- `great_escape_s02e01` exposed a real missing-dialogue failure from a chunk coverage gap in the main Gemini path
+- the active raw transcript chunks covered `0.000-172.766s`, then resumed at `205.794s`, leaving `172.766-205.794s` uncovered
+- this caused missing dialogue around `03:10-03:25` in both the Japanese reflow and published English VTT
+- faster-whisper second-opinion artifacts made the gap obvious and provided enough local text to patch the affected cues
+- after chunking/transcription, audit for long uncovered spans before alignment/reflow/publish
+- if a long uncovered span contains Whisper speech, treat it as a real transcript gap, not just silence
 
 ## Next High-Value Work
 

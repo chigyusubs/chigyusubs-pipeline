@@ -111,12 +111,13 @@ If one cue is semantically weak in isolation, use adjacent cues to distribute me
 ### Visual Cues
 
 If `visual_cues` is present in the batch payload, these are on-screen text elements
-from the video (name plates, captions, game instructions, location text). They have
-chunk-level timestamps, not cue-level precision.
+from the video (name plates, captions, game instructions, location text). They may
+come from chunkwise OCR sidecars and have chunk-level timestamps, not cue-level precision.
 
 - Use visual cues to resolve ambiguous names, quiz content, and game rules
 - They are context only — do not emit them as subtitle lines
 - On-screen instructions often clarify what speakers are referring to
+- Prefer `title_card`, `name_card`, and `info_card` items over generic labels when deciding what matters
 
 ### 5. Visual Context (Optional)
 
@@ -144,6 +145,7 @@ Do not extract frames for every batch. Use this selectively when translation qua
 - Let the helper regenerate the partial VTT and diagnostics.
 - Keep reruns resumable from the last completed batch.
 - `apply-batch` validates source cue identity as well as cue IDs, so do not strip `source_text_hash` from the batch payload when preparing the translations JSON.
+- If `prepare` finds a sibling `ocr/*_flash_lite_chunk_ocr.json`, expect `next-batch` to auto-include filtered visual cue context from that sidecar.
 - If `prepare` auto-discovers an alignment diagnostics sidecar, expect `next-batch` payloads and diagnostics to carry advisory warnings for cues whose source timing was locally interpolated during alignment.
 - If the aligned words JSON preserves Gemini turn metadata, expect `next-batch` payloads and diagnostics to carry advisory turn-boundary context for cues that span multiple source turns.
 - If you intentionally restart with `prepare --force`, expect the helper to clear the old session, partial output, final output, and diagnostics so stale batch history does not leak into the new run.

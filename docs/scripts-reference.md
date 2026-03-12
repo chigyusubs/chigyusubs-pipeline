@@ -74,6 +74,7 @@ samples/experiments/<pack>/
 | Script | Purpose | Status |
 |---|---|---|
 | `run_qwen_ocr_episode.py` | Qwen-VL frame OCR (`ocr`), span merging (`spans`), context derivation (`context`), glossary filtering (`filter`) | Maintained |
+| `extract_gemini_chunk_ocr.py` | Chunkwise structured OCR sidecar using Gemini video input. Intended current default: `gemini-3.1-flash-lite-preview` with `media_resolution=high`. Stores chunk-scoped visible-text items with a tiny classifier (`title_card`, `name_card`, `info_card`, `label`, `other`). | Maintained |
 | `classify_ocr_spans_local.py` | Local Gemma OCR-span cleanup/classification into reusable chunk context | Maintained |
 | `condense_glossary_vertex.py` | Build structured glossary with Gemini on Vertex | Maintained |
 | `condense_glossary_qwen.py` | Build structured glossary with local Qwen | Maintained |
@@ -109,6 +110,8 @@ samples/experiments/<pack>/
 Important limitation:
 - Gemini API `count_tokens` does not currently accept generation-config overrides such as `media_resolution` or thinking settings. Exact preflight counts for those configurations require Vertex AI, or a real generation request followed by inspection of `usage_metadata.prompt_token_count`.
 
+`extract_gemini_chunk_ocr.py` is the separate OCR sidecar path. It does not feed OCR back into the main transcript call automatically; it writes a reusable chunk-scoped artifact instead.
+
 ### ASR Backends & Quality
 
 | Script | Purpose | Status |
@@ -134,7 +137,7 @@ Important limitation:
 
 | Script | Purpose | Status |
 |---|---|---|
-| `reflow_words.py` | Reflow word/line timestamps into subtitle cues. `--line-level` (default for CTC) treats lines as atomic. Includes comma-fallback splitting, sparse-cue clamping, micro-cue merging, and a cap on backward cue expansion so subtitles do not appear far before the first aligned speech. | Maintained |
+| `reflow_words.py` | Reflow word/line timestamps into subtitle cues. `--line-level` (default for CTC) treats lines as atomic. Includes comma-fallback splitting, sparse-cue clamping, deterministic micro-cue merging (including rescue across turn boundaries while preserving visible turn markers), and a cap on backward cue expansion so subtitles do not appear far before the first aligned speech. | Maintained |
 | `repair_vtt_codex.py` | Codex-interactive reflow repair with region detection, session/checkpoint, alignment and turn-boundary advisory context, and deterministic before/after diagnostics | Maintained |
 | `repair_vtt_local.py` | Local Gemma cue-boundary repair. Alternative to the Codex-interactive path. | Alternative |
 
@@ -142,7 +145,7 @@ Important limitation:
 
 | Script | Purpose | Status |
 |---|---|---|
-| `translate_vtt_codex.py` | Codex-interactive translation with session/checkpoint, batch-tier auto-fallback (84→60→48), source hash validation, seed draft import, alignment/turn advisory context, and CPS diagnostics | Maintained |
+| `translate_vtt_codex.py` | Codex-interactive translation with session/checkpoint, batch-tier auto-fallback (84→60→48), source hash validation, seed draft import, alignment/turn advisory context, optional auto-discovered chunkwise OCR visual cues, and CPS diagnostics | Maintained |
 | `translate_vtt_api.py` | Unattended LLM translation (Vertex Gemini or any OpenAI-compatible API). For benchmarking, testing model capability, or use without Codex. | Maintained |
 
 ### Local LLM Servers
@@ -237,6 +240,11 @@ python scripts/build_vad_chunks.py \
 python scripts/transcribe_pipeline.py \
   --episode-dir samples/episodes/<slug>
 
+# Optional chunkwise OCR sidecar (recommended current OCR-like use for Flash Lite)
+python3.12 scripts/extract_gemini_chunk_ocr.py \
+  --video samples/episodes/<slug>/source/<video>.mp4 \
+  --chunk-json samples/episodes/<slug>/transcription/vad_chunks.json
+
 # 4. CTC forced alignment (recommended, if running step-by-step)
 python3.12 scripts/align_ctc.py \
   --video samples/episodes/<slug>/source/video.mp4 \
@@ -326,6 +334,8 @@ python scripts/translate_vtt_api.py \
 # writes `<output>.diagnostics.json`.
 
 # Codex-interactive translation helper (no API call)
+# If a sibling ocr/*_flash_lite_chunk_ocr.json exists, prepare auto-loads it
+# as filtered visual cue context unless --visual-cues overrides it.
 python scripts/translate_vtt_codex.py prepare \
   --input samples/episodes/great_escape_s01e04/transcription/great_escape_s01e04_video_only_v1_ctc_words_reflow.vtt \
   --output samples/episodes/great_escape_s01e04/translation/great_escape_s01e04_video_only_v1_ctc_words_reflow_en_codex.vtt
