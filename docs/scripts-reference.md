@@ -70,7 +70,6 @@ samples/experiments/<pack>/
 |---|---|---|
 | `init_episode_from_media.py` | Create episode workspace from media, optionally extracting fixed-rate frames | Maintained |
 | `install_codex_skills.py` | Install Codex skills from the repo to `~/.codex/skills/` | Maintained |
-| `prepare_ai_studio_experiment_pack.py` | Build a manual AI Studio pack with fixed clips, prompts, scene notes, and result templates under `samples/experiments/<pack>/` | Maintained |
 
 ### OCR & Glossary
 
@@ -188,6 +187,7 @@ Important limitation:
 | `test_vibevoice_load.py` | VibeVoice model loading test | Archived |
 | `test_vlm_extraction.py` | VLM text extraction evaluation | Archived |
 | `transcribe_nemo_vibevoice.py` | NeMo + VibeVoice transcription experiment | Archived |
+| `prepare_ai_studio_experiment_pack.py` | Build a manual AI Studio pack with fixed clips, prompts, scene notes, and result templates under `samples/experiments/<pack>/` | Experimental |
 
 ### Experiments (`scripts/experiments/kotoba_test/`)
 
@@ -203,7 +203,7 @@ Important limitation:
 ### Manual AI Studio Pack
 
 ```bash
-python3 scripts/prepare_ai_studio_experiment_pack.py \
+python3 scripts/experiments/prepare_ai_studio_experiment_pack.py \
   --episode-dir samples/episodes/<slug> \
   --scene-spec samples/experiments/specs/<pack>.json \
   --pack-dir samples/experiments/<pack> \

@@ -30,6 +30,7 @@ Canonical artifacts still live at stable episode paths such as `transcription/..
 
 Manual site-driven experiment packs can live separately under `samples/experiments/<pack>/...`.
 Those are intentionally non-canonical and exist for fixed-clip benchmarking with UIs like AI Studio.
+The helper that builds them is experimental and lives under `scripts/experiments/`.
 
 In addition, every metadata-emitting step now mirrors a run record under:
 

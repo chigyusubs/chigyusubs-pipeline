@@ -25,7 +25,7 @@ Video file
 ```
 
 Each stage writes stable artifacts under `samples/episodes/<slug>/`. Later stages consume earlier artifacts without recomputing them.
-Manual benchmark packs for site-driven experiments can live separately under `samples/experiments/<pack>/`.
+Manual benchmark packs for site-driven experiments can live separately under `samples/experiments/<pack>/`. The helper for building them is experimental and lives under `scripts/experiments/`.
 
 ## Translation Paths
 
