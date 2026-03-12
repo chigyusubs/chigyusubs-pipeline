@@ -11,7 +11,7 @@ Video file
   ├─ VAD (Silero) → chunk boundaries
   │
   ├─ Transcription (Gemini or local faster-whisper)
-  │     uses: chunk boundaries + optional OCR context / hotwords
+  │     uses: chunk boundaries, with optional OCR-like side artifacts when useful
   │
   ├─ Raw transcript → glossary/context extraction
   ├─ CTC forced alignment (wav2vec2-ja)
@@ -43,15 +43,39 @@ python3 scripts/publish_vtt.py samples/episodes/<slug>/translation/<final>.vtt
 
 - Python 3.11+ (3.12 recommended)
 - `ffmpeg`
-- Local `llama.cpp` server (Qwen-VL for OCR, optionally Gemma for filtering)
-- GPU for ASR (`faster-whisper` with ROCm or CUDA)
+- local hardware fast enough to run:
+  - `faster-whisper`
+  - CTC alignment (`wav2vec2-large-japanese`)
+  - practically, this means a decent GPU for ASR/alignment work
+- ChatGPT Plus/Pro access with Codex, if you want the maintained interactive translation and review workflow
+- Gemini API key for the maintained transcription path
 
 Optional:
 
-- Vertex AI / Gemini API access for transcription and glossary condensation
+- Vertex AI access for alternative Gemini runs and exact `count_tokens` preflight with generation overrides
+- local `llama.cpp` OCR stack (Qwen-VL / Gemma) if you want to run the older OCR-first paths
 - Gemini API key or Mistral API key for unattended translation
 
 See `.env.example` for environment variable reference.
+
+## Current Practical Setup
+
+The current repo is optimized around this setup:
+
+- Gemini API for transcription
+- local faster-whisper and CTC alignment
+- Codex for interactive reflow/translation work
+
+The maintained practical path is no longer “local OCR first.” It is:
+
+- VAD
+- Gemini transcription
+- CTC alignment
+- faster-whisper second opinion
+- reflow
+- Codex translation/review
+
+Local OCR and manual AI Studio experiment packs still exist, but they are secondary tools.
 
 ## Episode Layout
 
@@ -78,17 +102,19 @@ samples/experiments/<pack>/
 # Initialize episode workspace from media
 python scripts/init_episode_from_media.py --extract-frames samples/new_episode.mp4
 
-# OCR
-scripts/start_qwen_ocr_server.sh
-python scripts/run_qwen_ocr_episode.py ocr --episode-dir samples/episodes/<slug>
-python scripts/run_qwen_ocr_episode.py spans --episode-dir samples/episodes/<slug>
-python scripts/run_qwen_ocr_episode.py context --episode-dir samples/episodes/<slug>
-
-# Transcription + alignment + reflow (Gemini path)
+# Current maintained path
+python scripts/run_vad_episode.py --episode-dir samples/episodes/<slug>
+python scripts/build_vad_chunks.py --episode-dir samples/episodes/<slug>
 python scripts/transcribe_pipeline.py --episode-dir samples/episodes/<slug>
 
 # Or step by step — see docs/scripts-reference.md for the full CLI cheatsheet
 ```
+
+If you want the older OCR-first path or manual experiment tooling, see:
+
+- `docs/scripts-reference.md`
+- `docs/current-architecture.md`
+- `docs/gemini-transcription-playbook.md`
 
 ## Codex Skills
 
@@ -131,6 +157,7 @@ In practice this means:
 
 - `docs/scripts-reference.md` — full script catalog and CLI cheatsheet
 - `docs/current-architecture.md` — artifact-level pipeline design
+- `docs/archive/ocr-first-architecture.md` — older OCR-heavy architecture framing kept for reference
 - `docs/gemini-transcription-playbook.md` — current model/chunking/media-resolution policy for Gemini transcription
 - `docs/gemini-pricing-notes.md` — practical model pricing/value conclusions for transcript + OCR combinations
 - `docs/codex-skills.md` — Codex skill scope, defaults, and handoff

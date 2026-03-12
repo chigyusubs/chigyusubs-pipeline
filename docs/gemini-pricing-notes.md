@@ -105,6 +105,37 @@ Two important consequences from current pricing plus our measured token counts:
 
 2. Pro still costs enough more than Flash that it should be treated as an escalation tier, not the default first choice.
 
+## Important Measurement Caveat: Gemini 3 vs 2.5 Video Tokens Are Not Apples-to-Apples by Default
+
+Our observed input-token difference between Gemini 3.x and 2.5 is not explained by price sheets alone.
+
+The important confounder is default media resolution / multimodal accounting:
+
+- Gemini 3.x appears to default to a much lower effective video token resolution unless `media_resolution=high` is set explicitly.
+- Gemini 2.5 behaves much more like the older documented higher-resolution multimodal accounting.
+
+On the same chunked inline-video payload from `great_escape_s02e01`, we observed:
+
+- `gemini-3.1-flash-lite-preview`: about `237,631` input tokens
+- `gemini-3.1-pro-preview`: about `237,631` input tokens
+- `gemini-2.5-pro`: about `674,431` input tokens
+
+That does not mean the 2.5 model was simply “worse value.” It means the models were not defaulting to the same visual tokenization regime.
+
+Practical interpretation:
+
+- Gemini 3 default / unspecified video behaves closer to low-resolution multimodal processing.
+- Gemini 2.5 default behavior is much closer to the older higher-resolution accounting.
+- So raw token-count comparisons between Gemini 3 and 2.5 are misleading unless you account for media resolution.
+
+This explains why the episode-scale token measurements diverged so sharply.
+
+Operational rule:
+
+- when comparing Gemini 3.x against 2.5 on video, explicitly account for media resolution before drawing pricing or quality conclusions
+- for this repo’s content, `media_resolution=high` is the meaningful comparison setting for Gemini 3.x
+- the episode-cost estimates below should be read with that caveat in mind
+
 Approximate episode-scale costs from our current chunked-video experiments on `great_escape_s02e01`:
 
 - `gemini-3.1-flash-lite-preview`: about `$0.07` per episode

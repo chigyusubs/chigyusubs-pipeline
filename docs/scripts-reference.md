@@ -7,32 +7,30 @@ For validated findings and remaining issues from real episode runs, see `docs/le
 
 ## Pipelines
 
-There are two transcription paths. Both now share the same reusable OCR and VAD artifact stages.
+There are two main transcription paths. The maintained path is no longer OCR-first.
 
 ### Path A: Gemini (recommended)
 
-Best quality. Requires Vertex AI access. Local LLM handles OCR filtering.
+Best current quality/value path. Uses Gemini transcription with reusable VAD/chunk artifacts. OCR is optional.
 
 ```text
-Qwen OCR -> OCR spans -> OCR context
 Silero VAD -> VAD chunk boundaries
   -> Gemini transcription
   -> CTC forced alignment (wav2vec2-ja)
+  -> faster-whisper second opinion
   -> reflow
   -> optional cue repair
   -> translation
 ```
 
-1. `run_qwen_ocr_episode.py ocr` — frame OCR
-2. `run_qwen_ocr_episode.py spans` — OCR span building
-3. `run_qwen_ocr_episode.py context` or `classify_ocr_spans_local.py` — OCR context derivation
-4. `run_vad_episode.py` — reusable Silero VAD
-5. `build_vad_chunks.py` — reusable chunk boundaries
-6. `transcribe_pipeline.py` — Gemini transcription + alignment + reflow
-7. `repair_vtt_codex.py` — optional Codex-interactive cue-boundary repair on reflowed VTT
-8. `translate_vtt_api.py` — unattended LLM translation to English (Vertex/OpenAI-compatible)
+1. `run_vad_episode.py` — reusable Silero VAD
+2. `build_vad_chunks.py` — reusable chunk boundaries
+3. `transcribe_pipeline.py` — Gemini transcription + alignment + reflow
+4. `pre_reflow_second_opinion.py` — faster-whisper second-opinion coverage check
+5. `repair_vtt_codex.py` — optional Codex-interactive cue-boundary repair on reflowed VTT
+6. `translate_vtt_api.py` or `translate_vtt_codex.py`
 
-`transcribe_pipeline.py` can now consume the saved VAD/chunk/OCR artifacts instead of recomputing them.
+Optional OCR-like side artifacts can still be added when useful, but they are not the default front door.
 
 ### Path B: Local (faster-whisper)
 
@@ -219,18 +217,15 @@ This prepares:
 ### Gemini Pipeline (recommended)
 
 ```bash
-# 1. OCR
-python scripts/run_qwen_ocr_episode.py ocr \
-  --episode-dir samples/episodes/<slug> \
-  --url http://127.0.0.1:8787 \
-  --model qwen3.5-9b \
-  --server-settings '{"quant":"Q6_K","ctx_size":8192,"seed":3407,"temp":0,"top_p":0.9,"top_k":20,"thinking":false}'
-
-# 2. Filter OCR into glossary candidates
-python scripts/run_qwen_ocr_episode.py filter \
+# 1. VAD
+python scripts/run_vad_episode.py \
   --episode-dir samples/episodes/<slug>
 
-# `ocr`, `filter`, and the maintained transcription/alignment scripts emit
+# 2. Chunk boundaries
+python scripts/build_vad_chunks.py \
+  --episode-dir samples/episodes/<slug>
+
+# `vad`, `chunk`, and the maintained transcription/alignment scripts emit
 # `*.meta.json` sidecars recording invocation details, settings, and run timing.
 # Those metadata-emitting scripts also mirror a run record under
 # `samples/episodes/<slug>/logs/runs/<run_id>/`.
@@ -238,20 +233,11 @@ python scripts/run_qwen_ocr_episode.py filter \
 # - `run.json` for machine-readable metadata
 # - `README.md` with a top metadata comment block and a short human summary
 
-# 3. Condense glossary
-python scripts/condense_glossary_vertex.py \
-  --input samples/episodes/<slug>/glossary/qwen_candidates.txt
+# 3. Transcribe + align + reflow (maintained Gemini path)
+python scripts/transcribe_pipeline.py \
+  --episode-dir samples/episodes/<slug>
 
-# 4. Transcribe with Gemini + local OCR filter
-python scripts/transcribe_gemini_raw.py \
-  --video samples/episodes/<slug>/source/video.mp4 \
-  --output samples/episodes/<slug>/transcription/raw.txt \
-  --glossary samples/episodes/<slug>/glossary/translation_glossary.tsv \
-  --ocr-jsonl samples/episodes/<slug>/ocr/qwen_ocr_results.jsonl \
-  --ocr-filter-url http://127.0.0.1:8080 \
-  --ocr-filter-model gemma3-27b
-
-# 5. CTC forced alignment (recommended)
+# 4. CTC forced alignment (recommended, if running step-by-step)
 python3.12 scripts/align_ctc.py \
   --video samples/episodes/<slug>/source/video.mp4 \
   --chunks samples/episodes/<slug>/transcription/<stem>_gemini_raw.json \
@@ -267,13 +253,13 @@ python3.12 scripts/align_ctc.py \
 # When those flags appear, run a local faster-whisper second-opinion pass
 # before reflow and compare the two transcripts.
 
-# 6. Reflow (line-level, recommended for CTC output)
+# 5. Reflow (line-level, recommended for CTC output)
 PYTHONPATH=. python3 scripts/reflow_words.py \
   --input samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
   --output samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
   --line-level --stats
 
-# 7. Optional Codex-interactive repair pass between reflow and translation:
+# 6. Optional Codex-interactive repair pass between reflow and translation:
 python3 scripts/repair_vtt_codex.py prepare \
   --input samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
   --words samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
@@ -320,7 +306,7 @@ python3.12 scripts/run_faster_whisper.py \
 python3 scripts/repair_vtt_codex.py finalize \
   --session samples/episodes/<slug>/transcription/<stem>_reflow_repaired.vtt.checkpoint.json
 
-# 8. Translate
+# 7. Translate
 # oni_no_dokkiri_de_namida_ep2 example from the current CTC + reflow path
 python scripts/translate_vtt_api.py \
   --input samples/episodes/oni_no_dokkiri_de_namida_ep2/transcription/oni_no_dokkiri_de_namida_ep2_ctc_reflow.vtt \

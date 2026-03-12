@@ -1,132 +1,94 @@
 # Current Architecture
 
-This document describes the pipeline architecture currently being built in this repo.
+This document describes the maintained pipeline shape in this repo today.
 
-For what has actually been validated so far, and what still remains unresolved, see:
+For validated findings and tradeoffs from real runs, see:
 
 - `docs/lessons-learned.md`
+- `docs/gemini-transcription-playbook.md`
 
-The main goal is:
+For older OCR-heavy architecture notes, see:
 
-- take a raw episode
-- extract reusable OCR and VAD artifacts once
-- derive transcription-safe context from those artifacts
-- support both Gemini and local transcription paths without coupling everything to one chunking scheme
+- `docs/archive/ocr-first-architecture.md`
+
+## Maintained Default
+
+The maintained practical path is:
+
+```text
+source video
+  -> Silero VAD
+  -> VAD chunk boundaries
+  -> Gemini transcription
+  -> CTC forced alignment
+  -> faster-whisper second opinion
+  -> reflow
+  -> optional Codex repair
+  -> Codex or API translation
+```
+
+The main current transcription default is:
+
+- `gemini-3-flash-preview`
+- `video`
+- `spoken_only`
+- `thinking=low`
+- `media_resolution=high`
+- `temperature=0.0`
 
 ## Design Principles
 
-- Raw extraction artifacts stay lossless.
-- Derived artifacts are resumable and inspectable.
-- OCR is treated as a separate evidence layer from audio.
-- VAD chunking is reusable and not buried inside one transcription script.
-- Episode-wide memory and chunk-local context are separate concepts.
-- Chunk-level transcription can use bounded rolling history, but the source of truth remains chunkwise artifacts.
+- Save reusable artifacts at each stage.
+- Keep the main path chunkwise and resumable.
+- Treat OCR as optional evidence, not a mandatory front door.
+- Keep speech alignment speech-only.
+- Use local models as verification/backstop artifacts, not hidden replacement logic.
 
-## Artifact Layers
+## Canonical Artifact Layout
 
-The pipeline is now organized around stable artifacts under `samples/episodes/<slug>/...`.
+Canonical artifacts live under `samples/episodes/<slug>/`:
 
-Canonical artifacts still live at stable episode paths such as `transcription/...`, `ocr/...`, and `translation/...` so downstream scripts can discover them deterministically.
+- `source/`
+- `ocr/`
+- `glossary/`
+- `transcription/`
+- `translation/`
+- `logs/`
 
-Manual site-driven experiment packs can live separately under `samples/experiments/<pack>/...`.
-Those are intentionally non-canonical and exist for fixed-clip benchmarking with UIs like AI Studio.
-The helper that builds them is experimental and lives under `scripts/experiments/`.
+Downstream scripts should keep discovering artifacts at those stable paths.
 
-In addition, every metadata-emitting step now mirrors a run record under:
+## Run Ledger
+
+Metadata-emitting steps also mirror a run-oriented audit trail under:
 
 - `logs/runs/<run_id>/run.json`
 - `logs/runs/<run_id>/artifacts/*.meta.json`
 - `logs/runs/<run_id>/README.md`
 
-This gives the repo two views of the same work:
+This gives two views of the same work:
 
 - canonical artifact view for the maintained pipeline
-- run-oriented view for auditing, debugging, and comparing experiments
+- run ledger view for debugging, auditing, and comparison
 
-There is also a third, explicitly manual experiment view:
+## Manual Experiment Packs
 
-- experiment-pack view under `samples/experiments/<pack>/`
+Manual site-driven experiment packs live separately under:
 
-That layout is meant for:
+- `samples/experiments/<pack>/`
 
-- uploading fixed video/audio clips to hosted UIs
-- keeping prompts, scene notes, and settings together
-- pasting manual outputs back into versioned templates
+They are intentionally non-canonical and are used for:
 
-The run mirror is versioned and self-describing:
+- fixed-clip benchmarking
+- AI Studio prompt tests
+- paste-back result comparison
 
-- `run.json` is the machine-readable manifest
-- `README.md` includes a top metadata comment block plus a short human summary of settings, workflow, and recorded artifacts
+The helper that builds them is experimental:
 
-### 1. Raw OCR
+- `scripts/experiments/prepare_ai_studio_experiment_pack.py`
 
-Produced by:
+## Maintained Artifact Chain
 
-- `scripts/run_qwen_ocr_episode.py ocr`
-
-Main output:
-
-- `ocr/qwen_ocr_results.jsonl`
-
-Purpose:
-
-- frame-level OCR record
-- lossless enough to rerun downstream filters without rerunning OCR
-
-Notes:
-
-- no-text frames use `[[NO_TEXT]]` upstream and become `lines: []`
-- OCR is recall-oriented and may still include dense-board noise
-
-### 2. OCR Spans
-
-Produced by:
-
-- `scripts/run_qwen_ocr_episode.py spans`
-
-Main output:
-
-- `ocr/qwen_ocr_spans.json`
-
-Purpose:
-
-- merge neighboring OCR frames into time-local spans
-- isolate dense boards/lists from ordinary name cards and title cards
-- provide a stable OCR representation independent of later audio chunking
-
-Each span includes:
-
-- `class`
-- `stats`
-- `representative_lines`
-- heuristic `prompt_safe_terms`
-- `term_counts`
-
-### 3. OCR Context
-
-Produced by:
-
-- `scripts/run_qwen_ocr_episode.py context`
-- `scripts/classify_ocr_spans_local.py`
-
-Main outputs:
-
-- heuristic context: `ocr/qwen_ocr_context.json`
-- local Gemma-cleaned context: `ocr/qwen_ocr_context_gemma.json`
-
-Purpose:
-
-- derive transcription-safe OCR hints from spans
-- separate:
-  - `episode_memory`
-  - chunk-local OCR terms
-
-Current intent:
-
-- `episode_memory` should be strict and recurring
-- chunk-local OCR terms can be broader, but should still avoid poisoning transcription
-
-### 4. Raw VAD
+### 1. VAD
 
 Produced by:
 
@@ -139,11 +101,9 @@ Main output:
 Purpose:
 
 - reusable speech/silence segmentation
-- shared by Gemini and local transcription paths
+- shared chunking input for both Gemini and local ASR paths
 
-This is separate from transcription so VAD does not need to be recomputed for every ASR experiment.
-
-### 5. VAD Chunk Boundaries
+### 2. Chunk Boundaries
 
 Produced by:
 
@@ -155,226 +115,119 @@ Main output:
 
 Purpose:
 
-- reusable transcription chunks derived from VAD silence gaps
-- stable input for chunkwise transcription
+- reusable chunk plan for transcription
+- stable retry/resume boundary
 
-Current default target:
+### 3. Gemini Raw Transcript
 
-- `240s` chunks
-- `2.0s` minimum silence gap
-
-Reason:
-
-- short enough for retries and bounded rolling context
-- long enough to preserve comedy bit continuity
-
-### 6. Chunkwise Transcription
-
-Main maintained path:
+Produced by:
 
 - `scripts/transcribe_pipeline.py`
+- `scripts/transcribe_gemini_video.py`
+- `scripts/transcribe_gemini.py`
 
-The maintained Gemini pipeline now prefers these inputs if present:
+Maintained default behavior:
 
-- `transcription/silero_vad_segments.json`
-- `transcription/vad_chunks.json`
-- `ocr/qwen_ocr_context.json` or `ocr/qwen_ocr_context_gemma.json`
+- spoken transcript first
+- chunkwise
+- resumable
+- visual cues optional depending on prompt mode
 
-The prompt logic now uses:
+OCR is not required here.
 
-- glossary TSV if available
-- `episode_memory`
-- OCR terms joined to each transcription chunk by time overlap
-- bounded rolling transcript history from recent chunks
+### 4. Alignment
 
-Important:
+Produced by:
 
-- rolling history is an aid, not the source of truth
-- the system is still chunkwise and resumable
-- this is not one long conversation thread for the whole episode
+- `scripts/align_ctc.py`
 
-## Current End-to-End Shape
+Main output:
 
-Recommended artifact flow:
+- `transcription/*_ctc_words.json`
 
-```text
-source video
-  -> fixed-rate frames
-  -> Qwen OCR JSONL
-  -> OCR spans
-  -> OCR context (heuristic or Gemma-cleaned)
+Purpose:
 
-source video
-  -> Silero VAD segments
-  -> VAD chunk boundaries
+- speech-only forced alignment
+- preserve turn boundaries as metadata
+- keep visual-only text out of the alignment surface
 
-VAD chunks + OCR context + episode memory + bounded rolling transcript history
-  -> Gemini or local transcription
-  -> alignment
-  -> always-on Whisper second-opinion coverage diff
-  -> reflow
-  -> optional Codex-interactive cue repair
-  -> subtitle output
-  -> CPS-aware English subtitle editing/translation
-```
+### 5. Second Opinion
 
-## Why This Is Better Than The Older Flow
+Produced by:
 
-Older repo shape:
+- `scripts/pre_reflow_second_opinion.py`
 
-- OCR candidates were flattened quickly into one broad glossary
-- VAD and chunking were often recomputed inside transcription scripts
-- OCR filtering was tied too closely to one transcription path
+Purpose:
 
-Current shape:
+- compare Gemini output against `faster-whisper large-v3`
+- catch likely spoken omissions or suspicious regions before translation
 
-- OCR stays reusable as spans
-- VAD stays reusable as saved segments and chunk boundaries
-- OCR context is attached to chunks by time overlap
-- transcription can change without invalidating OCR preprocessing
+### 6. Reflow
+
+Produced by:
+
+- `scripts/reflow_words.py`
+
+Purpose:
+
+- turn aligned words/lines into translation-ready Japanese subtitle cues
+
+Optional repair step:
+
+- `scripts/repair_vtt_codex.py`
+
+### 7. Translation
+
+Maintained interactive path:
+
+- `scripts/translate_vtt_codex.py`
+
+Alternative unattended path:
+
+- `scripts/translate_vtt_api.py`
+
+Final publish step:
+
+- `scripts/publish_vtt.py`
+
+## OCR In The Current Architecture
+
+OCR is no longer the required first stage of the maintained pipeline.
+
+Current role of OCR-like artifacts:
+
+- optional context
+- glossary support
+- visual prompt/rule extraction
+- review support on dense text-heavy chunks
+
+Most promising current OCR-like use:
+
+- cheap `flash-lite` `ocr_only` side artifacts on dense visual chunks
+
+Not the current default:
+
+- OCR-first transcription
+- mandatory OCR filtering before Gemini
+- heavy OCR taxonomy as a prerequisite for transcription
+
+## Local Path
+
+The fully local fallback path still exists:
+
+- `transcribe_local.py`
+- local faster-whisper
+- same VAD/chunk artifact chain where possible
+
+This is useful for zero-API operation and for second-opinion work, but it is not the primary quality path.
 
 ## Current Weak Spots
 
-The architecture is in better shape than the quality layer.
+Open problems in the maintained path:
 
-Current weak spots are:
+- transcript quality still varies by scene type
+- OCR-assisted prompting is still unresolved as a default strategy
+- some Gemini settings are model- and modality-sensitive
+- dense visual narration can still interfere with spoken coverage
 
-- heuristic OCR context is still too noisy on dense boards
-- local Gemma context is better, but still sometimes over-filters or keeps weak local terms
-- dense-board spans likely need a stricter or more structured selection strategy
-- `classify_ocr_spans_local.py` was initially batch-only and now checkpoints, but its output schema may still need a split between anchor terms and auxiliary local terms
-- Gemini video-only can sometimes substitute visual `[画面: ...]` text for near-identical spoken narration, especially in narrated status-summary inserts and premise/rule VO
-
-## Alignment Diagnostics as a Gate
-
-`scripts/align_ctc.py` remains speech-only by design: it strips `[画面: ...]` before alignment.
-
-That is still correct for the main path, but it creates a specific risk:
-
-- Gemini may capture a narrated insert only as visual text
-- CTC then aligns the remaining spoken lines cleanly
-- the resulting `*_ctc_words.json` can look healthy while spoken coverage is actually incomplete
-
-To make that inspectable, the alignment diagnostics sidecar now records advisory chunk-level visual-substitution risk:
-
-- `stripped_visual_lines`
-- `narration_like_visual_line_count`
-- `possible_visual_narration_substitution`
-- `suspicious_visual_runs`
-
-The preferred next step is not to rerun Gemini blindly. Instead:
-
-1. run a full-episode `faster-whisper large-v3` second-opinion pass (always-on, ~2-3 min/episode)
-2. compare it against `*_ctc_words.json` with `scripts/compare_transcript_coverage.py`
-3. when `*_gemini_raw.json` exists, classify likely omission types with `scripts/report_raw_chunk_omissions.py`
-4. when VAD segments are available, mark flagged regions as `vad_confirmed` or `possible_hallucination`
-5. review only the flagged windows / classified omission candidates
-6. patch the Japanese source locally before translation if needed
-
-This keeps the pipeline artifact-first while giving the reflow handoff a deterministic review gate for missing narration.
-
-The maintained helper for this is:
-
-- `scripts/pre_reflow_second_opinion.py --words <stem>_ctc_words.json`
-
-It always runs the faster-whisper second opinion, auto-discovers episode glossary for Whisper initial_prompt conditioning, passes VAD segments to the coverage comparison when available, and emits a raw-chunk omission report when the sibling Gemini raw artifact exists. Visual-substitution risk from alignment diagnostics is still collected as informational metadata but no longer gates execution.
-
-## Current Scripts By Role
-
-Episode setup:
-
-- `scripts/init_episode_from_media.py`
-
-OCR extraction and derivation:
-
-- `scripts/start_qwen_ocr_server.sh`
-- `scripts/run_qwen_ocr_episode.py ocr`
-- `scripts/run_qwen_ocr_episode.py spans`
-- `scripts/run_qwen_ocr_episode.py context`
-- `scripts/start_gemma_ocr_filter_server.sh`
-- `scripts/classify_ocr_spans_local.py`
-
-Reusable audio segmentation:
-
-- `scripts/run_vad_episode.py`
-- `scripts/build_vad_chunks.py`
-
-Transcription and alignment:
-
-- `scripts/transcribe_pipeline.py`
-- `scripts/transcribe_gemini.py`
-- `scripts/transcribe_local.py`
-- `scripts/align_ctc.py` — CTC forced alignment using `NTQAI/wav2vec2-large-japanese` (recommended); writes per-chunk alignment diagnostics including interpolated all-unaligned lines and preserves Gemini turn boundaries as metadata in the aligned words JSON
-- `scripts/align_chunkwise.py` — chunked stable-ts alignment (legacy)
-- `scripts/align_qwen_forced.py` — Qwen forced alignment benchmark (archived)
-- `scripts/align_qwen_forced_hf.py` — Qwen HF forced alignment benchmark (archived)
-- `scripts/align_stable_ts.py` — global stable-ts alignment (legacy)
-- `scripts/repair_vtt_codex.py` — Codex-interactive region-based reflow repair helper with session/checkpoint state, deterministic validation/final assembly, and advisory surfacing of both alignment-stage interpolated-line diagnostics and source turn-boundary context from aligned words JSON
-- `scripts/repair_vtt_local.py` — local Gemma cue-boundary repair on top of a reflowed VTT + aligned words (alternative path, no longer the default skill fallback)
-- `scripts/translate_vtt_api.py` — unattended LLM translation (Vertex Gemini or any OpenAI-compatible API)
-- `scripts/translate_vtt_codex.py` — Codex-interactive one-episode translation helper with session/checkpoint, deterministic batch diagnostics, source-cue signature validation during `apply-batch`, alignment-warning carry-through from CTC diagnostics, advisory source turn-boundary context from aligned words JSON, clean restart via `prepare --force`, partial VTT assembly, and automatic batch-tier fallback
-
-## Recommended Operational Default
-
-Current recommended default architecture is:
-
-```text
-Qwen OCR
-  -> OCR spans
-  -> local Gemma OCR cleanup/classification
-  -> saved OCR context
-
-Silero VAD
-  -> saved VAD segments
-  -> saved VAD chunk boundaries
-
-Gemini transcription
-  using:
-  - chunk boundaries
-  - episode memory
-  - chunk-local OCR context
-  - bounded rolling transcript history
-
-  -> CTC forced alignment (wav2vec2-ja)
-  -> always-on Whisper second-opinion coverage diff
-  -> reflow
-     with cue starts kept close to first aligned speech
-  -> optional Codex-interactive cue repair
-  -> batch-based CPS-aware English subtitle editing
-```
-
-This keeps the quality path strong while preserving a reusable local artifact chain.
-
-There is now a second maintained translation mode for cases where the user wants Codex itself to do the translation rather than an API-backed model:
-
-```text
-reflowed VTT
-  -> translate_vtt_codex.py prepare
-  -> Codex-interactive batch translation
-  -> translate_vtt_codex.py apply-batch
-  -> partial English VTT in translation/
-  -> finalize to full English VTT
-```
-
-This mode is one episode at a time, stores preferences like `preferred_model=gpt-5.4` as metadata only, and uses an automatic batch-tier policy of `84 -> 60 -> 48`.
-
-When reusing an older English draft in this mode, the helper must treat cue count
-and cue timeline as the safety boundary. Draft seeding is only valid when the
-candidate English file matches the current Japanese source cue-for-cue on timing;
-cue-index-only reuse is unsafe once reflow changes.
-
-There is now a matching Codex-interactive repair mode for weak-but-structurally-valid Japanese reflowed VTTs:
-
-```text
-reflowed VTT
-  -> repair_vtt_codex.py prepare
-  -> Codex-interactive region repair
-  -> repair_vtt_codex.py apply-region
-  -> partial repaired VTT in transcription/
-  -> finalize to repaired Japanese VTT
-```
-
-This mode is region-based, preserves source text coverage inside each repaired region, and rebuilds timings deterministically inside the original region span.
-Its diagnostics now include deterministic before/after cue metrics, sampled flagged regions, advisory alignment-stage interpolation warnings, advisory source turn-boundary summaries, and one recommended Japanese VTT handoff path for translation.
-
-One important boundary remains: if Gemini never transcribed a spoken section, CTC cannot recover it later. In practice this shows up most often in narrated premise/rules VO that partially overlaps with explanatory telops. The operational workaround is local and artifact-preserving: extract the suspicious clip, transcribe that clip with `faster-whisper large-v3` as a saved second-opinion artifact, patch the affected Japanese cues, and only then rerun downstream reflow/translation for that region or episode.
+Those are quality-layer issues, not reasons to go back to the older OCR-first architecture.
