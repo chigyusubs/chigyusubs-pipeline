@@ -20,6 +20,7 @@ coverage/
 # Local artifacts
 samples/
 downloads/
+tmp/
 outputs/
 logs/
 checkpoints/

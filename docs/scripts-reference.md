@@ -94,6 +94,7 @@ Lineage artifact naming:
 |---|---|---|
 | `run_vad_episode.py` | Silero VAD segmentation — reusable artifact | Maintained |
 | `build_vad_chunks.py` | Build full-coverage chunk boundaries from saved VAD segments, using silence only to place split points | Maintained |
+| `build_semantic_chunks.py` | Codex-interactive semantic chunk review helper. Uses Silero VAD candidate gaps plus a faster-whisper pre-pass transcript so accepted splits can be reviewed semantically, then finalizes to contiguous full-coverage chunk JSON by splitting at silence-gap midpoints and validating coverage. | Maintained |
 
 ### Transcription
 

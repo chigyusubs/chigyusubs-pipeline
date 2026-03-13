@@ -37,6 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from chigyusubs.audio import get_duration
+from chigyusubs.chunking import chunk_coverage_issues
 from chigyusubs.translation import checkpoint_path, write_json_atomic
 from chigyusubs.paths import find_episode_dir_from_path, find_latest_episode_dir, find_latest_episode_video
 from chigyusubs.vad import run_silero_vad
@@ -420,26 +421,27 @@ def cmd_finalize(args: argparse.Namespace) -> int:
     duration = session["duration_seconds"]
     max_chunk_s = session["max_chunk_s"]
 
-    # Collect accepted split points
-    split_times = []
+    # Collect accepted split midpoints (full-coverage: split in the middle of
+    # the silence gap so no audio is dropped between chunks)
+    split_midpoints = []
     for cid_str, d in session.get("decisions", {}).items():
         if d["decision"] == "split":
             candidate = session["candidates"][int(cid_str)]
-            split_times.append((candidate["gap_start"], candidate["gap_end"]))
+            split_midpoints.append(candidate["midpoint"])
 
-    split_times.sort()
+    split_midpoints.sort()
 
-    # Build chunk boundaries
+    # Build chunk boundaries — contiguous, full-coverage
     chunks = []
     chunk_start = 0.0
-    for gap_start, gap_end in split_times:
+    for midpoint in split_midpoints:
         chunks.append({
             "chunk_id": len(chunks),
             "start_sec": round(chunk_start, 3),
-            "end_sec": round(gap_start, 3),
-            "duration_sec": round(gap_start - chunk_start, 3),
+            "end_sec": round(midpoint, 3),
+            "duration_sec": round(midpoint - chunk_start, 3),
         })
-        chunk_start = gap_end
+        chunk_start = midpoint
 
     # Final chunk
     if chunk_start < duration:
@@ -449,6 +451,14 @@ def cmd_finalize(args: argparse.Namespace) -> int:
             "end_sec": round(duration, 3),
             "duration_sec": round(duration - chunk_start, 3),
         })
+
+    # Validate full coverage
+    bounds = [(c["start_sec"], c["end_sec"]) for c in chunks]
+    issues = chunk_coverage_issues(bounds, duration)
+    if issues:
+        print("Coverage issues:", file=sys.stderr)
+        for issue in issues:
+            print(f"  - {issue}", file=sys.stderr)
 
     # Warn about oversized chunks
     oversized = [c for c in chunks if c["duration_sec"] > max_chunk_s]
