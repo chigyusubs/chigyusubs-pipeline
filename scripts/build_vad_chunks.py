@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build reusable chunk boundaries from saved VAD segments."""
+"""Build reusable full-coverage chunk boundaries guided by saved VAD segments."""
 
 from __future__ import annotations
 
@@ -48,7 +48,9 @@ def resolve_video_path(args: argparse.Namespace, episode_dir: Path) -> Path:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build reusable chunk boundaries from saved VAD segments.")
+    parser = argparse.ArgumentParser(
+        description="Build reusable full-coverage chunk boundaries guided by saved VAD segments."
+    )
     parser.add_argument("--episode-dir", default="", help="Episode root, e.g. samples/episodes/<episode_slug>")
     parser.add_argument("--video", default="", help="Input media path. Defaults to episode source media.")
     parser.add_argument("--in-json", default="", help="Defaults to <episode>/transcription/silero_vad_segments.json")

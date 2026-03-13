@@ -14,7 +14,7 @@ There are two main transcription paths. The maintained path is no longer OCR-fir
 Best current quality/value path. Uses Gemini transcription with reusable VAD/chunk artifacts. OCR is optional.
 
 ```text
-Silero VAD -> VAD chunk boundaries
+Silero VAD -> full-coverage chunk boundaries guided by silence
   -> Gemini transcription
   -> CTC forced alignment (wav2vec2-ja)
   -> faster-whisper second opinion
@@ -24,7 +24,7 @@ Silero VAD -> VAD chunk boundaries
 ```
 
 1. `run_vad_episode.py` — reusable Silero VAD
-2. `build_vad_chunks.py` — reusable chunk boundaries
+2. `build_vad_chunks.py` — reusable full-coverage chunk boundaries
 3. `transcribe_pipeline.py` — Gemini transcription + alignment + reflow
 4. `pre_reflow_second_opinion.py` — faster-whisper second-opinion coverage check
 5. `repair_vtt_codex.py` — optional Codex-interactive cue-boundary repair on reflowed VTT
@@ -86,7 +86,7 @@ samples/experiments/<pack>/
 | Script | Purpose | Status |
 |---|---|---|
 | `run_vad_episode.py` | Silero VAD segmentation — reusable artifact | Maintained |
-| `build_vad_chunks.py` | Build chunk boundaries from saved VAD segments | Maintained |
+| `build_vad_chunks.py` | Build full-coverage chunk boundaries from saved VAD segments, using silence only to place split points | Maintained |
 
 ### Transcription
 
@@ -111,6 +111,13 @@ Important limitation:
 - Gemini API `count_tokens` does not currently accept generation-config overrides such as `media_resolution` or thinking settings. Exact preflight counts for those configurations require Vertex AI, or a real generation request followed by inspection of `usage_metadata.prompt_token_count`.
 
 `extract_gemini_chunk_ocr.py` is the separate OCR sidecar path. It does not feed OCR back into the main transcript call automatically; it writes a reusable chunk-scoped artifact instead.
+
+Chunk coverage rule:
+
+- maintained Gemini/OCR scripts now expect chunk JSONs to cover the full `0 -> duration` span contiguously
+- old speech-bounded chunk JSONs are considered invalid
+- `transcribe_pipeline.py` auto-rebuilds invalid chunk JSONs from current VAD data
+- direct helpers such as `transcribe_gemini_video.py` and `extract_gemini_chunk_ocr.py` fail fast and tell you to rebuild
 
 ### ASR Backends & Quality
 

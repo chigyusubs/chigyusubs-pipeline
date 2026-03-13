@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chigyusubs.audio import extract_audio_chunk, get_duration
-from chigyusubs.chunking import find_chunk_boundaries
+from chigyusubs.chunking import chunk_coverage_issues, find_chunk_boundaries
 from chigyusubs.glossary import load_glossary_names
 from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
 from chigyusubs.paths import infer_episode_dir_from_video
@@ -219,7 +219,7 @@ def run_pipeline(
     log(f"VAD loaded: {len(vad_segments)} speech segments")
 
     # ==================================================================
-    # Phase 2: Gemini transcription (VAD-chunked)
+    # Phase 2: Gemini transcription (full-coverage chunks with VAD-guided boundaries)
     # ==================================================================
     chunk_bounds: list[tuple[float, float]] = []
     all_chunk_texts: list[dict] = []
@@ -230,6 +230,35 @@ def run_pipeline(
         if os.path.exists(chunk_json_path):
             log(f"  Loading chunk boundaries: {chunk_json_path}")
             chunk_bounds = _load_chunk_bounds(chunk_json_path)
+            issues = chunk_coverage_issues(chunk_bounds, duration)
+            if issues:
+                log("  Existing chunk JSON is not full-coverage; rebuilding from current VAD segments.")
+                for issue in issues[:5]:
+                    log(f"    - {issue}")
+                if len(issues) > 5:
+                    log(f"    - ... {len(issues) - 5} more")
+                target_chunk_s = chunk_minutes * 60
+                chunk_bounds = find_chunk_boundaries(
+                    vad_segments,
+                    duration,
+                    target_chunk_s=target_chunk_s,
+                    min_gap_s=2.0,
+                )
+                with open(chunk_json_path, "w", encoding="utf-8") as f:
+                    json.dump(
+                        [
+                            {
+                                "chunk_id": idx,
+                                "start_sec": cs,
+                                "end_sec": ce,
+                                "duration_sec": round(ce - cs, 3),
+                            }
+                            for idx, (cs, ce) in enumerate(chunk_bounds)
+                        ],
+                        f,
+                        ensure_ascii=False,
+                        indent=2,
+                    )
         else:
             target_chunk_s = chunk_minutes * 60
             log(f"  Finding chunk boundaries (target {chunk_minutes:.0f} min, "

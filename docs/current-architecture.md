@@ -18,7 +18,7 @@ The maintained practical path is:
 ```text
 source video
   -> Silero VAD
-  -> VAD chunk boundaries
+  -> full-coverage chunk boundaries guided by VAD silence gaps
   -> Gemini transcription
   -> optional chunkwise Flash Lite OCR sidecar
   -> CTC forced alignment
@@ -36,6 +36,12 @@ The main current transcription default is:
 - `thinking=low`
 - `media_resolution=high`
 - `temperature=0.0`
+
+Important chunking rule:
+
+- VAD is used to place chunk boundaries at good silence points
+- Gemini still receives continuous end-to-end video coverage across chunks
+- silence is not dropped from the maintained video transcription path
 
 ## Design Principles
 

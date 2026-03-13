@@ -17,6 +17,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chigyusubs.audio import extract_inline_video_chunk, get_duration
+from chigyusubs.chunking import chunk_coverage_issues
 from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -235,6 +236,14 @@ def run_video_transcription(
     duration = get_duration(video_path)
     if chunk_json:
         chunk_bounds = _load_chunk_bounds(chunk_json)
+        issues = chunk_coverage_issues(chunk_bounds, duration)
+        if issues:
+            details = "; ".join(issues[:5])
+            if len(issues) > 5:
+                details += f"; ... {len(issues) - 5} more"
+            raise ValueError(
+                f"Chunk JSON is not full-coverage: {details}. Rebuild it with scripts/build_vad_chunks.py."
+            )
     else:
         chunk_bounds = _default_chunk_bounds(duration, chunk_seconds)
 

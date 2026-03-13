@@ -6,7 +6,7 @@ Subtitle pipeline for Japanese variety shows. Takes a raw episode video and prod
 
 ```text
 Video file
-  ├─ VAD (Silero) → chunk boundaries
+  ├─ VAD (Silero) → full-coverage chunk boundaries
   │
   ├─ Transcription (Gemini or local faster-whisper)
   │     uses: chunk boundaries
@@ -71,6 +71,7 @@ The current repo is optimized around this setup:
 The maintained practical path is no longer “local OCR first.” It is:
 
 - VAD
+- full-coverage chunks with VAD-guided split points
 - Gemini transcription
 - optional chunkwise Flash Lite OCR sidecar
 - CTC alignment

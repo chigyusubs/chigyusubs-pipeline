@@ -21,6 +21,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chigyusubs.audio import extract_inline_video_chunk, get_duration
+from chigyusubs.chunking import chunk_coverage_issues
 from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
 from chigyusubs.paths import find_episode_dir_from_path
 
@@ -318,6 +319,15 @@ def run_chunk_ocr(
     output.parent.mkdir(parents=True, exist_ok=True)
     duration = get_duration(video_path)
     chunk_bounds = _load_chunk_bounds(chunk_json) if chunk_json else _default_chunk_bounds(duration, chunk_seconds)
+    if chunk_json:
+        issues = chunk_coverage_issues(chunk_bounds, duration)
+        if issues:
+            details = "; ".join(issues[:5])
+            if len(issues) > 5:
+                details += f"; ... {len(issues) - 5} more"
+            raise ValueError(
+                f"Chunk JSON is not full-coverage: {details}. Rebuild it with scripts/build_vad_chunks.py."
+            )
     pricing = _pricing_for_model(model, input_price_per_million, output_price_per_million)
     prompt = build_ocr_prompt()
 

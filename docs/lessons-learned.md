@@ -124,7 +124,14 @@ Switching to shorter chunks improved behavior substantially:
 - fewer repetition failures
 - better local scene focus
 
-Using VAD-derived chunk boundaries for video-only transcription worked better than naive long fixed chunks.
+Using VAD-guided chunk boundaries for video-only transcription worked better than naive long fixed chunks.
+
+Important refinement:
+
+- VAD should place boundaries, not filter content
+- for Gemini video transcription, chunk coverage should stay continuous from `0` to episode end
+- splitting at the midpoint of a silence gap is safer than cutting the silence out entirely
+- speech-bounded chunk spans are more fragile and can hide real missing-dialogue gaps until manual review
 
 ### 7. Bracketed visual context is the right output shape for video-only transcription
 
@@ -1201,6 +1208,13 @@ Keep OCR reusable and local:
 - faster-whisper second-opinion artifacts made the gap obvious and provided enough local text to patch the affected cues
 - after chunking/transcription, audit for long uncovered spans before alignment/reflow/publish
 - if a long uncovered span contains Whisper speech, treat it as a real transcript gap, not just silence
+
+Maintained fix direction:
+
+- VAD should place chunk boundaries, not define coverage
+- chunk plans for Gemini video work should cover the full episode continuously
+- split at the midpoint of usable silence gaps instead of dropping the silence span
+- legacy speech-bounded chunk JSONs should be rebuilt or rejected
 
 ## Next High-Value Work
 
