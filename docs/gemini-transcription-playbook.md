@@ -99,6 +99,7 @@ Default chunk policy:
 
 - start around `180s` for stable Flash / Pro paths
 - use `120s` to probe fragile models
+- if Flash Lite is specifically the model under test and a bad span is already identified, `60s` is a reasonable surgical probe size
 - go shorter only when there is clear evidence chunk length is the blocker
 
 Current lesson:
@@ -106,6 +107,9 @@ Current lesson:
 - shorter chunks help ordinary dialogue
 - shorter chunks did not rescue `flash-lite + high` on dense rule-card sections
 - on a stable non-looping dialogue section, `flash-lite + high` completed at `60s`, `120s`, and `150s`, but a `90s` probe still hit `504 DEADLINE_EXCEEDED`
+- on a problematic `great_escape_s02e03` dialogue span, `flash-lite + high` at `120s` produced a `10053`-char loop-like chunk before retry, while a `60s` split completed cleanly at nearly the same token cost
+- on the full `great_escape_s02e03` episode, a VAD-guided `~60s` plan still failed early because one chunk stretched to `64.576s`; a strict exact-`60s` plan got much further before the next repeated timeout
+- stubborn timeout chunks should be split surgically and resumed, not hammered with long retry loops
 
 Interpretation:
 
@@ -152,6 +156,8 @@ Current cost policy:
 - use `count_tokens` preflight whenever exact input cost matters
 - treat Pro runs as scarce / intentional
 - budget with retries, not just ideal-case single-pass estimates
+- after changing transcription code or switching model tier, validate with
+  `--stop-after-chunks 1` before committing a full-episode run
 
 Operational heuristic:
 
@@ -170,6 +176,15 @@ When a model struggles, escalate in this order:
 6. move up to Pro only if the quality gap still matters
 
 Do not assume shorter chunks alone will rescue a weak model on dense visual sections.
+
+Operational stop rules:
+
+- if one chunk hits repeated timeout failures, split that chunk and resume
+  rather than increasing retries indefinitely
+- if the API starts returning repeated quota/rate-limit errors, stop and resume
+  after reset instead of letting the helper sit in long backoff loops
+- if one chunk returns suspiciously large output, treat that as a chunk-local
+  failure and repair/split it before trusting the raw transcript
 
 ## Recommended Evaluation Pattern
 

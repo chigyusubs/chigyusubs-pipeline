@@ -122,6 +122,14 @@ Named presets:
 - streamed Gemini responses are now saved with `usage_metadata` when available, so post-run metadata can include actual prompt/output token counts and a cost summary.
 - `--media-resolution {unspecified,low,medium,high}` lets Gemini choose a different multimodal processing resolution for the same inline media payload.
 - `--thinking-level {unspecified,minimal,low,medium,high}` and `--thinking-budget` expose Gemini thinking controls for transcription experiments.
+- `--stop-after-chunks N` cleanly stops after `N` newly completed chunks, which is useful for one-chunk smoke tests after changing model, prompt, or retry logic.
+- `--max-request-retries`, `--max-timeout-errors`, and `--max-rate-limit-errors` now bound how much one bad chunk can burn before the run stops resumably.
+
+Operational guardrails:
+
+- suspiciously oversized chunk output now triggers a targeted retry and then a hard stop instead of being silently accepted
+- repeated timeout-heavy or rate-limit-heavy chunks now stop the run with a resumable partial JSON instead of sitting in long retry loops
+- after code changes or a model switch, prefer `--stop-after-chunks 1` first to confirm the raw JSON is being checkpointed correctly before spending a full-episode run
 
 Important limitation:
 - Gemini API `count_tokens` does not currently accept generation-config overrides such as `media_resolution` or thinking settings. Exact preflight counts for those configurations require Vertex AI, or a real generation request followed by inspection of `usage_metadata.prompt_token_count`.

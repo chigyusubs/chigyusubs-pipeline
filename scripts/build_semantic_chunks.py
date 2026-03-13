@@ -305,9 +305,12 @@ def cmd_next_candidate(args: argparse.Namespace) -> int:
 
     # Calculate time since last accepted split (or start)
     accepted_candidates = sorted(
-        session["candidates"][int(cid)]
-        for cid, d in session.get("decisions", {}).items()
-        if d["decision"] == "split"
+        (
+            session["candidates"][int(cid)]
+            for cid, d in session.get("decisions", {}).items()
+            if d["decision"] == "split"
+        ),
+        key=lambda candidate_item: candidate_item["candidate_id"],
     )
     last_split_end = accepted_candidates[-1]["gap_end"] if accepted_candidates else 0.0
     time_since_last_split = round(candidate["midpoint"] - last_split_end, 3)

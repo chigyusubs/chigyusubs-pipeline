@@ -127,6 +127,42 @@ def _countdown(seconds: float):
     print("\r" + " " * 30 + "\r", end="", flush=True)
 
 
+def _retry_delay_from_error_message(msg: str) -> float | None:
+    patterns = [
+        r"Please retry in ([0-9]+(?:\.[0-9]+)?)s",
+        r"'retryDelay': '([0-9]+)s'",
+    ]
+    delays: list[float] = []
+    for pattern in patterns:
+        for match in re.finditer(pattern, msg):
+            try:
+                delays.append(float(match.group(1)))
+            except ValueError:
+                continue
+    if not delays:
+        return None
+    return max(delays)
+
+
+def _classify_error(msg: str) -> str:
+    upper = msg.upper()
+    lower = msg.lower()
+    if "429" in msg or "RESOURCE_EXHAUSTED" in upper:
+        return "RATE LIMITED"
+    if (
+        "DEADLINE_EXCEEDED" in upper
+        or "TIMED OUT" in upper
+        or "read operation timed out" in lower
+        or "timeout" in lower
+    ):
+        return "TIMEOUT"
+    if "499" in msg or "CANCELLED" in upper:
+        return "CANCELLED"
+    if "500" in msg or "INTERNAL" in upper:
+        return "SERVER ERROR"
+    return "ERROR"
+
+
 def _make_client(location: str, api_key: str = "", vertex: bool = False):
     """Build a genai Client for either Gemini API (default) or Vertex AI."""
     from google import genai
@@ -300,6 +336,8 @@ def transcribe_chunk_result(
     thinking_budget: int | None = None,
     api_key: str = "",
     vertex: bool = False,
+    max_timeout_errors: int = 3,
+    max_rate_limit_errors: int = 4,
 ) -> dict[str, Any]:
     """Send a media chunk to Gemini via streaming, return plain transcript text."""
     from google.genai import types
@@ -327,6 +365,9 @@ def transcribe_chunk_result(
         media_resolution=media_map[media_resolution],
         thinking_config=thinking_config,
     )
+
+    timeout_errors = 0
+    rate_limit_errors = 0
 
     for attempt in range(max_retries):
         attempt_label = f"[attempt {attempt + 1}/{max_retries}]"
@@ -378,17 +419,27 @@ def transcribe_chunk_result(
         except Exception as e:
             elapsed = time.time() - t0
             print(flush=True)
+            msg = str(e).strip().splitlines()[0] if str(e).strip() else repr(e)
+            err_type = _classify_error(msg)
+            if err_type == "TIMEOUT":
+                timeout_errors += 1
+            if err_type == "RATE LIMITED":
+                rate_limit_errors += 1
+
+            if err_type == "TIMEOUT" and timeout_errors >= max_timeout_errors:
+                raise RuntimeError(
+                    f"Chunk hit {timeout_errors} timeout-type errors; shorten the chunk or switch model."
+                ) from e
+            if err_type == "RATE LIMITED" and rate_limit_errors >= max_rate_limit_errors:
+                raise RuntimeError(
+                    f"Chunk hit {rate_limit_errors} consecutive rate-limit errors; stop and resume after quota reset."
+                ) from e
+
             if attempt < max_retries - 1:
-                msg = str(e).strip().splitlines()[0] if str(e).strip() else repr(e)
                 delay = _backoff_delay(attempt + 1)
-                if "429" in msg or "RESOURCE_EXHAUSTED" in msg:
-                    err_type = "RATE LIMITED"
-                elif "499" in msg or "CANCELLED" in msg:
-                    err_type = "CANCELLED"
-                elif "500" in msg or "INTERNAL" in msg:
-                    err_type = "SERVER ERROR"
-                else:
-                    err_type = "ERROR"
+                suggested_delay = _retry_delay_from_error_message(str(e))
+                if suggested_delay is not None:
+                    delay = max(delay, suggested_delay)
                 print(f"  {attempt_label} {err_type} after {elapsed:.0f}s: {msg}", flush=True)
                 _countdown(delay)
                 continue

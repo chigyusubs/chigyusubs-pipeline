@@ -224,6 +224,18 @@ Chunk-length sweep from the same start time:
 
 This is important because it means Flash Lite instability is not monotonic with chunk duration. A failing chunk length does not imply that every longer chunk will also fail, and a successful shorter chunk does not prove the neighboring lengths are safe.
 
+Follow-up validation on a problematic `great_escape_s02e03` span that had already gone bad in a production run strengthened the practical short-chunk case for Flash Lite. The same `232.1s` scene was clipped and probed two ways with `spoken_only`, `media_resolution=high`, `temperature=0.0`, and no rolling context:
+
+- `120s + 112s`: chunk 2 emitted `10053` chars / `1257` lines, tripped the loop detector, and only became usable after the automatic retry
+- `60s + 60s + 60s + 52s`: all 4 chunks completed cleanly on the first attempt with sane output sizes
+- total token usage and estimated cost were almost unchanged:
+  - `120s` probe: `67,422` prompt / `1,149` output tokens, about `$0.01858`
+  - `60s` probe: `67,663` prompt / `1,163` output tokens, about `$0.01866`
+
+So while chunk length is still not a monotonic knob on Flash Lite, `60s` can be a materially safer probe setting than `120s` on fragile dialogue spans, and the cost penalty can be negligible.
+
+There is also an important distinction between "about 60s" and exact `60s`. On `great_escape_s02e03`, a VAD-guided "`60s`" plan still produced a `64.576s` early chunk and Flash Lite died there after two `504 DEADLINE_EXCEEDED` errors. A strict full-coverage exact-`60s` plan for the same episode got much further: it completed chunks `0-16`, including one loop-retry recovery and one timeout-retry recovery, before stalling on another chunk that hit two timeout-type errors. So exact `60s` can materially improve survivability over VAD-guided `~60s`, but it still does not make Flash Lite a reliable full-episode transcript model.
+
 Temperature sweep on the same `120s` section:
 
 - `0.0`: completed in `4.9s`
@@ -242,6 +254,8 @@ Operational implication:
 
 - for cheap Flash Lite probing, keep temperature at `0.0` or `0.1`
 - avoid treating chunk length as a clean monotonic tuning knob on Flash Lite
+- if a specific Flash Lite span is looping or timing out at `~120s`, testing `~60s` is justified before giving up on the scene
+- if Flash Lite is still failing on a VAD-guided `~60s` plan, try strict exact `60s` before concluding the whole episode is unsalvageable
 - use these probes to compare settings cheaply, but do not interpret a locally good Flash Lite result as evidence that the model is ready for full-episode production
 
 ### 7d. On Flash Lite, video can improve exact rule-text capture while making surrounding speech less literal
@@ -1066,6 +1080,51 @@ So the best direction for semantic chunk review is:
 - use faster-whisper transcript density as the secondary split budget
 - avoid treating all `240s` chunks as equivalent workloads
 
+### 12b. The semantic chunk-review helper needs real-session validation, not just single-step testing
+
+On `great_escape_s02e03`, a full `chunk-review` pass with `--target-chunk-s 180`
+hit a real helper bug:
+
+- `next-candidate` crashed after the second accepted split because it tried to
+  `sorted()` accepted candidate dicts without a sort key
+
+This is now fixed by sorting accepted candidates by `candidate_id`.
+
+The same reviewed pass produced:
+
+- `16` chunks
+- durations: min `81.5s`, avg `152.6s`, max `232.1s`
+- pre-pass transcript chars per chunk: min `416`, avg `640.8`, max `883`
+
+Main lesson:
+
+- long interactive helpers need resume-path testing after multiple applied
+  decisions, not just `prepare` and the first couple of candidates
+- a `180s` target plus transcript-density balancing can legitimately produce
+  some `80-120s` chunks on dense comedy/problem-solving sections, and that is
+  preferable to carrying `>900`-char transcript-heavy chunks forward into
+  Gemini transcription
+  rather than trying to keep every chunk near the wall-clock target
+
+Another `great_escape_s02e03` failure exposed a separate persistence bug in
+`scripts/transcribe_gemini_video.py`:
+
+- successful chunks were only appended and written when `retry_info` existed
+- a normal all-success run could therefore write `.meta.json` and
+  `preferred.json` but leave the raw transcript JSON missing
+
+This is now fixed so every completed chunk is checkpointed to disk, regardless
+of whether loop-retry metadata exists.
+
+Follow-up hardening from the same episode:
+
+- `scripts/transcribe_gemini_video.py` now supports `--stop-after-chunks 1`
+  for cheap smoke tests after code/model changes
+- repeated timeout-heavy or rate-limit-heavy chunks now stop earlier instead of
+  burning many retries on the same failing request
+- suspiciously oversized chunk outputs now trigger retry/stop behavior rather
+  than being silently accepted into the raw artifact
+
 ### 13. A repaired semantic-density raw transcript aligned cleanly on a real episode
 
 On `great_escape_s02e02`, a mixed-model repaired raw transcript was assembled from:
@@ -1122,6 +1181,30 @@ So the current maintained OCR-like path is:
 - `media_resolution=high`
 - separate artifact for review/glossary/translation support
 - not automatically injected into transcription prompts by default
+
+Validated on `great_escape_s02e03` using the repaired semantic `180s` chunk
+plan. The sidecar completed cleanly with:
+
+- `20` chunks
+- `107` extracted items
+- `0` chunks with parse warnings
+- kind mix:
+  - `2` `title_card`
+  - `16` `info_card`
+  - `81` `label`
+  - `3` `name_card`
+  - `5` `other`
+
+Two wiring bugs in `scripts/extract_gemini_chunk_ocr.py` surfaced during that
+run:
+
+- `run_chunk_ocr()` did not accept the `preset_name` that `main()` passed
+- `run_chunk_ocr()` then failed to pass `preset_name` down into
+  `extract_ocr_chunk_result()`
+
+Both are now fixed. This matters because the maintained OCR path is supposed to
+be driven by presets such as `flashlite_ocr_sidecar`, and without that
+plumbing the preset-backed CLI path failed before sending any useful requests.
 
 Downstream use should stay conservative:
 

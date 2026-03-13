@@ -166,6 +166,20 @@ def _max_line_length(text: str) -> int:
 
 def _detect_loop_issue(text: str, max_line_length: int) -> dict | None:
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if len(text) > 4000:
+        return {
+            "reason": "chunk_output_too_long",
+            "char_count": len(text),
+            "line_count": len(lines),
+            "line_prefix": text[:200],
+        }
+    if len(lines) > 300:
+        return {
+            "reason": "too_many_lines",
+            "char_count": len(text),
+            "line_count": len(lines),
+            "line_prefix": lines[0][:200] if lines else "",
+        }
     for idx, line in enumerate(lines):
         body = line
         if body.startswith("-- "):
@@ -231,6 +245,10 @@ def run_video_transcription(
     temperature: float,
     retry_temperature: float,
     loop_max_line_length: int,
+    max_request_retries: int,
+    max_timeout_errors: int,
+    max_rate_limit_errors: int,
+    stop_after_chunks: int,
     spoken_only: bool,
     preset_name: str | None,
     media_resolution: str,
@@ -316,6 +334,7 @@ def run_video_transcription(
             log(f"Resuming from chunk {start_chunk + 1} ({len(all_chunks)} chunks already saved)")
 
     with tempfile.TemporaryDirectory() as tmpdir:
+        completed_this_run = 0
         for i, (c_start, c_end) in enumerate(chunk_bounds):
             if i < start_chunk:
                 continue
@@ -413,7 +432,7 @@ def run_video_transcription(
                 prompt,
                 model,
                 location,
-                max_retries=20,
+                max_retries=max_request_retries,
                 temperature=temperature,
                 mime_type="video/mp4",
                 media_resolution=media_resolution,
@@ -421,6 +440,8 @@ def run_video_transcription(
                 thinking_budget=thinking_budget,
                 api_key=api_key,
                 vertex=vertex,
+                max_timeout_errors=max_timeout_errors,
+                max_rate_limit_errors=max_rate_limit_errors,
             )
             text = result["text"]
             retry_info = None
@@ -433,7 +454,7 @@ def run_video_transcription(
                     retry_prompt,
                     model,
                     location,
-                    max_retries=20,
+                    max_retries=max_request_retries,
                     temperature=retry_temperature,
                     mime_type="video/mp4",
                     media_resolution=media_resolution,
@@ -441,6 +462,8 @@ def run_video_transcription(
                     thinking_budget=thinking_budget,
                     api_key=api_key,
                     vertex=vertex,
+                    max_timeout_errors=max_timeout_errors,
+                    max_rate_limit_errors=max_rate_limit_errors,
                 )
                 retried = retried_result["text"]
                 retry_issue = _detect_loop_issue(retried, loop_max_line_length)
@@ -456,6 +479,12 @@ def run_video_transcription(
                 if retry_info["retry_used"]:
                     text = retried
                     result = retried_result
+                    issue = retry_issue
+                if issue is not None:
+                    raise RuntimeError(
+                        f"Chunk {i} output remained suspicious after retry ({issue['reason']}); "
+                        "shorten the chunk or change model before continuing."
+                    )
 
             line_count = len([ln for ln in text.splitlines() if ln.strip()])
             log(f"Result: {line_count} lines, {len(text)} chars")
@@ -468,7 +497,7 @@ def run_video_transcription(
                     f"total={usage.get('total_token_count')}"
                 )
 
-                chunk_record = {
+            chunk_record = {
                 "chunk": i,
                 "chunk_start_s": c_start,
                 "chunk_end_s": c_end,
@@ -488,12 +517,16 @@ def run_video_transcription(
                 chunk_record["model_version"] = result["model_version"]
             if retry_info:
                 chunk_record["retry"] = retry_info
-                all_chunks.append(chunk_record)
+            all_chunks.append(chunk_record)
 
-                with open(raw_json_path, "w", encoding="utf-8") as f:
-                    json.dump(all_chunks, f, ensure_ascii=False, indent=2)
-                if Path(raw_json_path).parent.name == "transcription":
-                    update_preferred_manifest(Path(raw_json_path).parent, gemini_raw=Path(raw_json_path).name)
+            with open(raw_json_path, "w", encoding="utf-8") as f:
+                json.dump(all_chunks, f, ensure_ascii=False, indent=2)
+            if Path(raw_json_path).parent.name == "transcription":
+                update_preferred_manifest(Path(raw_json_path).parent, gemini_raw=Path(raw_json_path).name)
+            completed_this_run += 1
+            if stop_after_chunks > 0 and completed_this_run >= stop_after_chunks:
+                log(f"Stopping after {completed_this_run} newly completed chunks as requested.")
+                break
 
     if preview_cost:
         preview_prompt_tokens = sum(
@@ -575,6 +608,10 @@ def run_video_transcription(
             "temperature": temperature,
             "retry_temperature": retry_temperature,
             "loop_max_line_length": loop_max_line_length,
+            "max_request_retries": max_request_retries,
+            "max_timeout_errors": max_timeout_errors,
+            "max_rate_limit_errors": max_rate_limit_errors,
+            "stop_after_chunks": stop_after_chunks,
             "spoken_only": spoken_only,
             "preset": preset_name,
             "media_resolution": media_resolution,
@@ -625,6 +662,15 @@ def main():
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--retry-temperature", type=float, default=None)
     parser.add_argument("--loop-max-line-length", type=int, default=300)
+    parser.add_argument("--max-request-retries", type=int, default=8)
+    parser.add_argument("--max-timeout-errors", type=int, default=3)
+    parser.add_argument("--max-rate-limit-errors", type=int, default=4)
+    parser.add_argument(
+        "--stop-after-chunks",
+        type=int,
+        default=0,
+        help="Stop cleanly after writing this many newly completed chunks. Useful for one-chunk smoke tests.",
+    )
     prompt_mode = parser.add_mutually_exclusive_group()
     prompt_mode.add_argument(
         "--spoken-only",
@@ -725,6 +771,10 @@ def main():
         temperature=resolved["temperature"],
         retry_temperature=resolved["retry_temperature"],
         loop_max_line_length=args.loop_max_line_length,
+        max_request_retries=args.max_request_retries,
+        max_timeout_errors=args.max_timeout_errors,
+        max_rate_limit_errors=args.max_rate_limit_errors,
+        stop_after_chunks=args.stop_after_chunks,
         spoken_only=resolved["spoken_only"],
         preset_name=chosen_preset,
         media_resolution=resolved["media_resolution"],
