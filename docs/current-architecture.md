@@ -37,6 +37,10 @@ The main current transcription default is:
 - `media_resolution=high`
 - `temperature=0.0`
 
+Named preset:
+
+- `flash_free_default`
+
 Important chunking rule:
 
 - VAD is used to place chunk boundaries at good silence points
@@ -64,6 +68,11 @@ Canonical artifacts live under `samples/episodes/<slug>/`:
 
 Downstream scripts should keep discovering artifacts at those stable paths.
 
+Within those stable folders, there are two naming regimes:
+
+- published outputs under `source/` keep stable source-video-basename names
+- lineage artifacts under `transcription/` and draft `translation/` may use short run-ID filenames plus `preferred.json` manifests
+
 ## Run Ledger
 
 Metadata-emitting steps also mirror a run-oriented audit trail under:
@@ -76,6 +85,11 @@ This gives two views of the same work:
 
 - canonical artifact view for the maintained pipeline
 - run ledger view for debugging, auditing, and comparison
+
+Lineage naming is separate from the ledger naming:
+
+- `logs/runs/<ledger_run_id>/...` keeps the readable timestamp-based audit path
+- lineage filenames use a short deterministic alias such as `r3a7f01b_ctc_words.json`
 
 ## Manual Experiment Packs
 
@@ -170,6 +184,10 @@ Important:
 - it is not automatically injected back into transcription by default
 - Codex glossary/translation helpers may auto-discover it later as supporting context
 
+Named preset:
+
+- `flashlite_ocr_sidecar`
+
 ### 4. Alignment
 
 Produced by:
@@ -178,13 +196,14 @@ Produced by:
 
 Main output:
 
-- `transcription/*_ctc_words.json`
+- `transcription/<run_id>_ctc_words.json`
 
 Purpose:
 
 - speech-only forced alignment
 - preserve turn boundaries as metadata
 - keep visual-only text out of the alignment surface
+- update `transcription/preferred.json`
 
 ### 5. Second Opinion
 
@@ -206,6 +225,7 @@ Produced by:
 Purpose:
 
 - turn aligned words/lines into translation-ready Japanese subtitle cues
+- write lineage VTTs with short run-ID names and VTT NOTE provenance
 
 Optional repair step:
 
@@ -217,6 +237,8 @@ Maintained interactive path:
 
 - `scripts/translate_vtt_codex.py`
 
+Draft English lineage artifacts in `translation/` follow the same short run-ID pattern and update `translation/preferred.json`.
+
 Alternative unattended path:
 
 - `scripts/translate_vtt_api.py`
@@ -224,6 +246,12 @@ Alternative unattended path:
 Final publish step:
 
 - `scripts/publish_vtt.py`
+
+Published final output:
+
+- `source/<video_stem>.vtt`
+- stable basename matching the source video
+- provenance copied into `source/<video_stem>.vtt.meta.json`
 
 ## OCR In The Current Architecture
 

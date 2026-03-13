@@ -18,6 +18,12 @@ What this unlocked:
 - rerunning OCR filtering without rerunning OCR
 - rerunning translation without rerunning alignment
 - comparing video-only vs OCR-assisted transcription on the same episode
+
+Named Gemini presets are worth keeping for the maintained path.
+
+- there are too many coupled Gemini settings to rely on ad hoc flag combinations
+- maintained presets make real-run comparisons easier and reduce accidental drift
+- raw flags should still exist for experiments, but the common paths should have names
 - inspecting failures at the artifact boundary instead of guessing
 
 ### 2. CTC forced alignment replaced stable-ts and nearly eliminated stranded words
@@ -1222,3 +1228,9 @@ Maintained fix direction:
 2. Make translation diagnostics less noisy on very short cues.
 3. Decide whether Gemini video-only becomes the default cloud path.
 4. Simplify OCR context selection into a stable local `line_hints + keyword_hints` model if OCR remains part of the Gemini path.
+- lineage artifact naming is easier to manage when:
+  - published outputs in `source/` keep stable source-video-basename names
+  - intermediate artifacts in `transcription/` and draft `translation/` use short run-ID filenames
+  - `preferred.json` manifests point to the current preferred lineage artifacts
+- the readable timestamp-based ledger ID in `logs/runs/` is still worth keeping for audit/debugging
+  - short run IDs should augment it, not replace it

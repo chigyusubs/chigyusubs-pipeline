@@ -27,7 +27,15 @@ import torchaudio
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
+from chigyusubs.metadata import (
+    finish_run,
+    inherit_run_id,
+    lineage_output_path,
+    metadata_path,
+    start_run,
+    update_preferred_manifest,
+    write_metadata,
+)
 
 SAMPLE_RATE = 16000
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -485,6 +493,17 @@ def main():
     parser.add_argument("--chunks", required=True, help="Gemini raw transcription JSON with chunks.")
     parser.add_argument("--output-words", required=True, help="Output JSON with aligned words.")
     args = parser.parse_args()
+    run = inherit_run_id(run, args.chunks)
+    requested_output = Path(args.output_words)
+    if requested_output.parent.name == "transcription" and not requested_output.name.startswith(f"{run['run_id']}_"):
+        args.output_words = str(
+            lineage_output_path(
+                requested_output.parent,
+                artifact_type="ctc_words",
+                run=run,
+                suffix=requested_output.suffix or ".json",
+            )
+        )
 
     with open(args.chunks, "r", encoding="utf-8") as f:
         chunks_data = json.load(f)
@@ -651,6 +670,8 @@ def main():
         },
     )
     write_metadata(args.output_words, metadata)
+    if Path(args.output_words).parent.name == "transcription":
+        update_preferred_manifest(Path(args.output_words).parent, ctc_words=Path(args.output_words).name)
     print(f"Metadata written: {metadata_path(args.output_words)}")
 
 

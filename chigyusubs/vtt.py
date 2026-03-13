@@ -22,10 +22,25 @@ def format_ts_full(seconds: float) -> str:
     return f"{h:02d}:{mi:02d}:{s:02d}.{ms:03d}"
 
 
-def write_vtt(cues: list[dict], output_path: str, include_speaker: bool = False):
+def _write_note_block(handle, note_lines: list[str] | None) -> None:
+    if not note_lines:
+        return
+    handle.write("NOTE\n")
+    for line in note_lines:
+        handle.write(f"{line}\n")
+    handle.write("\n")
+
+
+def write_vtt(
+    cues: list[dict],
+    output_path: str,
+    include_speaker: bool = False,
+    note_lines: list[str] | None = None,
+):
     """Write cues as a standard VTT file."""
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("WEBVTT\n\n")
+        _write_note_block(f, note_lines)
         for cue in cues:
             start = format_ts(cue["start"])
             end = format_ts(cue["end"])
@@ -43,10 +58,11 @@ def _seg_get(seg, key):
     return seg[key] if isinstance(seg, dict) else getattr(seg, key)
 
 
-def write_standard_vtt(segments, output_path: str):
+def write_standard_vtt(segments, output_path: str, note_lines: list[str] | None = None):
     """Write a standard VTT file from segment dicts or faster-whisper objects."""
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write("WEBVTT\n\n")
+        _write_note_block(f, note_lines)
         for seg in segments:
             start = format_ts(_seg_get(seg, "start"))
             end = format_ts(_seg_get(seg, "end"))

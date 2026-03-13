@@ -10,9 +10,14 @@ Finds the video in source/, copies the VTT next to it as <video_stem>.vtt.
 """
 
 import argparse
+import json
 import shutil
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from chigyusubs.metadata import metadata_path, read_artifact_metadata
 
 VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".webm", ".ts"}
 
@@ -59,6 +64,12 @@ def main():
         return
 
     shutil.copy2(args.vtt, dest)
+    source_meta = read_artifact_metadata(args.vtt)
+    if source_meta:
+        published_meta = dict(source_meta)
+        published_meta["published_from"] = str(args.vtt)
+        published_meta["published_output_path"] = str(dest)
+        metadata_path(dest).write_text(json.dumps(published_meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Copied to {dest}")
 
 

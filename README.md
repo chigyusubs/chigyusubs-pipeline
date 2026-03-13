@@ -26,7 +26,7 @@ Video file
         └─ publish back to source/<video_stem>.vtt
 ```
 
-Each stage writes stable artifacts under `samples/episodes/<slug>/`. Later stages consume earlier artifacts without recomputing them.
+Each stage writes reusable artifacts under `samples/episodes/<slug>/`. Published outputs stay stable, while lineage artifacts in `transcription/` and draft `translation/` may use short run-ID filenames plus `preferred.json` pointers.
 Manual benchmark packs for site-driven experiments can live separately under `samples/experiments/<pack>/`. The helper for building them is experimental and lives under `scripts/experiments/`.
 
 ## Translation Paths
@@ -68,6 +68,12 @@ The current repo is optimized around this setup:
 - local faster-whisper and CTC alignment
 - Codex for interactive reflow/translation work
 
+Recommended named Gemini presets:
+
+- transcript experiments: `--preset flash_free_default`
+- visual-rich transcript comparison: `--preset flash_visual_artifact`
+- chunkwise OCR sidecar: `--preset flashlite_ocr_sidecar`
+
 The maintained practical path is no longer “local OCR first.” It is:
 
 - VAD
@@ -89,8 +95,8 @@ samples/episodes/<slug>/
   frames/         # extracted frames for OCR
   ocr/            # OCR sidecars, spans, context
   glossary/       # ASR glossary, translation glossary
-  transcription/  # VTT, aligned words, chunks, diagnostics
-  translation/    # translated VTT
+  transcription/  # chunks, raw JSON, aligned words, reflow VTT, diagnostics
+  translation/    # draft translated VTT
   logs/
 
 samples/experiments/<pack>/
@@ -159,8 +165,15 @@ In practice this means:
 
 1. Reflow and review `*_ctc_words.json`
 2. Build glossary/context from `*_gemini_raw.json`
-3. Translate the recommended Japanese VTT into `translation/`
+3. Translate the preferred Japanese VTT into `translation/`
 4. Publish the final English VTT back into `source/`
+
+## Artifact Naming
+
+- `source/<video_stem>.vtt` is the stable published subtitle path.
+- Lineage artifacts in `transcription/` and draft `translation/` use short run-ID names such as `r3a7f01b_ctc_words.json` and `r3a7f01b_en.vtt`.
+- `transcription/preferred.json` and `translation/preferred.json` point to the current preferred lineage artifacts.
+- `.meta.json` sidecars and VTT `NOTE` headers carry run provenance.
 
 ## Docs
 

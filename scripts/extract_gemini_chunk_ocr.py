@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chigyusubs.audio import extract_inline_video_chunk, get_duration
 from chigyusubs.chunking import chunk_coverage_issues
+from chigyusubs.gemini_presets import preset_names, resolve_settings
 from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
 from chigyusubs.paths import find_episode_dir_from_path
 
@@ -185,6 +186,7 @@ def extract_ocr_chunk_result(
     model: str,
     location: str,
     temperature: float,
+    preset_name: str | None,
     media_resolution: str,
     thinking_level: str,
     thinking_budget: int | None,
@@ -451,6 +453,7 @@ def run_chunk_ocr(
             "crf": crf,
             "max_inline_mb": max_inline_mb,
             "temperature": temperature,
+            "preset": preset_name,
             "media_resolution": media_resolution,
             "thinking_level": thinking_level,
             "thinking_budget": thinking_budget,
@@ -467,7 +470,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Extract chunkwise structured OCR sidecar text with Gemini.")
     parser.add_argument("--video", required=True, help="Input video file.")
     parser.add_argument("--output", default="", help="Output JSON path. Defaults to episode ocr dir.")
-    parser.add_argument("--model", default=os.environ.get("GEMINI_OCR_MODEL", "gemini-3.1-flash-lite-preview"))
+    parser.add_argument(
+        "--preset",
+        choices=preset_names("extract_gemini_chunk_ocr"),
+        default=None,
+        help="Optional named Gemini OCR settings preset.",
+    )
+    parser.add_argument("--model", default=None)
     parser.add_argument("--location", default=os.environ.get("GOOGLE_CLOUD_LOCATION", "global"))
     parser.add_argument("--chunk-seconds", type=float, default=240.0)
     parser.add_argument("--chunk-json", default="", help="Optional saved chunk boundaries JSON (e.g. vad_chunks.json).")
@@ -476,21 +485,39 @@ def main() -> None:
     parser.add_argument("--audio-bitrate", default="24k")
     parser.add_argument("--crf", type=int, default=36)
     parser.add_argument("--max-inline-mb", type=float, default=19.5)
-    parser.add_argument("--temperature", type=float, default=0.0)
-    parser.add_argument("--media-resolution", choices=["unspecified", "low", "medium", "high"], default="high")
-    parser.add_argument("--thinking-level", choices=["unspecified", "minimal", "low", "medium", "high"], default="high")
+    parser.add_argument("--temperature", type=float, default=None)
+    parser.add_argument("--media-resolution", choices=["unspecified", "low", "medium", "high"], default=None)
+    parser.add_argument("--thinking-level", choices=["unspecified", "minimal", "low", "medium", "high"], default=None)
     parser.add_argument("--thinking-budget", type=int, default=None)
     parser.add_argument("--input-price-per-1m", type=float, default=None)
     parser.add_argument("--output-price-per-1m", type=float, default=None)
     parser.add_argument("--vertex", action="store_true", help="Use Vertex AI instead of Gemini API.")
     args = parser.parse_args()
 
+    model_override = args.model
+    if model_override is None and not args.preset:
+        model_override = os.environ.get("GEMINI_OCR_MODEL")
+
+    resolved, chosen_preset = resolve_settings(
+        "extract_gemini_chunk_ocr",
+        args.preset,
+        {
+            "model": model_override,
+            "temperature": args.temperature,
+            "media_resolution": args.media_resolution,
+            "thinking_level": args.thinking_level,
+            "thinking_budget": args.thinking_budget,
+        },
+    )
+
     output = args.output or _default_output_path(args.video)
     print("Using Vertex AI" if args.vertex else "Using Gemini API")
+    if chosen_preset:
+        print(f"Using preset: {chosen_preset}")
     run_chunk_ocr(
         video_path=args.video,
         output_path=output,
-        model=args.model,
+        model=resolved["model"],
         location=args.location,
         chunk_seconds=args.chunk_seconds,
         chunk_json=args.chunk_json,
@@ -499,10 +526,11 @@ def main() -> None:
         audio_bitrate=args.audio_bitrate,
         crf=args.crf,
         max_inline_mb=args.max_inline_mb,
-        temperature=args.temperature,
-        media_resolution=args.media_resolution,
-        thinking_level=args.thinking_level,
-        thinking_budget=args.thinking_budget,
+        temperature=resolved["temperature"],
+        preset_name=chosen_preset,
+        media_resolution=resolved["media_resolution"],
+        thinking_level=resolved["thinking_level"],
+        thinking_budget=resolved["thinking_budget"],
         input_price_per_million=args.input_price_per_1m,
         output_price_per_million=args.output_price_per_1m,
         vertex=args.vertex,

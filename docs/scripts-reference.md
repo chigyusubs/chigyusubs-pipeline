@@ -49,8 +49,8 @@ samples/episodes/<episode_slug>/
   frames/       # extracted frames for OCR
   ocr/          # qwen_ocr_results.jsonl
   glossary/     # structured glossary, hotwords, translation TSV
-  transcription/ # VTT, word JSON, chunks JSON
-  translation/  # translated VTT
+  transcription/ # chunks, raw JSON, aligned words, reflow VTT, diagnostics
+  translation/  # draft translated VTT
   logs/
 
 samples/experiments/<pack>/
@@ -59,6 +59,13 @@ samples/experiments/<pack>/
   results/      # paste-back result templates
   manifest.json # experiment metadata and model matrix
 ```
+
+Lineage artifact naming:
+
+- published subtitle remains `source/<video_stem>.vtt`
+- lineage artifacts in `transcription/` and draft `translation/` may use short run-ID names such as `r3a7f01b_gemini_raw.json`, `r3a7f01b_ctc_words.json`, `r3a7f01b_reflow.vtt`, and `r3a7f01b_en.vtt`
+- `transcription/preferred.json` and `translation/preferred.json` point to the current preferred lineage artifacts
+- `.meta.json` sidecars and VTT `NOTE` headers carry run provenance
 
 ## Script Catalog
 
@@ -100,6 +107,14 @@ samples/experiments/<pack>/
 
 `transcribe_gemini_video.py` supports `--spoken-only` for experiments that ask Gemini to return spoken dialogue only and not emit `[画面: ...]` visual cue lines.
 
+When `transcribe_gemini_video.py` writes into an episode `transcription/` directory, it now emits short run-ID lineage artifacts and updates `transcription/preferred.json`.
+
+Named presets:
+
+- `flash_free_default` — maintained free-tier transcript preset
+- `flash_visual_artifact` — same model family, but keeps selective visual `[画面: ...]` lines
+- `pro_quality_video` — higher-quality Pro video baseline
+
 `transcribe_gemini_video.py` also supports cost/token inspection:
 - `--preview-cost` encodes the real inline video chunks and calls Gemini `count_tokens` without generating a transcript. This gives an exact input-token preview for the request payload and writes a `*_gemini_cost_preview.json` artifact.
 - `--count-tokens` records per-chunk prompt-token previews during a real transcription run.
@@ -111,6 +126,10 @@ Important limitation:
 - Gemini API `count_tokens` does not currently accept generation-config overrides such as `media_resolution` or thinking settings. Exact preflight counts for those configurations require Vertex AI, or a real generation request followed by inspection of `usage_metadata.prompt_token_count`.
 
 `extract_gemini_chunk_ocr.py` is the separate OCR sidecar path. It does not feed OCR back into the main transcript call automatically; it writes a reusable chunk-scoped artifact instead.
+
+Named preset:
+
+- `flashlite_ocr_sidecar` — maintained Flash Lite OCR sidecar preset
 
 Chunk coverage rule:
 
@@ -134,7 +153,7 @@ Chunk coverage rule:
 
 | Script | Purpose | Status |
 |---|---|---|
-| `align_ctc.py` | CTC forced alignment using `NTQAI/wav2vec2-large-japanese`. Default alignment path. 0.3% zero-duration words vs 13.4% with stable-ts. Writes `.diagnostics.json` sidecar with per-chunk repair details and visual-substitution risk flags. | Maintained |
+| `align_ctc.py` | CTC forced alignment using `NTQAI/wav2vec2-large-japanese`. Default alignment path. 0.3% zero-duration words vs 13.4% with stable-ts. Writes `.diagnostics.json` sidecar with per-chunk repair details and visual-substitution risk flags, inherits upstream run IDs, and updates `transcription/preferred.json`. | Maintained |
 | `align_chunkwise.py` | Chunk-wise stable-ts forced alignment | Legacy |
 | `align_stable_ts.py` | Global stable-ts alignment (single pass) | Legacy |
 | `align_qwen_forced.py` | Qwen forced-alignment benchmark (GGUF backend) | Archived |
@@ -144,7 +163,7 @@ Chunk coverage rule:
 
 | Script | Purpose | Status |
 |---|---|---|
-| `reflow_words.py` | Reflow word/line timestamps into subtitle cues. `--line-level` (default for CTC) treats lines as atomic. Includes comma-fallback splitting, sparse-cue clamping, deterministic micro-cue merging (including rescue across turn boundaries while preserving visible turn markers), and a cap on backward cue expansion so subtitles do not appear far before the first aligned speech. | Maintained |
+| `reflow_words.py` | Reflow word/line timestamps into subtitle cues. `--line-level` (default for CTC) treats lines as atomic. Includes comma-fallback splitting, sparse-cue clamping, deterministic micro-cue merging (including rescue across turn boundaries while preserving visible turn markers), a cap on backward cue expansion so subtitles do not appear far before the first aligned speech, VTT NOTE provenance headers, and `transcription/preferred.json` updates. | Maintained |
 | `repair_vtt_codex.py` | Codex-interactive reflow repair with region detection, session/checkpoint, alignment and turn-boundary advisory context, and deterministic before/after diagnostics | Maintained |
 | `repair_vtt_local.py` | Local Gemma cue-boundary repair. Alternative to the Codex-interactive path. | Alternative |
 
@@ -152,7 +171,7 @@ Chunk coverage rule:
 
 | Script | Purpose | Status |
 |---|---|---|
-| `translate_vtt_codex.py` | Codex-interactive translation with session/checkpoint, batch-tier auto-fallback (84→60→48), source hash validation, seed draft import, alignment/turn advisory context, optional auto-discovered chunkwise OCR visual cues, and CPS diagnostics | Maintained |
+| `translate_vtt_codex.py` | Codex-interactive translation with session/checkpoint, batch-tier auto-fallback (84→60→48), source hash validation, seed draft import, alignment/turn advisory context, optional auto-discovered chunkwise OCR visual cues, CPS diagnostics, lineage run-ID draft outputs, and `translation/preferred.json` updates on finalize | Maintained |
 | `translate_vtt_api.py` | Unattended LLM translation (Vertex Gemini or any OpenAI-compatible API). For benchmarking, testing model capability, or use without Codex. | Maintained |
 
 ### Local LLM Servers

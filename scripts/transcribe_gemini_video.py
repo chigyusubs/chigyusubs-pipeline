@@ -18,7 +18,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chigyusubs.audio import extract_inline_video_chunk, get_duration
 from chigyusubs.chunking import chunk_coverage_issues
-from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
+from chigyusubs.gemini_presets import preset_names, resolve_settings
+from chigyusubs.metadata import (
+    finish_run,
+    lineage_output_path,
+    metadata_path,
+    preferred_manifest_path,
+    read_artifact_metadata,
+    start_run,
+    update_preferred_manifest,
+    write_metadata,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from transcribe_gemini import build_prompt, count_request_tokens, transcribe_chunk_result
@@ -132,6 +142,23 @@ def _load_chunk_bounds(chunk_json_path: str) -> list[tuple[float, float]]:
     return [(float(c["start_sec"]), float(c["end_sec"])) for c in chunks]
 
 
+def _reuse_lineage_output_from_preferred(area_dir: Path, key: str, requested_output: Path) -> Path | None:
+    manifest_path = preferred_manifest_path(area_dir)
+    if not manifest_path.exists():
+        return None
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    name = payload.get(key)
+    if not name:
+        return None
+    candidate = area_dir / str(name)
+    meta = read_artifact_metadata(candidate)
+    if not meta:
+        return None
+    if str(meta.get("requested_output_anchor", "")) != str(requested_output):
+        return None
+    return candidate
+
+
 def _max_line_length(text: str) -> int:
     lines = [ln for ln in text.splitlines() if ln.strip()]
     return max((len(ln) for ln in lines), default=0)
@@ -205,6 +232,7 @@ def run_video_transcription(
     retry_temperature: float,
     loop_max_line_length: int,
     spoken_only: bool,
+    preset_name: str | None,
     media_resolution: str,
     thinking_level: str,
     thinking_budget: int | None,
@@ -216,11 +244,22 @@ def run_video_transcription(
     vertex: bool = False,
 ):
     run = start_run("transcribe_gemini_video")
-    out_dir = Path(output_path).parent
+    requested_output = Path(output_path)
+    out_dir = requested_output.parent
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = Path(output_path).stem
-    raw_json_path = str(out_dir / f"{stem}_gemini_raw.json")
-    preview_json_path = str(out_dir / f"{stem}_gemini_cost_preview.json")
+    if out_dir.name == "transcription" and not requested_output.name.startswith(f"{run['run_id']}_"):
+        reused_raw = _reuse_lineage_output_from_preferred(out_dir, "gemini_raw", requested_output)
+        if reused_raw is not None:
+            run["run_id"] = reused_raw.name.split("_", 1)[0]
+            raw_json_path = str(reused_raw)
+            preview_json_path = str(out_dir / f"{run['run_id']}_gemini_cost_preview.json")
+        else:
+            raw_json_path = str(lineage_output_path(out_dir, artifact_type="gemini_raw", run=run, suffix=".json"))
+            preview_json_path = str(lineage_output_path(out_dir, artifact_type="gemini_cost_preview", run=run, suffix=".json"))
+    else:
+        stem = requested_output.stem
+        raw_json_path = str(out_dir / f"{stem}_gemini_raw.json")
+        preview_json_path = str(out_dir / f"{stem}_gemini_cost_preview.json")
     pricing = _pricing_for_model(model, input_price_per_million, output_price_per_million)
     if (
         (preview_cost or count_tokens)
@@ -429,7 +468,7 @@ def run_video_transcription(
                     f"total={usage.get('total_token_count')}"
                 )
 
-            chunk_record = {
+                chunk_record = {
                 "chunk": i,
                 "chunk_start_s": c_start,
                 "chunk_end_s": c_end,
@@ -449,10 +488,12 @@ def run_video_transcription(
                 chunk_record["model_version"] = result["model_version"]
             if retry_info:
                 chunk_record["retry"] = retry_info
-            all_chunks.append(chunk_record)
+                all_chunks.append(chunk_record)
 
-            with open(raw_json_path, "w", encoding="utf-8") as f:
-                json.dump(all_chunks, f, ensure_ascii=False, indent=2)
+                with open(raw_json_path, "w", encoding="utf-8") as f:
+                    json.dump(all_chunks, f, ensure_ascii=False, indent=2)
+                if Path(raw_json_path).parent.name == "transcription":
+                    update_preferred_manifest(Path(raw_json_path).parent, gemini_raw=Path(raw_json_path).name)
 
     if preview_cost:
         preview_prompt_tokens = sum(
@@ -492,16 +533,20 @@ def run_video_transcription(
                 "max_inline_mb": max_inline_mb,
                 "rolling_context_chunks": rolling_context_chunks,
                 "spoken_only": spoken_only,
+                "preset": preset_name,
                 "media_resolution": media_resolution,
                 "thinking_level": thinking_level,
                 "thinking_budget": thinking_budget,
                 "preview_cost": preview_cost,
                 "count_tokens": count_tokens,
                 "pricing": pricing,
+                "requested_output_anchor": str(requested_output),
             },
             stats=preview_payload["summary"],
         )
         write_metadata(preview_json_path, metadata)
+        if Path(preview_json_path).parent.name == "transcription":
+            update_preferred_manifest(Path(preview_json_path).parent, gemini_cost_preview=Path(preview_json_path).name)
         log(f"Saved cost preview: {preview_json_path}")
         log(f"Metadata written: {metadata_path(preview_json_path)}")
         return
@@ -531,12 +576,14 @@ def run_video_transcription(
             "retry_temperature": retry_temperature,
             "loop_max_line_length": loop_max_line_length,
             "spoken_only": spoken_only,
+            "preset": preset_name,
             "media_resolution": media_resolution,
             "thinking_level": thinking_level,
             "thinking_budget": thinking_budget,
             "preview_cost": preview_cost,
             "count_tokens": count_tokens,
             "pricing": pricing,
+            "requested_output_anchor": str(requested_output),
         },
         stats={
             "duration_seconds": round(duration, 3),
@@ -549,6 +596,8 @@ def run_video_transcription(
         },
     )
     write_metadata(raw_json_path, metadata)
+    if Path(raw_json_path).parent.name == "transcription":
+        update_preferred_manifest(Path(raw_json_path).parent, gemini_raw=Path(raw_json_path).name)
     log(f"Saved: {raw_json_path}")
     log(f"Metadata written: {metadata_path(raw_json_path)}")
 
@@ -557,7 +606,13 @@ def main():
     parser = argparse.ArgumentParser(description="Video-only Gemini transcription with inline video chunks.")
     parser.add_argument("--video", required=True, help="Input video file.")
     parser.add_argument("--output", required=True, help="Output JSON path.")
-    parser.add_argument("--model", default=os.environ.get("GEMINI_MODEL", "gemini-2.5-pro"))
+    parser.add_argument(
+        "--preset",
+        choices=preset_names("transcribe_gemini_video"),
+        default=None,
+        help="Optional named Gemini settings preset.",
+    )
+    parser.add_argument("--model", default=None)
     parser.add_argument("--location", default=os.environ.get("GOOGLE_CLOUD_LOCATION", "global"))
     parser.add_argument("--chunk-seconds", type=float, default=600.0)
     parser.add_argument("--chunk-json", default="", help="Optional saved chunk boundaries JSON (e.g. vad_chunks.json).")
@@ -567,24 +622,35 @@ def main():
     parser.add_argument("--crf", type=int, default=36)
     parser.add_argument("--max-inline-mb", type=float, default=14.0)
     parser.add_argument("--rolling-context-chunks", type=int, default=1)
-    parser.add_argument("--temperature", type=float, default=0.1)
-    parser.add_argument("--retry-temperature", type=float, default=0.3)
+    parser.add_argument("--temperature", type=float, default=None)
+    parser.add_argument("--retry-temperature", type=float, default=None)
     parser.add_argument("--loop-max-line-length", type=int, default=300)
-    parser.add_argument(
+    prompt_mode = parser.add_mutually_exclusive_group()
+    prompt_mode.add_argument(
         "--spoken-only",
-        action="store_true",
+        dest="spoken_only",
+        action="store_const",
+        const=True,
+        default=None,
         help="Ask Gemini for spoken dialogue only and do not request [画面: ...] visual cue lines.",
+    )
+    prompt_mode.add_argument(
+        "--spoken-plus-visual",
+        dest="spoken_only",
+        action="store_const",
+        const=False,
+        help="Ask Gemini for spoken dialogue plus selective [画面: ...] visual cue lines.",
     )
     parser.add_argument(
         "--media-resolution",
         choices=["unspecified", "low", "medium", "high"],
-        default="unspecified",
+        default=None,
         help="Gemini media resolution hint for multimodal processing.",
     )
     parser.add_argument(
         "--thinking-level",
         choices=["unspecified", "minimal", "low", "medium", "high"],
-        default="unspecified",
+        default=None,
         help="Optional Gemini thinking level override.",
     )
     parser.add_argument(
@@ -618,15 +684,35 @@ def main():
     parser.add_argument("--vertex", action="store_true", help="Use Vertex AI instead of Gemini API. Default uses GEMINI_API_KEY.")
     args = parser.parse_args()
 
+    model_override = args.model
+    if model_override is None and not args.preset:
+        model_override = os.environ.get("GEMINI_MODEL")
+
+    resolved, chosen_preset = resolve_settings(
+        "transcribe_gemini_video",
+        args.preset,
+        {
+            "model": model_override,
+            "temperature": args.temperature,
+            "retry_temperature": args.retry_temperature,
+            "spoken_only": args.spoken_only,
+            "media_resolution": args.media_resolution,
+            "thinking_level": args.thinking_level,
+            "thinking_budget": args.thinking_budget,
+        },
+    )
+
     if args.vertex:
         print("Using Vertex AI", flush=True)
     else:
         print("Using Gemini API", flush=True)
+    if chosen_preset:
+        print(f"Using preset: {chosen_preset}", flush=True)
 
     run_video_transcription(
         video_path=args.video,
         output_path=args.output,
-        model=args.model,
+        model=resolved["model"],
         location=args.location,
         chunk_seconds=args.chunk_seconds,
         chunk_json=args.chunk_json,
@@ -636,13 +722,14 @@ def main():
         crf=args.crf,
         max_inline_mb=args.max_inline_mb,
         rolling_context_chunks=args.rolling_context_chunks,
-        temperature=args.temperature,
-        retry_temperature=args.retry_temperature,
+        temperature=resolved["temperature"],
+        retry_temperature=resolved["retry_temperature"],
         loop_max_line_length=args.loop_max_line_length,
-        spoken_only=args.spoken_only,
-        media_resolution=args.media_resolution,
-        thinking_level=args.thinking_level,
-        thinking_budget=args.thinking_budget,
+        spoken_only=resolved["spoken_only"],
+        preset_name=chosen_preset,
+        media_resolution=resolved["media_resolution"],
+        thinking_level=resolved["thinking_level"],
+        thinking_budget=resolved["thinking_budget"],
         preview_cost=args.preview_cost,
         count_tokens=args.count_tokens,
         input_price_per_million=args.input_price_per_1m,

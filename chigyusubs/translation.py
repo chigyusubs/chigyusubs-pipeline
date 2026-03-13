@@ -104,8 +104,12 @@ def parse_srt(text: str) -> list[Cue]:
     return cues
 
 
-def serialize_vtt(cues: list[Cue]) -> str:
+def serialize_vtt(cues: list[Cue], note_lines: list[str] | None = None) -> str:
     parts = ["WEBVTT", ""]
+    if note_lines:
+        parts.append("NOTE")
+        parts.extend(note_lines)
+        parts.append("")
     for cue in cues:
         parts.append(f"{seconds_to_time(cue.start)} --> {seconds_to_time(cue.end)}")
         parts.append(cue.text)
@@ -781,4 +785,3 @@ def translate_subtitles(
     print(f"Wrote translation diagnostics to {diagnostics_path}")
     if all_warnings:
         print(f"Total warnings: {len(all_warnings)}")
-

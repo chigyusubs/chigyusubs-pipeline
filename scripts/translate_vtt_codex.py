@@ -38,6 +38,16 @@ from chigyusubs.translation import (
     wrap_english_text,
     write_json_atomic,
 )
+from chigyusubs.metadata import (
+    build_vtt_note_lines,
+    finish_run,
+    inherit_run_id,
+    lineage_output_path,
+    metadata_path,
+    start_run,
+    update_preferred_manifest,
+    write_metadata,
+)
 
 DEFAULT_BATCH_TIERS = [84, 60, 48]
 DEFAULT_BATCH_SECONDS = 300.0
@@ -93,9 +103,12 @@ def _episode_translation_output(input_path: Path, target_lang: str) -> Path:
     parent = input_path.parent
     if parent.name == "transcription":
         parent = parent.parent / "translation"
-    stem = input_path.stem
     lang_slug = target_lang.lower().replace(" ", "_")
-    return parent / f"{stem}_{lang_slug}_codex.vtt"
+    probe_run = inherit_run_id(start_run("translate_vtt_codex"), input_path)
+    artifact_type = "en" if lang_slug == "english" else lang_slug
+    if parent.name == "translation":
+        return lineage_output_path(parent, artifact_type=artifact_type, run=probe_run, suffix=".vtt")
+    return parent / f"{input_path.stem}_{lang_slug}_codex.vtt"
 
 
 def _partial_output_path(output_path: Path) -> Path:
@@ -493,6 +506,11 @@ def cmd_prepare(args) -> int:
         return 1
 
     output_path = Path(args.output) if args.output else _episode_translation_output(input_path, args.target_lang)
+    probe_run = inherit_run_id(start_run("translate_vtt_codex"), input_path)
+    if output_path.parent.name == "translation" and not output_path.name.startswith(f"{probe_run['run_id']}_"):
+        lang_slug = args.target_lang.lower().replace(" ", "_")
+        artifact_type = "en" if lang_slug == "english" else lang_slug
+        output_path = lineage_output_path(output_path.parent, artifact_type=artifact_type, run=probe_run, suffix=output_path.suffix or ".vtt")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     session_path = Path(args.session) if args.session else Path(checkpoint_path(str(output_path)))
     seed_path = Path(args.seed_from) if args.seed_from else None
@@ -755,15 +773,48 @@ def cmd_finalize(args) -> int:
     final_cues = _render_final(session, cues)
     output_path = Path(session["output"])
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    run = inherit_run_id(start_run("translate_vtt_codex_finalize"), session["input"])
+    source_name = Path(session["input"]).name
+    note_lines = build_vtt_note_lines(
+        {
+            "run_id": run.get("run_id"),
+            "step": "translation",
+            "episode": Path(session["input"]).parent.parent.name if Path(session["input"]).parent.name == "transcription" else "",
+            "run_started_at": run.get("run_started_at"),
+        },
+        source_name=source_name,
+        extra_lines=[f"target_language: {session['target_language']}"],
+    )
     if output_path.suffix.lower() == ".srt":
         output_path.write_text(serialize_srt(final_cues), encoding="utf-8")
     else:
-        output_path.write_text(serialize_vtt(final_cues), encoding="utf-8")
+        output_path.write_text(serialize_vtt(final_cues, note_lines=note_lines), encoding="utf-8")
     session["status"] = "completed"
     session["stop_reason"] = ""
     _save_session(session_path, session)
     _write_diagnostics(session, cues)
+    metadata = finish_run(
+        run,
+        inputs={"japanese_vtt": session["input"], "session_json": str(session_path)},
+        outputs={"english_vtt": str(output_path), "diagnostics_json": session["diagnostics_path"]},
+        settings={
+            "target_language": session["target_language"],
+            "preferred_model": session["preferred_model"],
+            "preferred_thinking": session["preferred_thinking"],
+            "preferred_temperature": session["preferred_temperature"],
+            "batch_tiers": session["batch_tiers"],
+            "visual_cues_path": session.get("visual_cues_path", ""),
+        },
+        stats={
+            "total_cues": len(cues),
+            "completed_batches": len(session.get("completed_batches", [])),
+        },
+    )
+    write_metadata(output_path, metadata)
+    if output_path.parent.name == "translation":
+        update_preferred_manifest(output_path.parent, en_draft=output_path.name)
     print(f"Wrote final output: {output_path}")
+    print(f"Metadata written: {metadata_path(output_path)}")
     return 0
 
 
