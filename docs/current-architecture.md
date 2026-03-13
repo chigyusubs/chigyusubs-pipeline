@@ -40,6 +40,7 @@ The main current transcription default is:
 Named preset:
 
 - `flash_free_default`
+- `flashlite_debug_transcript` for cheap bounded debug passes
 
 Important chunking rule:
 
@@ -72,6 +73,13 @@ Within those stable folders, there are two naming regimes:
 
 - published outputs under `source/` keep stable source-video-basename names
 - lineage artifacts under `transcription/` and draft `translation/` may use short run-ID filenames plus `preferred.json` manifests
+
+Chunk-plan filenames should also stay legible because operators routinely swap them during retries:
+
+- `vad_chunks.json` means the default full-coverage VAD plan
+- `vad_chunks_semantic_<target>.json` means a reviewed semantic plan at that target size
+- `*_repair*.json` means a follow-up repair plan that resplits only a failed region
+- `probes/*exact_chunks_<target>s*.json` means a debug-only exact-duration probe plan
 
 ## Run Ledger
 

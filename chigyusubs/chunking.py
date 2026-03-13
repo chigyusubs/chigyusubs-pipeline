@@ -1,5 +1,13 @@
 """VAD-aware full-coverage chunking for long-form transcription."""
 
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+from chigyusubs.metadata import read_artifact_metadata
+
 
 def chunk_coverage_issues(
     chunk_bounds: list[tuple[float, float]],
@@ -97,3 +105,83 @@ def find_chunk_boundaries(
             chunk_start = target_end
 
     return boundaries
+
+
+def chunk_duration_stats(chunk_bounds: list[tuple[float, float]]) -> dict[str, float | int]:
+    if not chunk_bounds:
+        return {
+            "chunks": 0,
+            "min_chunk_s": 0.0,
+            "avg_chunk_s": 0.0,
+            "max_chunk_s": 0.0,
+        }
+    durations = [float(end) - float(start) for start, end in chunk_bounds]
+    return {
+        "chunks": len(chunk_bounds),
+        "min_chunk_s": round(min(durations), 3),
+        "avg_chunk_s": round(sum(durations) / len(durations), 3),
+        "max_chunk_s": round(max(durations), 3),
+    }
+
+
+def describe_chunk_plan(chunk_json_path: str | Path, chunk_bounds: list[tuple[float, float]]) -> dict[str, object]:
+    path = Path(chunk_json_path)
+    stem = path.stem.lower()
+    metadata = read_artifact_metadata(path)
+    session_payload = None
+    session_path = path.with_name(path.stem + ".session.json")
+    if session_path.exists():
+        try:
+            session_payload = json.loads(session_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            session_payload = None
+
+    parts: list[str] = []
+    source = "filename"
+    if stem == "vad_chunks":
+        parts.append("default VAD full-coverage plan")
+    elif "semantic" in stem:
+        parts.append("semantic reviewed plan")
+    elif "exact" in stem:
+        parts.append("exact-duration debug plan")
+    elif "probe" in stem or "probes" in str(path):
+        parts.append("probe chunk plan")
+    else:
+        parts.append("saved chunk plan")
+
+    if "repair" in stem:
+        parts.append("repair split")
+    if "latefix" in stem:
+        parts.append("late-fix follow-up")
+
+    target_chunk_s = None
+    if isinstance(metadata, dict):
+        target_chunk_s = (
+            metadata.get("chunk_settings", {}) or {}
+        ).get("target_chunk_s")
+        if target_chunk_s is not None:
+            source = "metadata"
+    if target_chunk_s is None and isinstance(session_payload, dict):
+        target_chunk_s = session_payload.get("target_chunk_s")
+        if target_chunk_s is not None:
+            source = "session"
+    if target_chunk_s is None:
+        match = re.search(r"(\d+)s(?:$|[_-])", stem)
+        if match:
+            target_chunk_s = int(match.group(1))
+        else:
+            match = re.search(r"semantic_(\d+)", stem)
+            if match:
+                target_chunk_s = int(match.group(1))
+    if target_chunk_s is not None:
+        parts.append(f"target {float(target_chunk_s):g}s")
+
+    stats = chunk_duration_stats(chunk_bounds)
+    label = "; ".join(parts)
+    return {
+        "label": label,
+        "path": str(path),
+        "name": path.name,
+        "source": source,
+        **stats,
+    }

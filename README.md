@@ -72,6 +72,7 @@ Recommended named Gemini presets:
 
 - transcript experiments: `--preset flash_free_default`
 - visual-rich transcript comparison: `--preset flash_visual_artifact`
+- cheap resumable debug transcript probes: `--preset flashlite_debug_transcript`
 - chunkwise OCR sidecar: `--preset flashlite_ocr_sidecar`
 
 The maintained practical path is no longer “local OCR first.” It is:
@@ -122,8 +123,23 @@ python scripts/extract_gemini_chunk_ocr.py \
   --video samples/episodes/<slug>/source/<video>.mp4 \
   --chunk-json samples/episodes/<slug>/transcription/vad_chunks.json
 
+# Cheap one-chunk Flash Lite debug smoke test
+python scripts/transcribe_gemini_video.py \
+  --video samples/episodes/<slug>/source/<video>.mp4 \
+  --output samples/episodes/<slug>/transcription/<slug>_flashlite_debug.json \
+  --preset flashlite_debug_transcript \
+  --chunk-json samples/episodes/<slug>/transcription/vad_chunks_semantic_180.json \
+  --stop-after-chunks 1
+
 # Or step by step — see docs/scripts-reference.md for the full CLI cheatsheet
 ```
+
+Common chunk plan names:
+
+- `transcription/vad_chunks.json` — default full-coverage VAD plan
+- `transcription/vad_chunks_semantic_180.json` — reviewed semantic plan targeting about `180s`
+- `transcription/*_repair*.json` — follow-up repair plan that only resplits failed chunks
+- `transcription/probes/*exact_chunks_60s*.json` — strict debug probe plan, usually for Flash Lite
 
 If you want the older OCR-first path or manual experiment tooling, see:
 

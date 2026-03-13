@@ -17,7 +17,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chigyusubs.audio import extract_inline_video_chunk, get_duration
-from chigyusubs.chunking import chunk_coverage_issues
+from chigyusubs.chunking import chunk_coverage_issues, describe_chunk_plan
 from chigyusubs.gemini_presets import preset_names, resolve_settings
 from chigyusubs.metadata import (
     finish_run,
@@ -303,12 +303,19 @@ def run_video_transcription(
             )
     else:
         chunk_bounds = _default_chunk_bounds(duration, chunk_seconds)
+    chunk_plan = describe_chunk_plan(chunk_json, chunk_bounds) if chunk_json else None
 
     log(f"Video: {video_path}")
     log(f"Output: {output_path}")
     log(f"Duration: {duration:.1f}s")
     if chunk_json:
         log(f"Chunks: {len(chunk_bounds)} from {chunk_json}")
+        if chunk_plan is not None:
+            log(
+                "Chunk plan: "
+                f"{chunk_plan['label']} "
+                f"(min={chunk_plan['min_chunk_s']:.1f}s avg={chunk_plan['avg_chunk_s']:.1f}s max={chunk_plan['max_chunk_s']:.1f}s)"
+            )
     else:
         log(f"Chunks: {len(chunk_bounds)} x {chunk_seconds:.0f}s")
     if pricing.get("input_price_per_million_usd") is not None or pricing.get("output_price_per_million_usd") is not None:
@@ -559,6 +566,7 @@ def run_video_transcription(
                 "location": location,
                 "chunk_seconds": chunk_seconds,
                 "chunk_json": chunk_json,
+                "chunk_plan": chunk_plan,
                 "fps": fps,
                 "width": width,
                 "audio_bitrate": audio_bitrate,
@@ -599,6 +607,7 @@ def run_video_transcription(
             "location": location,
             "chunk_seconds": chunk_seconds,
             "chunk_json": chunk_json,
+            "chunk_plan": chunk_plan,
             "fps": fps,
             "width": width,
             "audio_bitrate": audio_bitrate,
@@ -652,19 +661,27 @@ def main():
     parser.add_argument("--model", default=None)
     parser.add_argument("--location", default=os.environ.get("GOOGLE_CLOUD_LOCATION", "global"))
     parser.add_argument("--chunk-seconds", type=float, default=600.0)
-    parser.add_argument("--chunk-json", default="", help="Optional saved chunk boundaries JSON (e.g. vad_chunks.json).")
+    parser.add_argument(
+        "--chunk-json",
+        default="",
+        help=(
+            "Optional saved chunk boundaries JSON, such as vad_chunks.json "
+            "(default VAD plan), vad_chunks_semantic_180.json (reviewed semantic plan), "
+            "or a *_repair*.json repair plan."
+        ),
+    )
     parser.add_argument("--fps", type=float, default=1.0)
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--audio-bitrate", default="24k")
     parser.add_argument("--crf", type=int, default=36)
     parser.add_argument("--max-inline-mb", type=float, default=14.0)
-    parser.add_argument("--rolling-context-chunks", type=int, default=1)
+    parser.add_argument("--rolling-context-chunks", type=int, default=None)
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--retry-temperature", type=float, default=None)
     parser.add_argument("--loop-max-line-length", type=int, default=300)
-    parser.add_argument("--max-request-retries", type=int, default=8)
-    parser.add_argument("--max-timeout-errors", type=int, default=3)
-    parser.add_argument("--max-rate-limit-errors", type=int, default=4)
+    parser.add_argument("--max-request-retries", type=int, default=None)
+    parser.add_argument("--max-timeout-errors", type=int, default=None)
+    parser.add_argument("--max-rate-limit-errors", type=int, default=None)
     parser.add_argument(
         "--stop-after-chunks",
         type=int,
@@ -745,6 +762,10 @@ def main():
             "media_resolution": args.media_resolution,
             "thinking_level": args.thinking_level,
             "thinking_budget": args.thinking_budget,
+            "rolling_context_chunks": args.rolling_context_chunks,
+            "max_request_retries": args.max_request_retries,
+            "max_timeout_errors": args.max_timeout_errors,
+            "max_rate_limit_errors": args.max_rate_limit_errors,
         },
     )
 
@@ -767,13 +788,13 @@ def main():
         audio_bitrate=args.audio_bitrate,
         crf=args.crf,
         max_inline_mb=args.max_inline_mb,
-        rolling_context_chunks=args.rolling_context_chunks,
+        rolling_context_chunks=resolved["rolling_context_chunks"],
         temperature=resolved["temperature"],
         retry_temperature=resolved["retry_temperature"],
         loop_max_line_length=args.loop_max_line_length,
-        max_request_retries=args.max_request_retries,
-        max_timeout_errors=args.max_timeout_errors,
-        max_rate_limit_errors=args.max_rate_limit_errors,
+        max_request_retries=resolved["max_request_retries"],
+        max_timeout_errors=resolved["max_timeout_errors"],
+        max_rate_limit_errors=resolved["max_rate_limit_errors"],
         stop_after_chunks=args.stop_after_chunks,
         spoken_only=resolved["spoken_only"],
         preset_name=chosen_preset,

@@ -32,6 +32,12 @@ Current free-tier default for real episode work:
 - `media_resolution=high`
 - `temperature=0.0`
 
+Named presets worth remembering:
+
+- `flash_free_default` — maintained free-tier real-run baseline
+- `flashlite_debug_transcript` — cheap debug transcript preset with no rolling context and bounded retries
+- `pro_quality_video` — higher-quality paid reference baseline
+
 Current paid/reference quality anchor:
 
 - `gemini-2.5-pro`
@@ -101,6 +107,12 @@ Default chunk policy:
 - use `120s` to probe fragile models
 - if Flash Lite is specifically the model under test and a bad span is already identified, `60s` is a reasonable surgical probe size
 - go shorter only when there is clear evidence chunk length is the blocker
+
+Operational naming rule:
+
+- keep the primary plan in `vad_chunks.json` or `vad_chunks_semantic_<target>.json`
+- use `*_repair*.json` only after a real chunk failure
+- use `probes/*exact_chunks_60s*.json` for Flash Lite debug work, not as the canonical episode chunk plan
 
 Current lesson:
 

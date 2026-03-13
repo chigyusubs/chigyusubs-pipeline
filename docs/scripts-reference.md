@@ -114,6 +114,7 @@ Named presets:
 
 - `flash_free_default` — maintained free-tier transcript preset
 - `flash_visual_artifact` — same model family, but keeps selective visual `[画面: ...]` lines
+- `flashlite_debug_transcript` — cheap Flash Lite debug transcript preset with `spoken_only`, `media_resolution=high`, `rolling_context_chunks=0`, and bounded retries
 - `pro_quality_video` — higher-quality Pro video baseline
 
 `transcribe_gemini_video.py` also supports cost/token inspection:
@@ -124,6 +125,14 @@ Named presets:
 - `--thinking-level {unspecified,minimal,low,medium,high}` and `--thinking-budget` expose Gemini thinking controls for transcription experiments.
 - `--stop-after-chunks N` cleanly stops after `N` newly completed chunks, which is useful for one-chunk smoke tests after changing model, prompt, or retry logic.
 - `--max-request-retries`, `--max-timeout-errors`, and `--max-rate-limit-errors` now bound how much one bad chunk can burn before the run stops resumably.
+- when `--chunk-json` is used, the script now logs a human-readable chunk-plan label plus min/avg/max duration stats instead of only echoing the raw filename.
+
+Common chunk-plan names:
+
+- `vad_chunks.json` — default full-coverage VAD plan from `build_vad_chunks.py`
+- `vad_chunks_semantic_180.json` — reviewed semantic plan with a `180s` target
+- `*_repair*.json` — repair split plan generated after a chunk failed and needed local resplitting
+- `probes/*exact_chunks_60s*.json` — strict debug probe plan, mainly for Flash Lite survivability tests
 
 Operational guardrails:
 
@@ -139,6 +148,8 @@ Important limitation:
 Named preset:
 
 - `flashlite_ocr_sidecar` — maintained Flash Lite OCR sidecar preset
+
+`extract_gemini_chunk_ocr.py` now logs the same chunk-plan label and min/avg/max duration summary when `--chunk-json` is supplied, which makes it easier to confirm the OCR sidecar is using the intended repair or semantic plan.
 
 Chunk coverage rule:
 

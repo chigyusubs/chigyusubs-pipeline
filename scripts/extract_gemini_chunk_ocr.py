@@ -21,7 +21,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chigyusubs.audio import extract_inline_video_chunk, get_duration
-from chigyusubs.chunking import chunk_coverage_issues
+from chigyusubs.chunking import chunk_coverage_issues, describe_chunk_plan
 from chigyusubs.gemini_presets import preset_names, resolve_settings
 from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
 from chigyusubs.paths import find_episode_dir_from_path
@@ -332,6 +332,7 @@ def run_chunk_ocr(
                 f"Chunk JSON is not full-coverage: {details}. Rebuild it with scripts/build_vad_chunks.py."
             )
     pricing = _pricing_for_model(model, input_price_per_million, output_price_per_million)
+    chunk_plan = describe_chunk_plan(chunk_json, chunk_bounds) if chunk_json else None
     prompt = build_ocr_prompt()
 
     log(f"Video: {video_path}")
@@ -339,6 +340,12 @@ def run_chunk_ocr(
     log(f"Duration: {duration:.1f}s")
     if chunk_json:
         log(f"Chunks: {len(chunk_bounds)} from {chunk_json}")
+        if chunk_plan is not None:
+            log(
+                "Chunk plan: "
+                f"{chunk_plan['label']} "
+                f"(min={chunk_plan['min_chunk_s']:.1f}s avg={chunk_plan['avg_chunk_s']:.1f}s max={chunk_plan['max_chunk_s']:.1f}s)"
+            )
     else:
         log(f"Chunks: {len(chunk_bounds)} x {chunk_seconds:.0f}s")
 
@@ -449,6 +456,7 @@ def run_chunk_ocr(
             "location": location,
             "chunk_seconds": chunk_seconds,
             "chunk_json": chunk_json,
+            "chunk_plan": chunk_plan,
             "fps": fps,
             "width": width,
             "audio_bitrate": audio_bitrate,
@@ -481,7 +489,15 @@ def main() -> None:
     parser.add_argument("--model", default=None)
     parser.add_argument("--location", default=os.environ.get("GOOGLE_CLOUD_LOCATION", "global"))
     parser.add_argument("--chunk-seconds", type=float, default=240.0)
-    parser.add_argument("--chunk-json", default="", help="Optional saved chunk boundaries JSON (e.g. vad_chunks.json).")
+    parser.add_argument(
+        "--chunk-json",
+        default="",
+        help=(
+            "Optional saved chunk boundaries JSON, such as vad_chunks.json "
+            "(default VAD plan), vad_chunks_semantic_180.json (reviewed semantic plan), "
+            "or a *_repair*.json repair plan."
+        ),
+    )
     parser.add_argument("--fps", type=float, default=1.0)
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--audio-bitrate", default="24k")

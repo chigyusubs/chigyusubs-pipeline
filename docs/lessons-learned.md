@@ -23,8 +23,15 @@ Named Gemini presets are worth keeping for the maintained path.
 
 - there are too many coupled Gemini settings to rely on ad hoc flag combinations
 - maintained presets make real-run comparisons easier and reduce accidental drift
+- a named Flash Lite debug preset is worth keeping separate from real-run presets so cheap smoke tests do not silently inherit production settings
 - raw flags should still exist for experiments, but the common paths should have names
 - inspecting failures at the artifact boundary instead of guessing
+
+Chunk-plan intent also needs to be surfaced explicitly.
+
+- once semantic plans, repair plans, and debug probe plans accumulate, filenames alone stop being self-explanatory
+- maintained Gemini helpers should log a human-readable chunk-plan label and duration summary when `--chunk-json` is supplied
+- docs should treat `vad_chunks.json`, `vad_chunks_semantic_<target>.json`, `*_repair*.json`, and `probes/*exact_chunks_<target>s*.json` as distinct operator-facing categories
 
 ### 2. CTC forced alignment replaced stable-ts and nearly eliminated stranded words
 

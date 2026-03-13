@@ -14,6 +14,10 @@ SCRIPT_DEFAULTS: dict[str, dict[str, Any]] = {
         "media_resolution": "unspecified",
         "thinking_level": "unspecified",
         "thinking_budget": None,
+        "rolling_context_chunks": 1,
+        "max_request_retries": 8,
+        "max_timeout_errors": 3,
+        "max_rate_limit_errors": 4,
     },
     "extract_gemini_chunk_ocr": {
         "model": "gemini-3.1-flash-lite-preview",
@@ -50,6 +54,23 @@ PRESETS: dict[str, dict[str, Any]] = {
             "media_resolution": "high",
             "thinking_level": "low",
             "thinking_budget": None,
+        },
+    },
+    "flashlite_debug_transcript": {
+        "script": "transcribe_gemini_video",
+        "description": "Maintained Flash-Lite debug transcript preset: spoken-only high-res with no rolling context and bounded retries.",
+        "settings": {
+            "model": "gemini-3.1-flash-lite-preview",
+            "temperature": 0.0,
+            "retry_temperature": 0.3,
+            "spoken_only": True,
+            "media_resolution": "high",
+            "thinking_level": "unspecified",
+            "thinking_budget": None,
+            "rolling_context_chunks": 0,
+            "max_request_retries": 4,
+            "max_timeout_errors": 2,
+            "max_rate_limit_errors": 2,
         },
     },
     "pro_quality_video": {
@@ -104,4 +125,3 @@ def resolve_settings(
         if value is not None:
             resolved[key] = value
     return resolved, chosen
-
