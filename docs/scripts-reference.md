@@ -18,6 +18,7 @@ Best current quality/value path. Uses Gemini transcription with reusable VAD/chu
 ```text
 Silero VAD -> full-coverage chunk boundaries guided by silence
   -> Gemini transcription
+  -> raw chunk sanity gate
   -> CTC forced alignment (wav2vec2-ja)
   -> faster-whisper second opinion
   -> reflow
@@ -28,9 +29,10 @@ Silero VAD -> full-coverage chunk boundaries guided by silence
 1. `run_vad_episode.py` — reusable Silero VAD
 2. `build_vad_chunks.py` — reusable full-coverage chunk boundaries
 3. `transcribe_pipeline.py` — Gemini transcription + alignment + reflow
-4. `pre_reflow_second_opinion.py` — faster-whisper second-opinion coverage check
-5. `repair_vtt_codex.py` — optional Codex-interactive cue-boundary repair on reflowed VTT
-6. `translate_vtt_api.py` or `translate_vtt_codex.py`
+4. `check_raw_chunk_sanity.py` — deterministic raw-chunk QA gate before alignment/reflow
+5. `pre_reflow_second_opinion.py` — faster-whisper second-opinion coverage check
+6. `repair_vtt_codex.py` — optional Codex-interactive cue-boundary repair on reflowed VTT
+7. `translate_vtt_api.py` or `translate_vtt_codex.py`
 
 Optional OCR-like side artifacts can still be added when useful, but they are not the default front door.
 
@@ -107,6 +109,7 @@ Lineage artifact naming:
 | `transcribe_gemini.py` | Gemini transcription (JSON schema mode, used by `transcribe_pipeline.py`) | Maintained |
 | `transcribe_pipeline.py` | Integrated pipeline: VAD → Gemini → alignment → reflow | Maintained |
 | `transcribe_local.py` | Fully local pipeline: Silero VAD + OCR filter + faster-whisper | Maintained |
+| `check_raw_chunk_sanity.py` | Deterministic raw transcript QA gate. Flags chunk-level `red/yellow/green` issues such as missing `-- ` turn markers, thought leakage, visual-only substitution, and obvious repetition loops before alignment/reflow. | Maintained |
 
 `transcribe_gemini_video.py` supports `--spoken-only` for experiments that ask Gemini to return spoken dialogue only and not emit `[画面: ...]` visual cue lines.
 
@@ -135,7 +138,7 @@ Named presets:
 Common chunk-plan names:
 
 - `vad_chunks.json` — default full-coverage VAD plan from `build_vad_chunks.py`
-- `vad_chunks_semantic_180.json` — reviewed semantic plan with a `180s` target
+- `vad_chunks_semantic_90.json` — reviewed semantic plan with a `90s` target
 - `*_repair*.json` — repair split plan generated after a chunk failed and needed local resplitting
 - `probes/*exact_chunks_60s*.json` — strict debug probe plan, mainly for Flash Lite survivability tests
 
@@ -327,6 +330,12 @@ python3.12 scripts/align_ctc.py \
 # before reflow and compare the two transcripts.
 
 # 5. Reflow (line-level, recommended for CTC output)
+python3 scripts/check_raw_chunk_sanity.py \
+  --input samples/episodes/<slug>/transcription/<stem>_gemini_raw.json
+
+# Stop and repair raw chunks first if this report has any red chunk.
+# Yellow chunk means review-target, not automatic stop.
+
 PYTHONPATH=. python3 scripts/reflow_words.py \
   --input samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
   --output samples/episodes/<slug>/transcription/<stem>_reflow.vtt \

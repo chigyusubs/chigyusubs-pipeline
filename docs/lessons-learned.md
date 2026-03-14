@@ -748,6 +748,51 @@ This preserves the main quality path while giving review a concrete way to find 
 The second opinion was originally gated on `possible_visual_narration_substitution` from alignment diagnostics. This was changed to always-on after lesson 15 showed Gemini can silently omit speech with no signal at all.
 - any safe reuse path should validate exact cue-timeline equality before importing draft translations
 
+### 17. Raw chunk QA has to happen before alignment/reflow, not after subtitles already look wrong
+
+Validated on `great_escape_s02e03` and `great_escape_s02e04`.
+
+Failure mode:
+
+- on `s02e03`, a bad classroom raw chunk made it all the way into CTC and reflow
+- CTC then anchored the wrong text plausibly enough that the failure first showed up as "subtitles appear too early"
+- by that point the real problem was upstream transcript suitability, not reflow itself
+
+Operational rule:
+
+- run a deterministic raw chunk sanity gate on saved `*_gemini_raw.json` before alignment/reflow
+- treat chunk-level `red` issues as upstream repair blockers, not translation-time cleanup
+- keep `yellow` as review targets, not automatic stop conditions
+
+Current `red` conditions:
+
+- thought / meta transcription leakage
+- spoken chunks that lost all `-- ` turn markers
+- visual-only substitution
+- pathological repetition loops
+
+Pipeline consequence:
+
+- `scripts/check_raw_chunk_sanity.py` is now the maintained pre-alignment gate for raw transcript artifacts
+- CTC remains the default aligner, but it should not be asked to rescue obviously unsuitable source chunks
+
+### 18. `90s` semantic chunks are the better reviewed default, and `2.5-flash -> 3-flash` rollover is operationally clean
+
+Validated on `great_escape_s02e04`.
+
+What worked:
+
+- the reviewed `90s` semantic plan was materially easier to transcribe, inspect, and translate than the older `180s` path
+- `gemini-2.5-flash` was good enough to be the main free production pass
+- when `2.5-flash` RPD ran out, continuing the same lineage with `gemini-3-flash-preview` worked cleanly
+- full chunkwise Flash-Lite OCR sidecar remained useful as translation support without contaminating the spoken transcript path
+
+Operational rule:
+
+- when semantic review is worth the operator time, prefer `90s` target chunks with the default `120s` hard max
+- for free-tier production, run `2.5-flash` first and use `3-flash` only as overflow/backfill on the same chunk plan
+- do not ladder the whole episode through multiple Flash tiers unless the user explicitly wants a comparison run
+
 Pipeline consequence:
 
 - `translate_vtt_codex.py prepare --seed-from ...` now errors out unless the candidate draft matches the current Japanese cue timeline exactly

@@ -16,6 +16,7 @@ Video file
   │     └─ older local Qwen-VL OCR → spans → context
   │
   ├─ Raw transcript → glossary/context extraction
+  ├─ Raw chunk sanity gate
   ├─ CTC forced alignment (wav2vec2-ja)
   ├─ Whisper second-opinion coverage check
   ├─ Reflow → timed Japanese VTT
@@ -82,7 +83,9 @@ The maintained practical path is no longer “local OCR first.” It is:
 
 - VAD
 - full-coverage chunks with VAD-guided split points
+- `90s` semantic chunk targets for real episode work when reviewed chunking is worth the operator time
 - Gemini transcription
+- deterministic raw chunk QA before alignment/reflow
 - optional chunkwise Flash Lite OCR sidecar
 - CTC alignment
 - faster-whisper second opinion
@@ -124,6 +127,10 @@ python scripts/run_vad_episode.py --episode-dir samples/episodes/<slug>
 python scripts/build_vad_chunks.py --episode-dir samples/episodes/<slug>
 python scripts/transcribe_pipeline.py --episode-dir samples/episodes/<slug>
 
+# Recommended raw chunk QA gate before alignment/reflow on saved raw JSON
+python scripts/check_raw_chunk_sanity.py \
+  --input samples/episodes/<slug>/transcription/<run>_gemini_raw.json
+
 # Optional structured OCR sidecar for the same chunk plan
 python scripts/extract_gemini_chunk_ocr.py \
   --video samples/episodes/<slug>/source/<video>.mp4 \
@@ -134,7 +141,7 @@ python scripts/transcribe_gemini_video.py \
   --video samples/episodes/<slug>/source/<video>.mp4 \
   --output samples/episodes/<slug>/transcription/<slug>_flashlite_debug.json \
   --preset flashlite_debug_transcript \
-  --chunk-json samples/episodes/<slug>/transcription/vad_chunks_semantic_180.json \
+  --chunk-json samples/episodes/<slug>/transcription/vad_chunks_semantic_90.json \
   --stop-after-chunks 1
 
 # Or step by step — see docs/scripts-reference.md for the full CLI cheatsheet
@@ -143,13 +150,19 @@ python scripts/transcribe_gemini_video.py \
 Common chunk plan names:
 
 - `transcription/vad_chunks.json` — default full-coverage VAD plan
-- `transcription/vad_chunks_semantic_180.json` — reviewed semantic plan targeting about `180s`
+- `transcription/vad_chunks_semantic_90.json` — reviewed semantic plan targeting about `90s`
 - `transcription/*_repair*.json` — follow-up repair plan that only resplits failed chunks
 - `transcription/probes/*exact_chunks_60s*.json` — strict debug probe plan, usually for Flash Lite
 
 Chunking defaults now treat `target + 30s` as a hard max, but they prefer a
 shorter real silence gap (down to `0.75s`) before falling back to a true
 mid-speech forced split.
+
+Current free-tier production rule:
+
+- run `gemini-2.5-flash` first on the canonical chunk plan
+- continue with `gemini-3-flash-preview` when `2.5-flash` RPD is exhausted
+- keep the same chunk plan and rolling context; use manual repair only for bad chunks
 
 If you want the older OCR-first path or manual experiment tooling, see:
 

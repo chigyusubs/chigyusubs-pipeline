@@ -26,12 +26,18 @@ For serious Gemini transcription experiments:
 
 Current free-tier default for real episode work:
 
-- `gemini-3-flash-preview`
+- `gemini-2.5-flash`
 - `video`
 - `spoken_only`
-- `thinking=low`
 - `media_resolution=high`
 - `temperature=0.0`
+
+Current free-tier production rollover:
+
+- run `gemini-2.5-flash` first on the canonical chunk plan
+- keep `rolling_context_chunks=1` for real production runs
+- if `2.5-flash` RPD is exhausted, continue from the next chunk with `gemini-3-flash-preview`
+- do not restart the episode on `3-flash` unless the user explicitly wants a comparison run
 
 Named presets worth remembering:
 
@@ -121,8 +127,9 @@ Practical policy:
 
 Default chunk policy:
 
-- start around `180s` for stable Flash / Pro paths
+- prefer reviewed semantic chunks around `90s` for real episode work
 - treat `target + 30s` as the default hard ceiling
+- that means `90s -> 120s` is the current maintained reviewed-chunk default
 - use `120s` to probe fragile models
 - if Flash Lite is specifically the model under test and a bad span is already identified, `60s` is a reasonable surgical probe size
 - go shorter only when there is clear evidence chunk length is the blocker
@@ -135,6 +142,7 @@ Operational naming rule:
 
 Current lesson:
 
+- on `great_escape_s02e04`, a `90s` semantic plan was materially easier to transcribe, review, and translate than the earlier `180s` path
 - shorter chunks help ordinary dialogue
 - shorter chunks did not rescue `flash-lite + high` on dense rule-card sections
 - on a stable non-looping dialogue section, `flash-lite + high` completed at `60s`, `120s`, and `150s`, but a `90s` probe still hit `504 DEADLINE_EXCEEDED`

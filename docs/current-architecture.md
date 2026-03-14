@@ -20,6 +20,7 @@ source video
   -> Silero VAD
   -> full-coverage chunk boundaries guided by VAD silence gaps
   -> Gemini transcription
+  -> raw transcript chunk QA
   -> optional chunkwise Flash Lite OCR sidecar
   -> CTC forced alignment
   -> faster-whisper second opinion
@@ -44,12 +45,19 @@ Named preset:
 - `flash_free_default`
 - `flashlite_debug_transcript` for cheap bounded debug passes
 
+Current free-tier production policy:
+
+- start with `gemini-2.5-flash`
+- keep the same chunk plan and rolling context when switching models
+- use `gemini-3-flash-preview` as quota-overflow backfill, not as a separate rerun path
+
 Important chunking rule:
 
 - VAD is used to place chunk boundaries at good silence points
 - Gemini still receives continuous end-to-end video coverage across chunks
 - silence is not dropped from the maintained video transcription path
 - chunk plans should treat `target_chunk_s + 30s` as the default hard maximum
+- when semantic review is used for real episode work, prefer a `90s` target with the default `120s` hard max
 
 ## Design Principles
 
@@ -167,6 +175,29 @@ Maintained default behavior:
 - visual cues optional depending on prompt mode
 
 OCR is not required here.
+
+### 3a. Raw Chunk QA
+
+Produced by:
+
+- `scripts/check_raw_chunk_sanity.py`
+
+Main output:
+
+- `transcription/diagnostics/<run_id>_raw_chunk_sanity.json`
+
+Purpose:
+
+- deterministic pre-alignment gate on the saved raw transcript
+- catch obvious upstream failures before CTC makes bad text look plausible
+- separate `red` chunk repair from ordinary `yellow` review
+
+Current red conditions:
+
+- thought / meta transcription leakage
+- spoken chunks that lost all `-- ` turn markers
+- visual-only chunk substitution
+- pathological repetition loops
 
 ### 3b. Optional Chunkwise OCR Sidecar
 

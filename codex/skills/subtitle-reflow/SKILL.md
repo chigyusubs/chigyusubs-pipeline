@@ -9,6 +9,7 @@ Use this skill when Codex should prepare or evaluate the Japanese subtitle artif
 
 Default maintained tools:
 
+- `scripts/check_raw_chunk_sanity.py`
 - `scripts/reflow_words.py`
 - `scripts/repair_vtt_codex.py`
 
@@ -42,6 +43,8 @@ See [references/workflow.md](./references/workflow.md) for repo-specific command
 
 Use the maintained default:
 
+- if a sibling `*_gemini_raw.json` exists, run `scripts/check_raw_chunk_sanity.py`
+  first and stop on any chunk-level `red` report before alignment/reflow review
 - if alignment diagnostics flag `possible_visual_narration_substitution`, or if
   a reusable whole-episode secondary transcript already exists, use
   `scripts/pre_reflow_second_opinion.py --words <stem>_ctc_words.json` before
@@ -66,6 +69,7 @@ Inspect the resulting VTT for:
 
 Review should combine:
 
+- raw chunk sanity status when a sibling `*_gemini_raw.json` exists
 - objective file-level checks
 - spot-checks from early, middle, and late regions
 - deterministic diagnostics from the helper, including flagged region ranges and short/tiny cue counts
@@ -79,6 +83,8 @@ Review should combine:
 
 Use this policy:
 
+- `red` immediately if raw chunk sanity reports chunk-level `red`; repair the
+  raw transcript first instead of trying to review/reflow around it
 - `green`: structurally valid and translation-ready
 - `yellow`: structurally valid but weak enough that cue repair is justified
 - `red`: structurally broken or obviously corrupt; stop and report

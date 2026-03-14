@@ -17,6 +17,12 @@ This reference captures the repo-specific expectations for Codex-interactive Jap
 ### Reflow from aligned words
 
 ```bash
+python3 scripts/check_raw_chunk_sanity.py \
+  --input samples/episodes/<slug>/transcription/<stem>_gemini_raw.json
+
+# Stop here and repair the raw transcript first if the report contains any
+# red chunk. Yellow chunks are review targets, not automatic blockers.
+
 # Optional, not automatic:
 # Run only when alignment diagnostics flag possible visual narration
 # substitution, or when a reusable whole-episode secondary transcript already
