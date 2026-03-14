@@ -46,6 +46,12 @@ Semantic chunk review should also reuse pre-pass artifacts when possible.
 - reusing that artifact is faster, cheaper, and avoids introducing extra GPU instability into a chunk-review pass whose goal is boundary review, not ASR benchmarking
 - add an explicit `--rerun-whisper` switch for the cases where a fresh pre-pass is actually desired
 
+Hard-max chunking also needs a short-gap fallback before true forced splits.
+
+- a dense dialogue span on `great_escape_s02e03` had no `>=1.5s` silence gap late enough to stay under the hard max
+- both the plain VAD path and semantic finalize would otherwise cut through active speech at the hard cap
+- the better fallback is to accept a shorter real silence gap, down to about `0.75s`, before ever inserting a mid-speech split
+
 ### 2. CTC forced alignment replaced stable-ts and nearly eliminated stranded words
 
 stable-ts uses Whisper's cross-attention for alignment, which is a byproduct of the generative model. This caused 13.4% of words to get zero-duration timestamps on `oni_no_dokkiri_de_namida_ep2`, even with chunked alignment.

@@ -38,7 +38,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from chigyusubs.audio import get_duration
-from chigyusubs.chunking import chunk_coverage_issues
+from chigyusubs.chunking import choose_split_gap, chunk_coverage_issues, collect_vad_gaps
 from chigyusubs.paths import find_episode_dir_from_path, find_latest_episode_dir, find_latest_episode_video
 from chigyusubs.rocm import apply_rocm_env
 from chigyusubs.translation import checkpoint_path, write_json_atomic
@@ -87,20 +87,15 @@ def _collect_candidate_gaps(
     min_gap_s: float,
 ) -> list[dict]:
     """Collect silence gaps >= min_gap_s from VAD segments."""
-    sorted_segs = sorted(vad_segments, key=lambda s: s["start"])
     gaps = []
-    for i in range(1, len(sorted_segs)):
-        gap_start = sorted_segs[i - 1]["end"]
-        gap_end = sorted_segs[i]["start"]
-        gap_dur = gap_end - gap_start
-        if gap_dur >= min_gap_s:
-            gaps.append({
-                "candidate_id": len(gaps),
-                "gap_start": round(gap_start, 3),
-                "gap_end": round(gap_end, 3),
-                "gap_duration": round(gap_dur, 3),
-                "midpoint": round((gap_start + gap_end) / 2, 3),
-            })
+    for raw_gap in collect_vad_gaps(vad_segments, min_gap_s=min_gap_s):
+        gaps.append({
+            "candidate_id": len(gaps),
+            "gap_start": round(raw_gap["gap_start"], 3),
+            "gap_end": round(raw_gap["gap_end"], 3),
+            "gap_duration": round(raw_gap["duration"], 3),
+            "midpoint": round(raw_gap["time"], 3),
+        })
     return gaps
 
 
@@ -284,6 +279,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         "transcript_char_count": transcript_char_count,
         "transcript_chars_per_s": round(transcript_chars_per_s, 3),
         "min_gap_s": args.min_gap_s,
+        "fallback_min_gap_s": args.fallback_min_gap_s,
         "context_window_s": args.context_window_s,
         "candidates": candidates,
         "decisions": {},
@@ -461,6 +457,7 @@ def cmd_finalize(args: argparse.Namespace) -> int:
     session = json.loads(session_file.read_text(encoding="utf-8"))
     duration = session["duration_seconds"]
     max_chunk_s = session["max_chunk_s"]
+    fallback_min_gap_s = float(session.get("fallback_min_gap_s", 0.75) or 0.75)
 
     # Collect accepted split midpoints (full-coverage: split in the middle of
     # the silence gap so no audio is dropped between chunks)
@@ -496,13 +493,51 @@ def cmd_finalize(args: argparse.Namespace) -> int:
     # Enforce a hard max chunk duration by inserting deterministic fallback splits
     # when semantic review left an oversized span with no accepted midpoint.
     if chunks:
+        episode_dir = Path(session["episode_dir"])
+        vad_cache = episode_dir / "transcription" / "silero_vad_segments.json"
+        fallback_gaps = []
+        if vad_cache.exists():
+            try:
+                vad_segments = json.loads(vad_cache.read_text(encoding="utf-8"))
+                fallback_gaps = collect_vad_gaps(vad_segments, min_gap_s=0.0)
+            except json.JSONDecodeError:
+                fallback_gaps = []
         enforced_chunks = []
         forced_splits = 0
+        fallback_splits = 0
         for chunk in chunks:
             start = float(chunk["start_sec"])
             end = float(chunk["end_sec"])
             while end - start > max_chunk_s:
-                forced_end = round(start + max_chunk_s, 3)
+                latest_gap_that_fits = None
+                for gap in fallback_gaps:
+                    gap_time = float(gap["time"])
+                    gap_duration = float(gap["duration"])
+                    if gap_time <= start or gap_time > start + max_chunk_s:
+                        continue
+                    if gap_duration < fallback_min_gap_s:
+                        continue
+                    if end - gap_time <= max_chunk_s:
+                        latest_gap_that_fits = gap
+                target_end = start + session.get("target_chunk_s", max_chunk_s)
+                max_end = start + max_chunk_s
+                fallback_gap = latest_gap_that_fits
+                if fallback_gap is None:
+                    fallback_gap = choose_split_gap(
+                        fallback_gaps,
+                        chunk_start=start,
+                        target_end=target_end,
+                        max_end=max_end,
+                        target_chunk_s=session.get("target_chunk_s", max_chunk_s),
+                        min_gap_s=float(session.get("min_gap_s", 1.5) or 1.5),
+                        fallback_min_gap_s=fallback_min_gap_s,
+                    )
+                if fallback_gap is not None:
+                    forced_end = round(float(fallback_gap["time"]), 3)
+                    fallback_splits += 1
+                else:
+                    forced_end = round(start + max_chunk_s, 3)
+                    forced_splits += 1
                 enforced_chunks.append({
                     "chunk_id": len(enforced_chunks),
                     "start_sec": round(start, 3),
@@ -510,7 +545,6 @@ def cmd_finalize(args: argparse.Namespace) -> int:
                     "duration_sec": round(forced_end - start, 3),
                 })
                 start = forced_end
-                forced_splits += 1
             enforced_chunks.append({
                 "chunk_id": len(enforced_chunks),
                 "start_sec": round(start, 3),
@@ -518,6 +552,12 @@ def cmd_finalize(args: argparse.Namespace) -> int:
                 "duration_sec": round(end - start, 3),
             })
         chunks = enforced_chunks
+        if fallback_splits:
+            print(
+                f"Inserted {fallback_splits} fallback split(s) at shorter real silence gaps "
+                f"(down to {fallback_min_gap_s}s) before forcing any mid-speech cuts.",
+                file=sys.stderr,
+            )
         if forced_splits:
             print(
                 f"Inserted {forced_splits} forced split(s) at max_chunk_s ({max_chunk_s}s) "
@@ -584,6 +624,12 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--target-chars", type=float, default=0.0, help="Soft target transcript character budget. Default: derive from pre-pass density and target chunk duration.")
     prepare.add_argument("--max-chars", type=float, default=0.0, help="Maximum transcript character budget before preferring a split. Default: 1.2x target chars.")
     prepare.add_argument("--min-gap-s", type=float, default=1.5, help="Minimum silence gap to consider as candidate.")
+    prepare.add_argument(
+        "--fallback-min-gap-s",
+        type=float,
+        default=0.75,
+        help="Short-gap fallback before a forced split during finalize.",
+    )
     prepare.add_argument("--context-window-s", type=float, default=30.0, help="Transcript context window around each candidate.")
     prepare.add_argument("--rerun-whisper", action="store_true", help="Ignore cached whisper_prepass_transcript.json and rerun faster-whisper.")
     prepare.add_argument("--force", action="store_true", help="Overwrite existing session.")

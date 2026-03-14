@@ -146,6 +146,10 @@ Common chunk plan names:
 - `transcription/*_repair*.json` — follow-up repair plan that only resplits failed chunks
 - `transcription/probes/*exact_chunks_60s*.json` — strict debug probe plan, usually for Flash Lite
 
+Chunking defaults now treat `target + 30s` as a hard max, but they prefer a
+shorter real silence gap (down to `0.75s`) before falling back to a true
+mid-speech forced split.
+
 If you want the older OCR-first path or manual experiment tooling, see:
 
 - `docs/scripts-reference.md`

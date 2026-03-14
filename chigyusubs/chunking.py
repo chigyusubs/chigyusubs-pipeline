@@ -9,6 +9,75 @@ from pathlib import Path
 from chigyusubs.metadata import read_artifact_metadata
 
 
+def collect_vad_gaps(
+    rttm_segments: list[dict],
+    *,
+    min_gap_s: float = 0.0,
+) -> list[dict]:
+    """Collect silence gaps between sorted VAD speech segments."""
+    if not rttm_segments:
+        return []
+
+    sorted_segs = sorted(rttm_segments, key=lambda s: s["start"])
+    gaps = []
+    for i in range(1, len(sorted_segs)):
+        gap_start = float(sorted_segs[i - 1]["end"])
+        gap_end = float(sorted_segs[i]["start"])
+        gap_dur = gap_end - gap_start
+        if gap_dur >= min_gap_s:
+            gaps.append({
+                "time": (gap_start + gap_end) / 2,
+                "gap_start": gap_start,
+                "gap_end": gap_end,
+                "duration": gap_dur,
+            })
+    return gaps
+
+
+def choose_split_gap(
+    gaps: list[dict],
+    *,
+    chunk_start: float,
+    target_end: float,
+    max_end: float,
+    target_chunk_s: float,
+    min_gap_s: float,
+    fallback_min_gap_s: float | None = None,
+) -> dict | None:
+    """Choose the best gap before max_end, preferring the normal threshold first."""
+    primary: list[dict] = []
+    fallback: list[dict] = []
+    fallback_min = min_gap_s if fallback_min_gap_s is None else min(float(fallback_min_gap_s), float(min_gap_s))
+    for gap in gaps:
+        if gap["time"] <= chunk_start or gap["time"] > max_end:
+            continue
+        if gap["duration"] >= min_gap_s:
+            primary.append(gap)
+        elif gap["duration"] >= fallback_min:
+            fallback.append(gap)
+
+    def _best(candidates: list[dict], *, max_dist: float) -> dict | None:
+        best_gap = None
+        best_dist = float("inf")
+        for gap in candidates:
+            dist = abs(gap["time"] - target_end)
+            if dist <= max_dist and dist < best_dist:
+                best_dist = dist
+                best_gap = gap
+        return best_gap
+
+    primary_gap = _best(primary, max_dist=target_chunk_s * 0.4)
+    if primary_gap is not None:
+        return primary_gap
+
+    if not fallback:
+        return None
+
+    # Near the hard max, a short real silence is still better than a forced
+    # mid-speech split. Bias toward the latest usable fallback gap.
+    return sorted(fallback, key=lambda gap: (gap["time"], gap["duration"]))[-1]
+
+
 def chunk_coverage_issues(
     chunk_bounds: list[tuple[float, float]],
     total_duration: float,
@@ -51,6 +120,7 @@ def find_chunk_boundaries(
     target_chunk_s: float = 600,
     max_chunk_s: float | None = None,
     min_gap_s: float = 2.0,
+    fallback_min_gap_s: float | None = 0.75,
 ) -> list[tuple[float, float]]:
     """Find full-coverage chunk boundaries at natural silence gaps from VAD segments.
 
@@ -68,19 +138,7 @@ def find_chunk_boundaries(
         max_chunk_s = target_chunk_s + 30.0
     max_chunk_s = max(float(max_chunk_s), float(target_chunk_s))
 
-    sorted_segs = sorted(rttm_segments, key=lambda s: s["start"])
-    gaps = []
-    for i in range(1, len(sorted_segs)):
-        gap_start = sorted_segs[i - 1]["end"]
-        gap_end = sorted_segs[i]["start"]
-        gap_dur = gap_end - gap_start
-        if gap_dur >= min_gap_s:
-            gaps.append({
-                "time": (gap_start + gap_end) / 2,
-                "gap_start": gap_start,
-                "gap_end": gap_end,
-                "duration": gap_dur,
-            })
+    gaps = collect_vad_gaps(rttm_segments, min_gap_s=0.0)
 
     boundaries: list[tuple[float, float]] = []
     chunk_start = 0.0
@@ -97,18 +155,15 @@ def find_chunk_boundaries(
             chunk_start = forced_end
             continue
 
-        best_gap = None
-        best_dist = float("inf")
-        for g in gaps:
-            if g["time"] <= chunk_start:
-                continue
-            if g["time"] > max_end:
-                continue
-            dist = abs(g["time"] - target_end)
-            if dist < target_chunk_s * 0.4 and dist < best_dist:
-                best_dist = dist
-                best_gap = g
-
+        best_gap = choose_split_gap(
+            gaps,
+            chunk_start=chunk_start,
+            target_end=target_end,
+            max_end=max_end,
+            target_chunk_s=target_chunk_s,
+            min_gap_s=min_gap_s,
+            fallback_min_gap_s=fallback_min_gap_s,
+        )
         if best_gap:
             split_time = float(best_gap["time"])
             boundaries.append((chunk_start, split_time))

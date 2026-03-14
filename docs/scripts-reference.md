@@ -95,8 +95,8 @@ Lineage artifact naming:
 | Script | Purpose | Status |
 |---|---|---|
 | `run_vad_episode.py` | Silero VAD segmentation — reusable artifact | Maintained |
-| `build_vad_chunks.py` | Build full-coverage chunk boundaries from saved VAD segments, using silence only to place split points and defaulting to a hard max chunk duration of `target_chunk_s + 30s` | Maintained |
-| `build_semantic_chunks.py` | Codex-interactive semantic chunk review helper. Uses Silero VAD candidate gaps plus a faster-whisper pre-pass transcript so accepted splits can be reviewed semantically, then finalizes to contiguous full-coverage chunk JSON by splitting at silence-gap midpoints and validating coverage. Defaults to a hard max chunk duration of `target_chunk_s + 30s`, reuses `transcription/whisper_prepass_transcript.json` by default when present, and only reruns the faster-whisper pre-pass when `--rerun-whisper` is passed. | Maintained |
+| `build_vad_chunks.py` | Build full-coverage chunk boundaries from saved VAD segments, using silence only to place split points and defaulting to a hard max chunk duration of `target_chunk_s + 30s`. Before a true forced split, it now prefers a shorter real silence gap down to `0.75s`. | Maintained |
+| `build_semantic_chunks.py` | Codex-interactive semantic chunk review helper. Uses Silero VAD candidate gaps plus a faster-whisper pre-pass transcript so accepted splits can be reviewed semantically, then finalizes to contiguous full-coverage chunk JSON by splitting at silence-gap midpoints and validating coverage. Defaults to a hard max chunk duration of `target_chunk_s + 30s`, reuses `transcription/whisper_prepass_transcript.json` by default when present, and only reruns the faster-whisper pre-pass when `--rerun-whisper` is passed. Before a true forced split, finalize now prefers a shorter real silence gap down to `0.75s`. | Maintained |
 
 ### Transcription
 
@@ -155,6 +155,11 @@ ROCm operational note:
 - maintained faster-whisper ROCm paths should run with `CT2_CUDA_ALLOCATOR=cub_caching`
 - `build_semantic_chunks.py` now applies that env shim automatically before importing faster-whisper
 - use `--rerun-whisper` only when you intentionally want a fresh pre-pass transcript instead of the cached `whisper_prepass_transcript.json`
+
+Chunking fallback note:
+
+- both maintained chunk builders still enforce the hard max duration
+- but before cutting through speech they now search for a shorter real silence gap down to `--fallback-min-gap-s` (default `0.75s`)
 
 Named preset:
 

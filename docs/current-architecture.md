@@ -148,6 +148,7 @@ Purpose:
 
 - reusable chunk plan for transcription
 - stable retry/resume boundary
+- `target + 30s` hard max with short-gap fallback before mid-speech forced splits
 
 ### 3. Gemini Raw Transcript
 

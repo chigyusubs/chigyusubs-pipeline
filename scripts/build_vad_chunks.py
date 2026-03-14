@@ -63,6 +63,12 @@ def main():
         help="Absolute max chunk duration. Default: target_chunk_s + 30s.",
     )
     parser.add_argument("--min-gap-s", type=float, default=2.0)
+    parser.add_argument(
+        "--fallback-min-gap-s",
+        type=float,
+        default=0.75,
+        help="Short-gap fallback before a forced split. Default: 0.75s.",
+    )
     args = parser.parse_args()
 
     run = start_run("vad_chunks")
@@ -84,6 +90,7 @@ def main():
         target_chunk_s=args.target_chunk_s,
         max_chunk_s=max_chunk_s,
         min_gap_s=args.min_gap_s,
+        fallback_min_gap_s=args.fallback_min_gap_s,
     )
     chunks = [
         {
@@ -118,6 +125,7 @@ def main():
             "target_chunk_s": args.target_chunk_s,
             "max_chunk_s": max_chunk_s,
             "min_gap_s": args.min_gap_s,
+            "fallback_min_gap_s": args.fallback_min_gap_s,
         },
         stats={
             "vad_segments": len(vad_segments),
