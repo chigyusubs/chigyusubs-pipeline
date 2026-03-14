@@ -74,6 +74,19 @@ python scripts/build_semantic_chunks.py finalize --session <session.json>
 
 Produces `vad_chunks.json` in the standard format used by downstream scripts.
 
+### 4. Verify Saved Output
+
+After `finalize`, always read the saved chunk JSON from disk and inspect the
+actual chunk boundaries or duration summary that will be used downstream.
+
+Do not rely on previously printed chunk listings or earlier finalize output if:
+
+- the turn was interrupted
+- `finalize` was rerun after code changes
+- a stale JSON summary may still be in context
+
+The file on disk is the source of truth.
+
 ## Decision JSON Format
 
 ```json
@@ -92,3 +105,5 @@ Notes are optional but helpful for review.
 - Do not skip candidates without reading the transcript context.
 - Do not stop the loop early. Process every candidate.
 - Do not modify the session JSON directly. Use the helper commands.
+- Do not assume earlier printed finalize output is still current. Re-read the
+  saved chunk JSON after the last finalize run.

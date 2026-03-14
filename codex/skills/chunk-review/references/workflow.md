@@ -58,6 +58,10 @@ output and is consumed by the same downstream scripts:
 - `transcribe_gemini_raw.py`
 - `align_ctc.py`
 
+After finalize, verify the saved file itself instead of relying on prior
+terminal output. If `finalize` was rerun, or if a turn was interrupted, older
+printed chunk listings can be stale even though the saved JSON is correct.
+
 ## Trigger Phrases
 
 - review chunk boundaries for this episode
