@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from chigyusubs.alignment_diagnostics import discover_alignment_diagnostics_path, load_alignment_diagnostics
 from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
 from chigyusubs.paths import find_episode_dir_from_path
+from chigyusubs.rocm import ensure_rocm_env
 
 
 def discover_video_for_words(words_path: Path) -> Path | None:
@@ -85,20 +85,6 @@ def discover_gemini_raw_for_words(words_path: Path) -> Path | None:
         if path.exists():
             return path
     return None
-
-
-def ensure_rocm_env(env: dict[str, str]) -> dict[str, str]:
-    result = dict(env)
-    result.setdefault("CT2_CUDA_ALLOCATOR", "cub_caching")
-    rocm_lib = Path("/opt/rocm-7.2.0/lib")
-    if rocm_lib.exists():
-        current = result.get("LD_LIBRARY_PATH", "")
-        entries = [item for item in current.split(":") if item]
-        if str(rocm_lib) not in entries:
-            result["LD_LIBRARY_PATH"] = ":".join([str(rocm_lib)] + entries) if entries else str(rocm_lib)
-    return result
-
-
 def _build_whisper_prompt_from_glossary(glossary_path: Path) -> str:
     """Read glossary.json and concatenate source terms into a comma-separated prompt string."""
     data = json.loads(glossary_path.read_text(encoding="utf-8"))

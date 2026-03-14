@@ -96,7 +96,7 @@ Lineage artifact naming:
 |---|---|---|
 | `run_vad_episode.py` | Silero VAD segmentation — reusable artifact | Maintained |
 | `build_vad_chunks.py` | Build full-coverage chunk boundaries from saved VAD segments, using silence only to place split points and defaulting to a hard max chunk duration of `target_chunk_s + 30s` | Maintained |
-| `build_semantic_chunks.py` | Codex-interactive semantic chunk review helper. Uses Silero VAD candidate gaps plus a faster-whisper pre-pass transcript so accepted splits can be reviewed semantically, then finalizes to contiguous full-coverage chunk JSON by splitting at silence-gap midpoints and validating coverage. Defaults to a hard max chunk duration of `target_chunk_s + 30s`. | Maintained |
+| `build_semantic_chunks.py` | Codex-interactive semantic chunk review helper. Uses Silero VAD candidate gaps plus a faster-whisper pre-pass transcript so accepted splits can be reviewed semantically, then finalizes to contiguous full-coverage chunk JSON by splitting at silence-gap midpoints and validating coverage. Defaults to a hard max chunk duration of `target_chunk_s + 30s`, reuses `transcription/whisper_prepass_transcript.json` by default when present, and only reruns the faster-whisper pre-pass when `--rerun-whisper` is passed. | Maintained |
 
 ### Transcription
 
@@ -149,6 +149,12 @@ Important limitation:
 `extract_gemini_chunk_ocr.py` is the separate OCR sidecar path. It does not feed OCR back into the main transcript call automatically; it writes a reusable chunk-scoped artifact instead.
 
 Like the main Gemini video transcription path, OCR sidecar chunk encoding now preserves source width by default and only downscales when `--width` is explicitly passed.
+
+ROCm operational note:
+
+- maintained faster-whisper ROCm paths should run with `CT2_CUDA_ALLOCATOR=cub_caching`
+- `build_semantic_chunks.py` now applies that env shim automatically before importing faster-whisper
+- use `--rerun-whisper` only when you intentionally want a fresh pre-pass transcript instead of the cached `whisper_prepass_transcript.json`
 
 Named preset:
 

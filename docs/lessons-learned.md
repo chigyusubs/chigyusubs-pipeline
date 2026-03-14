@@ -34,6 +34,18 @@ Chunk-plan intent also needs to be surfaced explicitly.
 - maintained Gemini helpers should log a human-readable chunk-plan label and duration summary when `--chunk-json` is supplied
 - docs should treat `vad_chunks.json`, `vad_chunks_semantic_<target>.json`, `*_repair*.json`, and `probes/*exact_chunks_<target>s*.json` as distinct operator-facing categories
 
+ROCm faster-whisper env defaults matter operationally.
+
+- faster-whisper on ROCm should always run with `CT2_CUDA_ALLOCATOR=cub_caching`
+- forgetting that can turn a normal pre-pass into a GPU hang / allocator failure
+- helper scripts that invoke faster-whisper as part of a maintained workflow should set that env themselves instead of expecting the operator to remember it
+
+Semantic chunk review should also reuse pre-pass artifacts when possible.
+
+- `build_semantic_chunks.py prepare` does not need to rerun faster-whisper on an episode that already has a usable `transcription/whisper_prepass_transcript.json`
+- reusing that artifact is faster, cheaper, and avoids introducing extra GPU instability into a chunk-review pass whose goal is boundary review, not ASR benchmarking
+- add an explicit `--rerun-whisper` switch for the cases where a fresh pre-pass is actually desired
+
 ### 2. CTC forced alignment replaced stable-ts and nearly eliminated stranded words
 
 stable-ts uses Whisper's cross-attention for alignment, which is a byproduct of the generative model. This caused 13.4% of words to get zero-duration timestamps on `oni_no_dokkiri_de_namida_ep2`, even with chunked alignment.

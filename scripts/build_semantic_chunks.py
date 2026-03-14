@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -38,8 +39,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from chigyusubs.audio import get_duration
 from chigyusubs.chunking import chunk_coverage_issues
-from chigyusubs.translation import checkpoint_path, write_json_atomic
 from chigyusubs.paths import find_episode_dir_from_path, find_latest_episode_dir, find_latest_episode_video
+from chigyusubs.rocm import apply_rocm_env
+from chigyusubs.translation import checkpoint_path, write_json_atomic
 from chigyusubs.vad import run_silero_vad
 
 
@@ -146,6 +148,7 @@ def _count_chars_in_interval(
 
 def _run_whisper_prepass(video_path: str, model_name: str, compute_type: str) -> list[dict]:
     """Run faster-whisper on the full audio and return segment-level results."""
+    apply_rocm_env()
     from faster_whisper import WhisperModel
 
     print("  Loading faster-whisper model...", flush=True)
@@ -170,6 +173,31 @@ def _run_whisper_prepass(video_path: str, model_name: str, compute_type: str) ->
         })
     print(f"  Pre-pass: {len(results)} segments", flush=True)
     return results
+
+
+def _load_cached_transcript(path: Path) -> list[dict] | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    segments = payload.get("segments")
+    if not isinstance(segments, list):
+        return None
+    cleaned = []
+    for item in segments:
+        if not isinstance(item, dict):
+            return None
+        try:
+            cleaned.append({
+                "start": round(float(item["start"]), 3),
+                "end": round(float(item["end"]), 3),
+                "text": str(item["text"]).strip(),
+            })
+        except Exception:
+            return None
+    return cleaned
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +246,17 @@ def cmd_prepare(args: argparse.Namespace) -> int:
 
     # Phase 3: faster-whisper pre-pass
     print("\n=== Phase 3: faster-whisper pre-pass ===", flush=True)
-    transcript = _run_whisper_prepass(str(video_path), args.model, args.compute_type)
+    transcript_path = output_path.parent / "whisper_prepass_transcript.json"
+    transcript = None if args.rerun_whisper else _load_cached_transcript(transcript_path)
+    if transcript is not None:
+        print(f"  Reusing cached pre-pass transcript: {transcript_path}", flush=True)
+    else:
+        print(
+            "  Running faster-whisper pre-pass"
+            f" (CT2_CUDA_ALLOCATOR={os.environ.get('CT2_CUDA_ALLOCATOR', 'cub_caching via helper')})...",
+            flush=True,
+        )
+        transcript = _run_whisper_prepass(str(video_path), args.model, args.compute_type)
     transcript_char_count = sum(len(seg["text"]) for seg in transcript)
     transcript_chars_per_s = transcript_char_count / duration if duration > 0 else 0.0
     resolved_max_chunk_s = args.max_chunk_s if args.max_chunk_s > 0 else args.target_chunk_s + 30.0
@@ -227,7 +265,6 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     max_chars = max(max_chars, target_chars)
 
     # Save transcript alongside session for reference
-    transcript_path = output_path.parent / "whisper_prepass_transcript.json"
     write_json_atomic(transcript_path, {"segments": transcript})
     print(f"Transcript saved: {transcript_path}", flush=True)
 
@@ -548,6 +585,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--max-chars", type=float, default=0.0, help="Maximum transcript character budget before preferring a split. Default: 1.2x target chars.")
     prepare.add_argument("--min-gap-s", type=float, default=1.5, help="Minimum silence gap to consider as candidate.")
     prepare.add_argument("--context-window-s", type=float, default=30.0, help="Transcript context window around each candidate.")
+    prepare.add_argument("--rerun-whisper", action="store_true", help="Ignore cached whisper_prepass_transcript.json and rerun faster-whisper.")
     prepare.add_argument("--force", action="store_true", help="Overwrite existing session.")
     prepare.set_defaults(func=cmd_prepare)
 
