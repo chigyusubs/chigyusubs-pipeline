@@ -27,11 +27,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chigyusubs.audio import extract_audio_chunk, get_duration
 from chigyusubs.chunking import chunk_coverage_issues, find_chunk_boundaries
+from chigyusubs.env import load_repo_env
 from chigyusubs.glossary import load_glossary_names
 from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
 from chigyusubs.paths import infer_episode_dir_from_video
 from chigyusubs.reflow import reflow_words
 from chigyusubs.vad import run_silero_vad
+
+load_repo_env()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from transcribe_gemini import build_prompt, transcribe_chunk

@@ -26,11 +26,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from chigyusubs.env import load_repo_env
 from chigyusubs.translation import (
     build_manifest,
     call_with_retry,
     translate_subtitles,
 )
+
+load_repo_env()
 
 
 def _call_openai_compatible(

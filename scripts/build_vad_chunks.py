@@ -56,6 +56,12 @@ def main():
     parser.add_argument("--in-json", default="", help="Defaults to <episode>/transcription/silero_vad_segments.json")
     parser.add_argument("--out-json", default="", help="Defaults to <episode>/transcription/vad_chunks.json")
     parser.add_argument("--target-chunk-s", type=float, default=240.0)
+    parser.add_argument(
+        "--max-chunk-s",
+        type=float,
+        default=0.0,
+        help="Absolute max chunk duration. Default: target_chunk_s + 30s.",
+    )
     parser.add_argument("--min-gap-s", type=float, default=2.0)
     args = parser.parse_args()
 
@@ -71,10 +77,12 @@ def main():
 
     vad_segments = json.loads(in_json.read_text(encoding="utf-8"))
     duration = get_duration(str(video_path))
+    max_chunk_s = args.max_chunk_s if args.max_chunk_s > 0 else args.target_chunk_s + 30.0
     chunk_bounds = find_chunk_boundaries(
         vad_segments,
         duration,
         target_chunk_s=args.target_chunk_s,
+        max_chunk_s=max_chunk_s,
         min_gap_s=args.min_gap_s,
     )
     chunks = [
@@ -108,6 +116,7 @@ def main():
         },
         chunk_settings={
             "target_chunk_s": args.target_chunk_s,
+            "max_chunk_s": max_chunk_s,
             "min_gap_s": args.min_gap_s,
         },
         stats={

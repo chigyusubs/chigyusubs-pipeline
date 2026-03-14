@@ -18,7 +18,10 @@ from typing import Any
 
 from chigyusubs.audio import extract_audio_chunk, get_duration
 from chigyusubs.chunking import find_chunk_boundaries
+from chigyusubs.env import load_repo_env
 from chigyusubs.glossary import load_glossary_names
+
+load_repo_env()
 
 
 def _backoff_delay(attempt: int, cap: float = 60.0, k: float = 2.0) -> float:

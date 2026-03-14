@@ -42,7 +42,7 @@ def extract_inline_video_chunk(
     duration_s: Optional[float] = None,
     *,
     fps: float = 1.0,
-    width: int = 640,
+    width: Optional[int] = None,
     audio_bitrate: str = "24k",
     crf: int = 36,
 ):
@@ -50,8 +50,11 @@ def extract_inline_video_chunk(
     cmd = ["ffmpeg", "-y", "-ss", str(start_s), "-i", video_path]
     if duration_s is not None:
         cmd += ["-t", str(duration_s)]
+    video_filter = f"fps={fps}"
+    if width is not None:
+        video_filter += f",scale={width}:-2:flags=lanczos"
     cmd += [
-        "-vf", f"fps={fps},scale={width}:-2:flags=lanczos",
+        "-vf", video_filter,
         "-c:v", "libx264",
         "-preset", "veryfast",
         "-crf", str(crf),

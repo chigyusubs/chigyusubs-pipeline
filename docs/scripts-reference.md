@@ -5,6 +5,8 @@ This file documents every script under `scripts/`.
 For the current artifact-level architecture, see `docs/current-architecture.md`.
 For validated findings and remaining issues from real episode runs, see `docs/lessons-learned.md`.
 
+Maintained Gemini/API-backed scripts auto-load the repo-root `.env` file by default.
+
 ## Pipelines
 
 There are two main transcription paths. The maintained path is no longer OCR-first.
@@ -56,7 +58,7 @@ samples/episodes/<episode_slug>/
 samples/experiments/<pack>/
   prompts/      # manual experiment system/user prompts
   scenes/       # extracted clip media and notes
-  results/      # paste-back result templates
+  results/      # saved manual experiment outputs you chose to keep
   manifest.json # experiment metadata and model matrix
 ```
 
@@ -93,8 +95,8 @@ Lineage artifact naming:
 | Script | Purpose | Status |
 |---|---|---|
 | `run_vad_episode.py` | Silero VAD segmentation — reusable artifact | Maintained |
-| `build_vad_chunks.py` | Build full-coverage chunk boundaries from saved VAD segments, using silence only to place split points | Maintained |
-| `build_semantic_chunks.py` | Codex-interactive semantic chunk review helper. Uses Silero VAD candidate gaps plus a faster-whisper pre-pass transcript so accepted splits can be reviewed semantically, then finalizes to contiguous full-coverage chunk JSON by splitting at silence-gap midpoints and validating coverage. | Maintained |
+| `build_vad_chunks.py` | Build full-coverage chunk boundaries from saved VAD segments, using silence only to place split points and defaulting to a hard max chunk duration of `target_chunk_s + 30s` | Maintained |
+| `build_semantic_chunks.py` | Codex-interactive semantic chunk review helper. Uses Silero VAD candidate gaps plus a faster-whisper pre-pass transcript so accepted splits can be reviewed semantically, then finalizes to contiguous full-coverage chunk JSON by splitting at silence-gap midpoints and validating coverage. Defaults to a hard max chunk duration of `target_chunk_s + 30s`. | Maintained |
 
 ### Transcription
 
@@ -122,6 +124,7 @@ Named presets:
 - `--count-tokens` records per-chunk prompt-token previews during a real transcription run.
 - streamed Gemini responses are now saved with `usage_metadata` when available, so post-run metadata can include actual prompt/output token counts and a cost summary.
 - `--media-resolution {unspecified,low,medium,high}` lets Gemini choose a different multimodal processing resolution for the same inline media payload.
+- local inline chunk encoding now preserves source width by default; use `--width` only when you intentionally want a smaller upload
 - `--thinking-level {unspecified,minimal,low,medium,high}` and `--thinking-budget` expose Gemini thinking controls for transcription experiments.
 - `--stop-after-chunks N` cleanly stops after `N` newly completed chunks, which is useful for one-chunk smoke tests after changing model, prompt, or retry logic.
 - `--max-request-retries`, `--max-timeout-errors`, and `--max-rate-limit-errors` now bound how much one bad chunk can burn before the run stops resumably.
@@ -144,6 +147,8 @@ Important limitation:
 - Gemini API `count_tokens` does not currently accept generation-config overrides such as `media_resolution` or thinking settings. Exact preflight counts for those configurations require Vertex AI, or a real generation request followed by inspection of `usage_metadata.prompt_token_count`.
 
 `extract_gemini_chunk_ocr.py` is the separate OCR sidecar path. It does not feed OCR back into the main transcript call automatically; it writes a reusable chunk-scoped artifact instead.
+
+Like the main Gemini video transcription path, OCR sidecar chunk encoding now preserves source width by default and only downscales when `--width` is explicitly passed.
 
 Named preset:
 
@@ -234,7 +239,7 @@ Chunk coverage rule:
 | `test_vibevoice_load.py` | VibeVoice model loading test | Archived |
 | `test_vlm_extraction.py` | VLM text extraction evaluation | Archived |
 | `transcribe_nemo_vibevoice.py` | NeMo + VibeVoice transcription experiment | Archived |
-| `prepare_ai_studio_experiment_pack.py` | Build a manual AI Studio pack with fixed clips, prompts, scene notes, and result templates under `samples/experiments/<pack>/` | Experimental |
+| `prepare_ai_studio_experiment_pack.py` | Build a manual AI Studio pack with fixed clips, prompts, scene notes, and a suggested results layout under `samples/experiments/<pack>/`. Keeps source video width by default at `1 FPS`; use `--video-width` only when you intentionally want smaller clips. Does not pre-create empty result files. | Experimental |
 
 ### Experiments (`scripts/experiments/kotoba_test/`)
 
@@ -260,8 +265,9 @@ python3 scripts/experiments/prepare_ai_studio_experiment_pack.py \
 This prepares:
 
 - extracted `video.mp4` and `audio.mp3` clips per scene
+- video clips keep the source width by default at `1 FPS`; add `--video-width 640` or similar only for intentionally smaller probes
 - `prompts/` with separate system and user prompts, including `ocr_only`
-- `results/` templates with settings metadata headers ready for pasted outputs
+- `results/` scene folders only; save output files there only for runs you actually want to keep
 
 ### Gemini Pipeline (recommended)
 

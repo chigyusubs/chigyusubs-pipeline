@@ -60,6 +60,8 @@ Optional:
 
 See `.env.example` for environment variable reference.
 
+Maintained Gemini/API-backed CLI scripts auto-load the repo-root `.env` file by default, so Codex and direct terminal runs do not need manual `export` steps for keys such as `GEMINI_API_KEY` or `OPENAI_API_KEY`.
+
 ## Current Practical Setup
 
 The current repo is optimized around this setup:
@@ -86,6 +88,9 @@ The maintained practical path is no longer “local OCR first.” It is:
 - reflow
 - Codex translation/review
 
+For maintained Gemini video chunking, local ffmpeg extraction keeps source resolution by default at `1 FPS`. Use width downscaling only intentionally.
+Chunk plans should also treat `target_chunk_s + 30s` as the default hard maximum.
+
 Local OCR and manual AI Studio experiment packs still exist, but they are secondary tools.
 
 ## Episode Layout
@@ -103,7 +108,7 @@ samples/episodes/<slug>/
 samples/experiments/<pack>/
   prompts/        # system + user prompts for manual site experiments
   scenes/         # extracted video/audio clips plus per-scene notes
-  results/        # paste-back result templates
+  results/        # saved manual experiment outputs you chose to keep
   manifest.json   # experiment metadata and model matrix
 ```
 

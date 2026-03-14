@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chigyusubs.audio import extract_inline_video_chunk, get_duration
 from chigyusubs.chunking import chunk_coverage_issues, describe_chunk_plan
+from chigyusubs.env import load_repo_env
 from chigyusubs.gemini_presets import preset_names, resolve_settings
 from chigyusubs.metadata import (
     finish_run,
@@ -29,6 +30,8 @@ from chigyusubs.metadata import (
     update_preferred_manifest,
     write_metadata,
 )
+
+load_repo_env()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from transcribe_gemini import build_prompt, count_request_tokens, transcribe_chunk_result
@@ -237,7 +240,7 @@ def run_video_transcription(
     chunk_seconds: float,
     chunk_json: str,
     fps: float,
-    width: int,
+    width: int | None,
     audio_bitrate: str,
     crf: int,
     max_inline_mb: float,
@@ -671,7 +674,12 @@ def main():
         ),
     )
     parser.add_argument("--fps", type=float, default=1.0)
-    parser.add_argument("--width", type=int, default=640)
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=None,
+        help="Optional output width for inline video chunks. Default keeps source width.",
+    )
     parser.add_argument("--audio-bitrate", default="24k")
     parser.add_argument("--crf", type=int, default=36)
     parser.add_argument("--max-inline-mb", type=float, default=14.0)

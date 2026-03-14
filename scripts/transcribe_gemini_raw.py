@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from chigyusubs.audio import extract_audio_chunk, get_duration
 from chigyusubs.chunking import find_chunk_boundaries
+from chigyusubs.env import load_repo_env
 from chigyusubs.glossary import load_glossary_names
 from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
 from chigyusubs.ocr import (
@@ -29,6 +30,8 @@ from chigyusubs.ocr import (
     load_ocr_data,
 )
 from chigyusubs.vad import run_silero_vad
+
+load_repo_env()
 
 
 def log(msg: str = "", end="\n"):

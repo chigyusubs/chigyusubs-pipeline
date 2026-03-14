@@ -17,6 +17,7 @@ For raw evidence and experiment history, see `docs/lessons-learned.md`.
 For serious Gemini transcription experiments:
 
 - keep local encoding at `1 FPS`
+- keep source resolution by default; only downscale intentionally
 - use video-only first
 - keep `temperature=0.0`
 - keep `rolling_context_chunks=0` on fragile models
@@ -99,11 +100,28 @@ Do not prioritize FPS experiments before media-resolution experiments.
 
 If FPS is tested later, use explicit Gemini-side video sampling controls rather than relying only on ffmpeg downsampling.
 
+## Local Encoding Resolution
+
+Keep source resolution by default.
+
+Why:
+
+- Gemini `media_resolution=high` is an internal processing tier, not a published fixed pixel size
+- pre-downscaling throws away detail that Gemini cannot recover
+- variety content often depends on small cast cards, counters, and prompt text
+
+Practical policy:
+
+- preserve source width for maintained Gemini video chunking by default
+- use `--width` only for intentional small-probe experiments or strict payload constraints
+- do not assume Gemini `high` compensates for a low-resolution upload
+
 ## Chunking
 
 Default chunk policy:
 
 - start around `180s` for stable Flash / Pro paths
+- treat `target + 30s` as the default hard ceiling
 - use `120s` to probe fragile models
 - if Flash Lite is specifically the model under test and a bad span is already identified, `60s` is a reasonable surgical probe size
 - go shorter only when there is clear evidence chunk length is the blocker

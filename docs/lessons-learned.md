@@ -26,6 +26,7 @@ Named Gemini presets are worth keeping for the maintained path.
 - a named Flash Lite debug preset is worth keeping separate from real-run presets so cheap smoke tests do not silently inherit production settings
 - raw flags should still exist for experiments, but the common paths should have names
 - inspecting failures at the artifact boundary instead of guessing
+- maintained Gemini/API-backed CLI entrypoints should auto-load the repo `.env` so Codex and direct terminal runs do not fail just because keys were not shell-exported
 
 Chunk-plan intent also needs to be surfaced explicitly.
 
@@ -217,6 +218,22 @@ Operational implication:
 - comparisons between `gemini-2.5-pro` and Gemini 3.x are not apples-to-apples if Gemini 3 is left at default media resolution
 - for text-heavy or cast-identification-heavy video-only transcription, test `HIGH` before concluding Gemini 3 quality is inherently worse
 - Gemini API `count_tokens` currently does not support `media_resolution` overrides, so exact preflight counts for `low`/`medium`/`high` need Vertex or a real generation request with `usage_metadata`
+
+### 7b1. Local ffmpeg downscaling is a separate confounder from Gemini `media_resolution`
+
+Validated during later AI Studio and API probe review.
+
+Important distinction:
+
+- Gemini `media_resolution=high` is an internal model-side processing tier
+- it is not a published fixed output pixel size
+- if the local ffmpeg chunker downscales first, Gemini never sees the lost detail
+
+Operational implication:
+
+- preserve source resolution by default for maintained Gemini video chunking
+- keep `1 FPS`, but do not downscale width unless payload size is the explicit experiment variable
+- do not interpret Gemini `high` as compensation for a low-resolution upload
 
 ### 7c. Flash Lite chunk length and temperature tuning help at the margins, but they do not remove model instability
 
@@ -957,6 +974,22 @@ Operational conclusion:
 - `gemini-3.1-flash-lite-preview` remains useful only as a cheaper fallback path, not the preferred model
 - based on this run alone, stepping up to a paid Pro model is not yet justified; first validate `gemini-3-flash-preview` on a few more real episodes and measure whether the remaining errors are mostly local lexical misses or true spoken-coverage failures
 
+### 6a. `flashlite_debug_transcript` is good for structural smoke tests, not transcript-quality evaluation
+
+Validated on `great_escape_s02e03` with a one-chunk smoke test against the repaired semantic chunk plan.
+
+Observed behavior:
+
+- the cheap debug preset completed a `166s` chunk cleanly and produced a structurally sane raw artifact
+- the output was good enough to confirm that chunk encoding, request plumbing, checkpoint writing, and retry behavior were working
+- lexical quality was still clearly weaker than the stronger Pro-path probes on the same episode, with compressed or drifted lines that would be misleading if treated as a quality benchmark
+
+Operational conclusion:
+
+- keep `flashlite_debug_transcript` for one-chunk smoke tests, cheap chunk-shape probes, and regression checks after code changes
+- do not use it to judge the best transcript quality path on hard episodes
+- when a chunk passes structurally under the debug preset, escalate to a stronger model before drawing quality conclusions
+
 ### 7. Translation is now local-batch aware, but subtitle polishing is not finished
 
 The English translation quality is already promising, but still incomplete:
@@ -1264,6 +1297,7 @@ Use video-only Gemini as a real baseline:
 - Gemini video-only transcription
 - prefer `gemini-3-flash-preview` over `gemini-3.1-flash-lite-preview` when quota allows
 - use ~180s VAD-derived chunks for the current video-only path
+- treat `target_chunk_s + 30s` as the default hard max for maintained chunk plans
 - default `rolling_context_chunks=0` for the current Gemini video-only path
 - spoken text as `-- ...`
 - visual-only text as `[画面: ...]`

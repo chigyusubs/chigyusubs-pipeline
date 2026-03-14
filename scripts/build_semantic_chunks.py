@@ -221,6 +221,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     transcript = _run_whisper_prepass(str(video_path), args.model, args.compute_type)
     transcript_char_count = sum(len(seg["text"]) for seg in transcript)
     transcript_chars_per_s = transcript_char_count / duration if duration > 0 else 0.0
+    resolved_max_chunk_s = args.max_chunk_s if args.max_chunk_s > 0 else args.target_chunk_s + 30.0
     target_chars = int(round(args.target_chars)) if args.target_chars > 0 else int(round(transcript_chars_per_s * args.target_chunk_s))
     max_chars = int(round(args.max_chars)) if args.max_chars > 0 else int(round(target_chars * 1.2))
     max_chars = max(max_chars, target_chars)
@@ -240,7 +241,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
         "transcript_path": str(transcript_path),
         "duration_seconds": round(duration, 3),
         "target_chunk_s": args.target_chunk_s,
-        "max_chunk_s": args.max_chunk_s,
+        "max_chunk_s": resolved_max_chunk_s,
         "target_chars": target_chars,
         "max_chars": max_chars,
         "transcript_char_count": transcript_char_count,
@@ -455,6 +456,38 @@ def cmd_finalize(args: argparse.Namespace) -> int:
             "duration_sec": round(duration - chunk_start, 3),
         })
 
+    # Enforce a hard max chunk duration by inserting deterministic fallback splits
+    # when semantic review left an oversized span with no accepted midpoint.
+    if chunks:
+        enforced_chunks = []
+        forced_splits = 0
+        for chunk in chunks:
+            start = float(chunk["start_sec"])
+            end = float(chunk["end_sec"])
+            while end - start > max_chunk_s:
+                forced_end = round(start + max_chunk_s, 3)
+                enforced_chunks.append({
+                    "chunk_id": len(enforced_chunks),
+                    "start_sec": round(start, 3),
+                    "end_sec": forced_end,
+                    "duration_sec": round(forced_end - start, 3),
+                })
+                start = forced_end
+                forced_splits += 1
+            enforced_chunks.append({
+                "chunk_id": len(enforced_chunks),
+                "start_sec": round(start, 3),
+                "end_sec": round(end, 3),
+                "duration_sec": round(end - start, 3),
+            })
+        chunks = enforced_chunks
+        if forced_splits:
+            print(
+                f"Inserted {forced_splits} forced split(s) at max_chunk_s ({max_chunk_s}s) "
+                "to enforce the hard chunk-duration cap.",
+                file=sys.stderr,
+            )
+
     # Validate full coverage
     bounds = [(c["start_sec"], c["end_sec"]) for c in chunks]
     issues = chunk_coverage_issues(bounds, duration)
@@ -463,7 +496,7 @@ def cmd_finalize(args: argparse.Namespace) -> int:
         for issue in issues:
             print(f"  - {issue}", file=sys.stderr)
 
-    # Warn about oversized chunks
+    # Warn about oversized chunks (should now be impossible unless rounding drift remains)
     oversized = [c for c in chunks if c["duration_sec"] > max_chunk_s]
     if oversized:
         print(f"Warning: {len(oversized)} chunks exceed max_chunk_s ({max_chunk_s}s):", file=sys.stderr)
@@ -505,7 +538,12 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--model", default="large-v3", help="faster-whisper model (default: large-v3).")
     prepare.add_argument("--compute-type", default="float16", help="CTranslate2 compute type.")
     prepare.add_argument("--target-chunk-s", type=float, default=240.0, help="Target chunk duration in seconds.")
-    prepare.add_argument("--max-chunk-s", type=float, default=360.0, help="Maximum chunk duration before forcing a split.")
+    prepare.add_argument(
+        "--max-chunk-s",
+        type=float,
+        default=0.0,
+        help="Maximum chunk duration before forcing a split. Default: target_chunk_s + 30s.",
+    )
     prepare.add_argument("--target-chars", type=float, default=0.0, help="Soft target transcript character budget. Default: derive from pre-pass density and target chunk duration.")
     prepare.add_argument("--max-chars", type=float, default=0.0, help="Maximum transcript character budget before preferring a split. Default: 1.2x target chars.")
     prepare.add_argument("--min-gap-s", type=float, default=1.5, help="Minimum silence gap to consider as candidate.")

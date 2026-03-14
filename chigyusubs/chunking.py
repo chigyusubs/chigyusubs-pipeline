@@ -49,6 +49,7 @@ def find_chunk_boundaries(
     rttm_segments: list[dict],
     total_duration: float,
     target_chunk_s: float = 600,
+    max_chunk_s: float | None = None,
     min_gap_s: float = 2.0,
 ) -> list[tuple[float, float]]:
     """Find full-coverage chunk boundaries at natural silence gaps from VAD segments.
@@ -62,6 +63,10 @@ def find_chunk_boundaries(
     """
     if not rttm_segments:
         return [(0, total_duration)]
+
+    if max_chunk_s is None:
+        max_chunk_s = target_chunk_s + 30.0
+    max_chunk_s = max(float(max_chunk_s), float(target_chunk_s))
 
     sorted_segs = sorted(rttm_segments, key=lambda s: s["start"])
     gaps = []
@@ -82,14 +87,22 @@ def find_chunk_boundaries(
 
     while chunk_start < total_duration:
         target_end = chunk_start + target_chunk_s
+        max_end = chunk_start + max_chunk_s
         if target_end >= total_duration - target_chunk_s * 0.3:
-            boundaries.append((chunk_start, total_duration))
-            break
+            if total_duration - chunk_start <= max_chunk_s:
+                boundaries.append((chunk_start, total_duration))
+                break
+            forced_end = min(max_end, total_duration)
+            boundaries.append((chunk_start, forced_end))
+            chunk_start = forced_end
+            continue
 
         best_gap = None
         best_dist = float("inf")
         for g in gaps:
             if g["time"] <= chunk_start:
+                continue
+            if g["time"] > max_end:
                 continue
             dist = abs(g["time"] - target_end)
             if dist < target_chunk_s * 0.4 and dist < best_dist:
@@ -101,8 +114,9 @@ def find_chunk_boundaries(
             boundaries.append((chunk_start, split_time))
             chunk_start = split_time
         else:
-            boundaries.append((chunk_start, min(target_end, total_duration)))
-            chunk_start = target_end
+            forced_end = min(max_end, total_duration)
+            boundaries.append((chunk_start, forced_end))
+            chunk_start = forced_end
 
     return boundaries
 

@@ -36,6 +36,7 @@ The main current transcription default is:
 - `thinking=low`
 - `media_resolution=high`
 - `temperature=0.0`
+- local chunk encoding keeps source resolution by default at `1 FPS`
 
 Named preset:
 
@@ -47,6 +48,7 @@ Important chunking rule:
 - VAD is used to place chunk boundaries at good silence points
 - Gemini still receives continuous end-to-end video coverage across chunks
 - silence is not dropped from the maintained video transcription path
+- chunk plans should treat `target_chunk_s + 30s` as the default hard maximum
 
 ## Design Principles
 

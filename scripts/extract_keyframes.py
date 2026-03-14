@@ -48,19 +48,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from chigyusubs.translation import parse_vtt, parse_srt
 
 
-def extract_frame(video_path: str, timestamp: float, output_path: str, width: int = 640) -> bool:
+def extract_frame(video_path: str, timestamp: float, output_path: str, width: int | None = None) -> bool:
     """Extract a single frame. Returns True on success."""
     try:
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{timestamp:.3f}",
+            "-i", video_path,
+            "-frames:v", "1",
+        ]
+        if width is not None:
+            cmd += ["-vf", f"scale={width}:-2"]
+        cmd += [
+            "-qscale:v", "3",
+            output_path,
+        ]
         subprocess.run(
-            [
-                "ffmpeg", "-y",
-                "-ss", f"{timestamp:.3f}",
-                "-i", video_path,
-                "-frames:v", "1",
-                "-vf", f"scale={width}:-2",
-                "-qscale:v", "3",
-                output_path,
-            ],
+            cmd,
             capture_output=True, check=True, timeout=15,
         )
         return True
@@ -74,7 +78,12 @@ def main():
     )
     parser.add_argument("--video", required=True, help="Input video file.")
     parser.add_argument("--output-dir", required=True, help="Output directory for frames.")
-    parser.add_argument("--width", type=int, default=640, help="Frame width (default: 640).")
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=None,
+        help="Optional frame width. Default keeps source resolution.",
+    )
 
     # Extraction modes (pick one)
     parser.add_argument(
