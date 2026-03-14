@@ -35,6 +35,7 @@ Current free-tier default for real episode work:
 
 Named presets worth remembering:
 
+- `flash25_free_default` — maintained `2.5-flash` production baseline with no thinking override
 - `flash_free_default` — maintained free-tier real-run baseline
 - `flashlite_debug_transcript` — cheap debug transcript preset with no rolling context and bounded retries
 - `pro_quality_video` — higher-quality paid reference baseline

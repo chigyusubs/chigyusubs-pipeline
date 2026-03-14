@@ -72,6 +72,7 @@ The current repo is optimized around this setup:
 
 Recommended named Gemini presets:
 
+- transcript production on `2.5-flash`: `--preset flash25_free_default`
 - transcript experiments: `--preset flash_free_default`
 - visual-rich transcript comparison: `--preset flash_visual_artifact`
 - cheap resumable debug transcript probes: `--preset flashlite_debug_transcript`

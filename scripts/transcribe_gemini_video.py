@@ -154,10 +154,17 @@ def _reuse_lineage_output_from_preferred(area_dir: Path, key: str, requested_out
     if not name:
         return None
     candidate = area_dir / str(name)
+    if not candidate.exists():
+        return None
     meta = read_artifact_metadata(candidate)
     if not meta:
-        return None
-    if str(meta.get("requested_output_anchor", "")) != str(requested_output):
+        return candidate if requested_output.parent == area_dir else None
+    anchor = meta.get("requested_output_anchor")
+    if anchor is None:
+        settings = meta.get("settings")
+        if isinstance(settings, dict):
+            anchor = settings.get("requested_output_anchor")
+    if anchor and str(anchor) != str(requested_output):
         return None
     return candidate
 

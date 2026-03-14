@@ -40,6 +40,7 @@ The main current transcription default is:
 
 Named preset:
 
+- `flash25_free_default` for `gemini-2.5-flash` production runs with `spoken_only`, `media_resolution=high`, and no thinking override
 - `flash_free_default`
 - `flashlite_debug_transcript` for cheap bounded debug passes
 

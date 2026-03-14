@@ -30,6 +30,19 @@ SCRIPT_DEFAULTS: dict[str, dict[str, Any]] = {
 
 
 PRESETS: dict[str, dict[str, Any]] = {
+    "flash25_free_default": {
+        "script": "transcribe_gemini_video",
+        "description": "Maintained free-tier transcript default for 2.5-Flash: video spoken-only high-res with no thinking override.",
+        "settings": {
+            "model": "gemini-2.5-flash",
+            "temperature": 0.0,
+            "retry_temperature": 0.3,
+            "spoken_only": True,
+            "media_resolution": "high",
+            "thinking_level": "unspecified",
+            "thinking_budget": None,
+        },
+    },
     "flash_free_default": {
         "script": "transcribe_gemini_video",
         "description": "Maintained free-tier transcript default: 3-Flash video spoken-only low-thinking high-res.",

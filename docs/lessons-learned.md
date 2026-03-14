@@ -734,6 +734,8 @@ Current rule:
 
 - keep Gemini + CTC as the main path
 - always run faster-whisper as a second-opinion artifact — it is cheap (~2-3 min/episode) and catches both visible (visual-substitution) and invisible (silent omission) Gemini drops
+- when a faster-whisper second-opinion artifact already exists, reuse it by default instead of rerunning Whisper; use `--rerun-whisper` only when a clean baseline is actually needed
+- do not treat OCR-prompted or otherwise prompt-biased Whisper probe artifacts as the canonical second-opinion baseline; on `great_escape_s02e03`, replacing an OCR-prompted Whisper comparison with a fresh plain `large-v3` baseline reduced flagged coverage regions from `163` to `93`
 - compare `*_ctc_words.json` against `*_faster_*_words.json` with a deterministic coverage-diff pass before reflow or source patching
 - when `*_gemini_raw.json` exists, classify the remaining gaps against raw Gemini spoken lines and visual `[画面: ...]` lines so review can separate:
   - `visual_substituted_narration`

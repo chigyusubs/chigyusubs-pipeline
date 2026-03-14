@@ -42,8 +42,13 @@ See [references/workflow.md](./references/workflow.md) for repo-specific command
 
 Use the maintained default:
 
-- if alignment diagnostics flag `possible_visual_narration_substitution`, run
-  `scripts/pre_reflow_second_opinion.py --words <stem>_ctc_words.json` before reflow review
+- if alignment diagnostics flag `possible_visual_narration_substitution`, or if
+  a reusable whole-episode secondary transcript already exists, use
+  `scripts/pre_reflow_second_opinion.py --words <stem>_ctc_words.json` before
+  reflow review
+- do not rerun faster-whisper just because a sibling `*_gemini_raw.json` exists
+  and you are entering reflow; reuse an existing secondary artifact when
+  available, otherwise keep the omission/coverage note explicit in review
 - `PYTHONPATH=. python3 scripts/reflow_words.py --line-level --stats`
 
 Do not switch to word-level reflow unless the user explicitly asks for it or the input is not a CTC-aligned artifact.
@@ -66,7 +71,8 @@ Review should combine:
 - deterministic diagnostics from the helper, including flagged region ranges and short/tiny cue counts
 - timing behavior around first-spoken-word alignment, especially on short reaction cues
 - alignment-stage interpolation diagnostics when a sibling `*_ctc_words.json.diagnostics.json` sidecar exists
-- raw-chunk omission diagnostics from the always-on second-opinion helper when a sibling `*_gemini_raw.json` exists
+- raw-chunk omission diagnostics from the second-opinion helper when that
+  helper actually ran or a reusable secondary artifact was available
 - source turn-boundary context when the sibling `*_ctc_words.json` preserves Gemini turn metadata
 
 ### 3. Decision

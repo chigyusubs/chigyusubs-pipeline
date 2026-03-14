@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -70,6 +71,71 @@ def discover_existing_secondary(words_path: Path, model_name: str) -> tuple[Path
     if not secondary_vtt.exists():
         return None
     return secondary_vtt, secondary_words
+
+
+def discover_existing_secondary_chunk_json(words_path: Path, model_name: str) -> Path | None:
+    episode_dir = find_episode_dir_from_path(words_path)
+    if not episode_dir:
+        return None
+    probes_dir = episode_dir / "transcription" / "probes"
+    if not probes_dir.exists():
+        return None
+    model_slug = model_name.replace("/", "_").replace(".", "_").lower()
+    candidates = sorted(probes_dir.rglob("*.json"))
+    scored: list[tuple[int, Path]] = []
+    for candidate in candidates:
+        name = candidate.name.lower()
+        if "summary" in name or "compare" in name or "selected" in name:
+            continue
+        score = 0
+        if "whisper" in name or "faster" in name:
+            score += 3
+        if model_slug in name:
+            score += 2
+        if "semantic180" in name:
+            score += 2
+        if score > 0:
+            scored.append((score, candidate))
+    if not scored:
+        return None
+    return sorted(scored, key=lambda item: (item[0], item[1].name))[-1][1]
+
+
+def materialize_secondary_words_from_chunk_json(source_json: Path, dest_words_json: Path) -> Path | None:
+    try:
+        data = json.loads(source_json.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(data, list) or not data:
+        return None
+    flattened: list[dict] = []
+    for chunk in data:
+        if not isinstance(chunk, dict):
+            return None
+        chunk_start = float(chunk.get("chunk_start_s", 0.0))
+        chunk_end = float(chunk.get("chunk_end_s", chunk_start))
+        segments = chunk.get("segments")
+        if not isinstance(segments, list):
+            return None
+        for seg in segments:
+            if not isinstance(seg, dict):
+                return None
+            text = str(seg.get("text", "")).strip()
+            if not text:
+                continue
+            start = round(chunk_start + float(seg.get("start", 0.0)), 3)
+            end = round(chunk_start + float(seg.get("end", 0.0)), 3)
+            if chunk_end > chunk_start:
+                start = max(start, round(chunk_start, 3))
+                end = min(end, round(chunk_end, 3))
+            if end <= start:
+                continue
+            flattened.append({"start": start, "end": end, "text": text})
+    if not flattened:
+        return None
+    dest_words_json.parent.mkdir(parents=True, exist_ok=True)
+    dest_words_json.write_text(json.dumps(flattened, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return dest_words_json
 
 
 def discover_gemini_raw_for_words(words_path: Path) -> Path | None:
@@ -170,13 +236,14 @@ def main() -> None:
         summary_path = Path(args.summary_json)
 
     visual_risk_chunks = [] if not diagnostics else diagnostics.get("visual_narration_risk_chunks", [])
+    secondary_words_path = Path(str(faster_vtt_path).replace(".vtt", "_words.json"))
     summary = {
         "words_json": str(words_path),
         "alignment_diagnostics_json": str(alignment_path) if alignment_path else "",
         "visual_risk_chunk_count": len(visual_risk_chunks),
         "visual_risk_chunks": visual_risk_chunks[:8],
         "secondary_vtt": str(faster_vtt_path),
-        "secondary_words_json": str(faster_vtt_path).replace(".vtt", "_words.json"),
+        "secondary_words_json": str(secondary_words_path),
         "coverage_report_json": str(coverage_path),
         "raw_omission_report_json": str(omission_report_path),
     }
@@ -191,14 +258,19 @@ def main() -> None:
     if not video_path or not video_path.exists():
         raise SystemExit("Could not discover source video; pass --video explicitly.")
 
-    secondary_words_path = Path(str(faster_vtt_path).replace(".vtt", "_words.json"))
     rerun = args.rerun_whisper or args.force
     discovered_secondary = None if rerun else discover_existing_secondary(words_path, args.model)
+    discovered_secondary_json = None if rerun else discover_existing_secondary_chunk_json(words_path, args.model)
     if discovered_secondary and not (faster_vtt_path.exists() and secondary_words_path.exists()):
         faster_vtt_path, secondary_words_path = discovered_secondary
         summary["secondary_vtt"] = str(faster_vtt_path)
         summary["secondary_words_json"] = str(secondary_words_path)
-    reused_existing = faster_vtt_path.exists() and secondary_words_path.exists() and not rerun
+    elif discovered_secondary_json and not secondary_words_path.exists():
+        materialized = materialize_secondary_words_from_chunk_json(discovered_secondary_json, secondary_words_path)
+        if materialized is not None:
+            summary["secondary_source_json"] = str(discovered_secondary_json)
+            summary["secondary_words_json"] = str(materialized)
+    reused_existing = secondary_words_path.exists() and not rerun
     if not reused_existing:
         cmd = [
             sys.executable,
@@ -222,7 +294,7 @@ def main() -> None:
         print("Running faster-whisper second opinion...")
         subprocess.run(cmd, check=True, env=ensure_rocm_env(os.environ))
     else:
-        print(f"Reusing existing faster-whisper artifacts: {faster_vtt_path}")
+        print(f"Reusing existing second-opinion transcript: {secondary_words_path}")
 
     compare_cmd = [
         sys.executable,

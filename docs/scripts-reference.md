@@ -114,6 +114,7 @@ When `transcribe_gemini_video.py` writes into an episode `transcription/` direct
 
 Named presets:
 
+- `flash25_free_default` — maintained `2.5-flash` transcript preset with `spoken_only`, `media_resolution=high`, and no thinking override
 - `flash_free_default` — maintained free-tier transcript preset
 - `flash_visual_artifact` — same model family, but keeps selective visual `[画面: ...]` lines
 - `flashlite_debug_transcript` — cheap Flash Lite debug transcript preset with `spoken_only`, `media_resolution=high`, `rolling_context_chunks=0`, and bounded retries
@@ -129,6 +130,7 @@ Named presets:
 - `--stop-after-chunks N` cleanly stops after `N` newly completed chunks, which is useful for one-chunk smoke tests after changing model, prompt, or retry logic.
 - `--max-request-retries`, `--max-timeout-errors`, and `--max-rate-limit-errors` now bound how much one bad chunk can burn before the run stops resumably.
 - when `--chunk-json` is used, the script now logs a human-readable chunk-plan label plus min/avg/max duration stats instead of only echoing the raw filename.
+- interrupted runs now resume from the preferred raw lineage even when the last run did not finish writing a fresh `.meta.json` sidecar.
 
 Common chunk-plan names:
 
@@ -345,12 +347,13 @@ python3 scripts/repair_vtt_codex.py prepare \
 python3.12 scripts/pre_reflow_second_opinion.py \
   --words samples/episodes/<slug>/transcription/<stem>_ctc_words.json
 
-# Runs faster-whisper on every episode and compares coverage against the primary
-# transcript. Auto-discovers episode glossary for Whisper initial_prompt and
-# passes VAD segments to the coverage comparison. When a sibling
-# <stem>_gemini_raw.json exists, it also writes a raw-chunk omission report that
-# compares Gemini spoken lines, Gemini visual lines, and Whisper speech.
-# Use --force to rerun whisper even when artifacts already exist.
+# Reuses an existing fresh faster-whisper artifact when present, otherwise runs
+# faster-whisper and compares coverage against the primary transcript.
+# Auto-discovers episode glossary for Whisper initial_prompt and passes VAD
+# segments to the coverage comparison. When a sibling <stem>_gemini_raw.json
+# exists, it also writes a raw-chunk omission report that compares Gemini spoken
+# lines, Gemini visual lines, and Whisper speech.
+# Use --rerun-whisper (or --force) to force a clean new Whisper baseline.
 # Use --glossary to override glossary auto-discovery.
 
 python3 scripts/repair_vtt_codex.py next-region \

@@ -17,20 +17,25 @@ This reference captures the repo-specific expectations for Codex-interactive Jap
 ### Reflow from aligned words
 
 ```bash
+# Optional, not automatic:
+# Run only when alignment diagnostics flag possible visual narration
+# substitution, or when a reusable whole-episode secondary transcript already
+# exists and can be compared without rerunning faster-whisper.
 python3.12 scripts/pre_reflow_second_opinion.py \
   --words samples/episodes/<slug>/transcription/<stem>_ctc_words.json
-
-# This helper auto-discovers the sibling alignment diagnostics sidecar and
-# always runs faster-whisper + compare_transcript_coverage and writes
-# a reusable summary JSON under transcription/diagnostics/.
-# When a sibling <stem>_gemini_raw.json exists, it also writes a raw-chunk
-# omission report that classifies likely visual-substituted or missing narration.
 
 PYTHONPATH=. python3 scripts/reflow_words.py \
   --input samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
   --output samples/episodes/<slug>/transcription/<stem>_reflow.vtt \
   --line-level --stats
 ```
+
+Important:
+
+- do not rerun faster-whisper by default during reflow prep just because a
+  sibling `*_gemini_raw.json` exists
+- if there is no reusable whole-episode secondary artifact, proceed to reflow
+  and keep the missing second-opinion note explicit in review
 
 ### Optional Codex-interactive repair
 
