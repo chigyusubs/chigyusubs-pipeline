@@ -163,6 +163,9 @@ Current free-tier production rule:
 - run `gemini-2.5-flash` first on the canonical chunk plan
 - continue with `gemini-3-flash-preview` when `2.5-flash` RPD is exhausted
 - keep the same chunk plan and rolling context; use manual repair only for bad chunks
+- `transcribe_gemini_video.py` now also reuses the same QA rules in-run: one
+  `red` chunk gets one no-context retry, and if it stays `red` the run stops
+  resumably before rollover continues on poisoned context
 
 If you want the older OCR-first path or manual experiment tooling, see:
 

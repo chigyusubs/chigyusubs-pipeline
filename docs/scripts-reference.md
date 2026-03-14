@@ -134,6 +134,11 @@ Named presets:
 - `--max-request-retries`, `--max-timeout-errors`, and `--max-rate-limit-errors` now bound how much one bad chunk can burn before the run stops resumably.
 - when `--chunk-json` is used, the script now logs a human-readable chunk-plan label plus min/avg/max duration stats instead of only echoing the raw filename.
 - interrupted runs now resume from the preferred raw lineage even when the last run did not finish writing a fresh `.meta.json` sidecar.
+- the maintained video path now also runs deterministic red-chunk QA in-run:
+  one red chunk gets one no-context retry, and the run stops resumably if the
+  chunk still fails
+- resume now refuses to continue from an existing raw lineage that already
+  contains red QA failures
 
 Common chunk-plan names:
 

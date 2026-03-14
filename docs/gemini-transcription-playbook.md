@@ -38,6 +38,8 @@ Current free-tier production rollover:
 - keep `rolling_context_chunks=1` for real production runs
 - if `2.5-flash` RPD is exhausted, continue from the next chunk with `gemini-3-flash-preview`
 - do not restart the episode on `3-flash` unless the user explicitly wants a comparison run
+- do not resume or roll over onto an existing raw lineage that already contains
+  chunk-level `red` QA failures
 
 Named presets worth remembering:
 
@@ -224,6 +226,8 @@ Operational stop rules:
   after reset instead of letting the helper sit in long backoff loops
 - if one chunk returns suspiciously large output, treat that as a chunk-local
   failure and repair/split it before trusting the raw transcript
+- if one chunk stays `red` after one no-context retry, stop resumably and
+  repair/split it before continuing so rolling context does not inherit bad text
 
 ## Recommended Evaluation Pattern
 

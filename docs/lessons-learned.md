@@ -776,6 +776,34 @@ Pipeline consequence:
 - `scripts/check_raw_chunk_sanity.py` is now the maintained pre-alignment gate for raw transcript artifacts
 - CTC remains the default aligner, but it should not be asked to rescue obviously unsuitable source chunks
 
+### 19. Raw chunk QA also has to live inside the transcription loop when rolling context or model rollover is in play
+
+Validated while tightening the maintained Gemini video path after `great_escape`
+`s02e03` and `s02e04`.
+
+Failure mode:
+
+- a bad chunk discovered only before reflow is already too late for
+  `rolling_context_chunks=1`
+- the next chunk may inherit poisoned context, and later `2.5-flash -> 3-flash`
+  rollover can continue on the same damaged raw lineage
+
+Operational rule:
+
+- run the same deterministic red-chunk checks immediately after each chunk
+  response on the maintained video path
+- give a red chunk one no-context retry at the retry temperature
+- if it is still red, stop resumably and repair/split it before continuing
+- on resume, refuse to continue from a saved raw lineage that already contains
+  red chunks
+
+Pipeline consequence:
+
+- `scripts/transcribe_gemini_video.py` now reuses the shared raw chunk sanity
+  rules in-run, not just before alignment/reflow
+- rollover only continues on a lineage that has already cleared the red-chunk
+  gate
+
 ### 18. `90s` semantic chunks are the better reviewed default, and `2.5-flash -> 3-flash` rollover is operationally clean
 
 Validated on `great_escape_s02e04`.

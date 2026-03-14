@@ -30,6 +30,7 @@ from chigyusubs.metadata import (
     update_preferred_manifest,
     write_metadata,
 )
+from chigyusubs.raw_chunk_sanity import inspect_chunk
 
 load_repo_env()
 
@@ -238,6 +239,25 @@ def _retry_prompt() -> str:
     )
 
 
+def _qa_retry_prompt(*, spoken_only: bool) -> str:
+    lines = [
+        "RETRY INSTRUCTION:",
+        "Your previous output had transcript quality problems.",
+        "Output only the transcript.",
+        "Do not include analysis, headings, or commentary.",
+        "Keep spoken lines in the `-- ...` format.",
+        "Do not get stuck repeating a short reaction or phrase.",
+    ]
+    if spoken_only:
+        lines.append("Do not include visual-only text or `[画面: ...]` lines.")
+    return "\n".join(lines) + "\n"
+
+
+def _red_chunk_report(chunk_record: dict) -> dict | None:
+    report = inspect_chunk(chunk_record)
+    return report if report["status"] == "red" else None
+
+
 def run_video_transcription(
     *,
     video_path: str,
@@ -345,6 +365,19 @@ def run_video_transcription(
     if not preview_cost and os.path.exists(raw_json_path):
         with open(raw_json_path, "r", encoding="utf-8") as f:
             all_chunks = json.load(f)
+        red_chunks = []
+        for saved_chunk in all_chunks:
+            report = _red_chunk_report(saved_chunk)
+            if report is not None:
+                red_chunks.append({"chunk": report["chunk"], "issue_codes": report["issue_codes"], "reasons": report["reasons"]})
+        if red_chunks:
+            raise RuntimeError(
+                "Existing raw lineage contains red chunks; repair before resuming: "
+                + ", ".join(
+                    f"chunk {item['chunk']} ({'/'.join(item['issue_codes'])})"
+                    for item in red_chunks
+                )
+            )
         done_chunks = set(c.get("chunk", 0) for c in all_chunks)
         start_chunk = max(done_chunks) + 1 if done_chunks else 0
         if start_chunk > 0:
@@ -461,7 +494,7 @@ def run_video_transcription(
                 max_rate_limit_errors=max_rate_limit_errors,
             )
             text = result["text"]
-            retry_info = None
+            retry_events = []
             issue = _detect_loop_issue(text, loop_max_line_length)
             if issue:
                 log(f"Detected loop-like chunk output ({issue['reason']}); retrying with temp={retry_temperature:.2f} and no rolling context...")
@@ -484,7 +517,8 @@ def run_video_transcription(
                 )
                 retried = retried_result["text"]
                 retry_issue = _detect_loop_issue(retried, loop_max_line_length)
-                retry_info = {
+                retry_event = {
+                    "kind": "loop_retry",
                     "trigger": issue,
                     "retry_temperature": retry_temperature,
                     "retry_issue": retry_issue,
@@ -493,7 +527,8 @@ def run_video_transcription(
                     "retry_response_id": retried_result.get("response_id"),
                     "retry_model_version": retried_result.get("model_version"),
                 }
-                if retry_info["retry_used"]:
+                retry_events.append(retry_event)
+                if retry_event["retry_used"]:
                     text = retried
                     result = retried_result
                     issue = retry_issue
@@ -501,6 +536,71 @@ def run_video_transcription(
                     raise RuntimeError(
                         f"Chunk {i} output remained suspicious after retry ({issue['reason']}); "
                         "shorten the chunk or change model before continuing."
+                    )
+
+            chunk_record = {
+                "chunk": i,
+                "chunk_start_s": c_start,
+                "chunk_end_s": c_end,
+                "text": text,
+                "chunk_size_mb": round(chunk_size_mb, 3),
+                "media_resolution": media_resolution,
+                "thinking_level": thinking_level,
+                "thinking_budget": thinking_budget,
+            }
+            qa_red = _red_chunk_report(chunk_record)
+            if qa_red is not None:
+                log(
+                    "Chunk failed transcript QA "
+                    f"({', '.join(qa_red['issue_codes'])}); retrying with temp={retry_temperature:.2f} and no rolling context..."
+                )
+                retry_prompt = build_prompt([], prev_context=None, include_visual_brackets=not spoken_only) + "\n\n" + _qa_retry_prompt(spoken_only=spoken_only)
+                retried_result = transcribe_chunk_result(
+                    video_bytes,
+                    retry_prompt,
+                    model,
+                    location,
+                    max_retries=max_request_retries,
+                    temperature=retry_temperature,
+                    mime_type="video/mp4",
+                    media_resolution=media_resolution,
+                    thinking_level=thinking_level,
+                    thinking_budget=thinking_budget,
+                    api_key=api_key,
+                    vertex=vertex,
+                    max_timeout_errors=max_timeout_errors,
+                    max_rate_limit_errors=max_rate_limit_errors,
+                )
+                retried = retried_result["text"]
+                retry_loop_issue = _detect_loop_issue(retried, loop_max_line_length)
+                retry_chunk_record = dict(chunk_record)
+                retry_chunk_record["text"] = retried
+                retry_qa_red = _red_chunk_report(retry_chunk_record)
+                retry_event = {
+                    "kind": "qa_retry",
+                    "trigger": qa_red,
+                    "retry_temperature": retry_temperature,
+                    "retry_loop_issue": retry_loop_issue,
+                    "retry_issue": retry_qa_red,
+                    "retry_used": retry_loop_issue is None and retry_qa_red is None,
+                    "retry_usage_metadata": retried_result.get("usage_metadata"),
+                    "retry_response_id": retried_result.get("response_id"),
+                    "retry_model_version": retried_result.get("model_version"),
+                }
+                retry_events.append(retry_event)
+                if retry_event["retry_used"]:
+                    text = retried
+                    result = retried_result
+                    chunk_record = retry_chunk_record
+                else:
+                    if retry_loop_issue is not None:
+                        raise RuntimeError(
+                            f"Chunk {i} QA retry fell into a loop-like output ({retry_loop_issue['reason']}); "
+                            "repair or split the chunk before continuing."
+                        )
+                    raise RuntimeError(
+                        f"Chunk {i} remained red after QA retry ({', '.join(retry_qa_red['issue_codes'])}); "
+                        "repair or split the chunk before continuing."
                     )
 
             line_count = len([ln for ln in text.splitlines() if ln.strip()])
@@ -532,8 +632,9 @@ def run_video_transcription(
                 chunk_record["response_id"] = result["response_id"]
             if result.get("model_version"):
                 chunk_record["model_version"] = result["model_version"]
-            if retry_info:
-                chunk_record["retry"] = retry_info
+            if retry_events:
+                chunk_record["retries"] = retry_events
+                chunk_record["retry"] = retry_events[-1]
             all_chunks.append(chunk_record)
 
             with open(raw_json_path, "w", encoding="utf-8") as f:

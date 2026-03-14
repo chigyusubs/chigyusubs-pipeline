@@ -189,6 +189,8 @@ Main output:
 Purpose:
 
 - deterministic pre-alignment gate on the saved raw transcript
+- shared chunk-QA rules for both the saved-artifact gate and the maintained
+  live Gemini video transcription loop
 - catch obvious upstream failures before CTC makes bad text look plausible
 - separate `red` chunk repair from ordinary `yellow` review
 
@@ -198,6 +200,14 @@ Current red conditions:
 - spoken chunks that lost all `-- ` turn markers
 - visual-only chunk substitution
 - pathological repetition loops
+
+Live-run consequence:
+
+- `scripts/transcribe_gemini_video.py` now runs the same red-chunk checks after
+  each chunk response
+- one red chunk gets one no-context retry at retry temperature
+- if it still stays red, the run stops resumably instead of carrying bad text
+  forward into rolling context or model rollover
 
 ### 3b. Optional Chunkwise OCR Sidecar
 
