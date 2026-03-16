@@ -3,14 +3,22 @@
 
 This path avoids OCR entirely and sends low-bitrate video chunks inline to Gemini.
 Output is plain Japanese text with `-- ` speaker-turn markers.
+
+Supports bounded concurrency with RPM-aware rate limiting, quota-aware model
+fallback, per-chunk file storage for safe concurrent writes, and a tight retry
+policy that completes a full first pass before spending more effort on hard chunks.
 """
 
 import argparse
+import asyncio
 import json
 import os
 import re
 import sys
 import tempfile
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -37,10 +45,93 @@ load_repo_env()
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from transcribe_gemini import build_prompt, count_request_tokens, transcribe_chunk_result
 
+# Thread-safe print lock
+_print_lock = threading.Lock()
+
 
 def log(msg: str = ""):
-    print(msg, flush=True)
+    with _print_lock:
+        print(msg, flush=True)
 
+
+# ---------------------------------------------------------------------------
+# RPM-aware rate limiter
+# ---------------------------------------------------------------------------
+
+class _RateLimiter:
+    """Async rate limiter that enforces a maximum number of requests per minute.
+
+    Uses a simple interval-based approach: ensures at least (60/rpm) seconds
+    between consecutive requests.  Thread-safe via asyncio lock.
+    """
+
+    def __init__(self, rpm: int):
+        self.interval = 60.0 / max(1, rpm)
+        self._lock = asyncio.Lock()
+        self._last_request = 0.0
+
+    async def acquire(self):
+        async with self._lock:
+            now = time.monotonic()
+            wait = self._last_request + self.interval - now
+            if wait > 0:
+                await asyncio.sleep(wait)
+            self._last_request = time.monotonic()
+
+
+# ---------------------------------------------------------------------------
+# Per-chunk file I/O
+# ---------------------------------------------------------------------------
+
+def _chunks_dir_for_raw(raw_json_path: str) -> Path:
+    """Derive the per-chunk storage directory from the assembled JSON path.
+
+    E.g. transcription/r3a7f01b_gemini_raw.json
+      -> transcription/r3a7f01b_gemini_raw_chunks/
+    """
+    raw = Path(raw_json_path)
+    return raw.parent / f"{raw.stem}_chunks"
+
+
+def _chunk_file_path(chunks_dir: Path, chunk_index: int) -> Path:
+    return chunks_dir / f"chunk_{chunk_index:03d}.json"
+
+
+def _save_chunk_file(chunks_dir: Path, record: dict) -> Path:
+    """Save a single chunk record to its own file."""
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+    path = _chunk_file_path(chunks_dir, record["chunk"])
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(record, f, ensure_ascii=False, indent=2)
+    return path
+
+
+def _load_chunk_files(chunks_dir: Path) -> list[dict]:
+    """Load all chunk records from the chunks directory."""
+    if not chunks_dir.exists():
+        return []
+    records = []
+    for path in sorted(chunks_dir.glob("chunk_*.json")):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                records.append(json.load(f))
+        except (json.JSONDecodeError, OSError):
+            continue
+    return records
+
+
+def _assemble_raw_json(chunks_dir: Path, raw_json_path: str) -> list[dict]:
+    """Assemble individual chunk files into the combined raw JSON artifact."""
+    records = _load_chunk_files(chunks_dir)
+    records.sort(key=lambda c: c.get("chunk", 0))
+    with open(raw_json_path, "w", encoding="utf-8") as f:
+        json.dump(records, f, ensure_ascii=False, indent=2)
+    return records
+
+
+# ---------------------------------------------------------------------------
+# Pricing / cost helpers
+# ---------------------------------------------------------------------------
 
 def _round_cost(value: float | None) -> float | None:
     if value is None:
@@ -119,16 +210,9 @@ def _usage_cost_summary(usage_records: list[dict], pricing: dict[str, Any]) -> d
     }
 
 
-def _rolling_prev_context(all_chunks: list[dict], upto_chunk: int, keep_chunks: int) -> str | None:
-    if keep_chunks <= 0 or not all_chunks:
-        return None
-    start_chunk = max(0, upto_chunk - keep_chunks)
-    kept = [c.get("text", "").strip() for c in all_chunks if start_chunk <= c.get("chunk", -1) < upto_chunk]
-    kept = [c for c in kept if c]
-    if not kept:
-        return None
-    return "\n".join(kept)
-
+# ---------------------------------------------------------------------------
+# Chunk boundary helpers
+# ---------------------------------------------------------------------------
 
 def _default_chunk_bounds(duration: float, chunk_seconds: float) -> list[tuple[float, float]]:
     bounds = []
@@ -169,6 +253,10 @@ def _reuse_lineage_output_from_preferred(area_dir: Path, key: str, requested_out
         return None
     return candidate
 
+
+# ---------------------------------------------------------------------------
+# Quality detection helpers
+# ---------------------------------------------------------------------------
 
 def _max_line_length(text: str) -> int:
     lines = [ln for ln in text.splitlines() if ln.strip()]
@@ -258,6 +346,415 @@ def _red_chunk_report(chunk_record: dict) -> dict | None:
     return report if report["status"] == "red" else None
 
 
+# ---------------------------------------------------------------------------
+# Error classification for retry policy decisions
+# ---------------------------------------------------------------------------
+
+def _classify_api_error(e: Exception) -> str:
+    """Classify a Gemini API error for retry policy decisions.
+
+    Returns one of:
+        'quota'     — 429 / RESOURCE_EXHAUSTED (model-level quota hit)
+        'transient' — 500, INTERNAL, CANCELLED, network-like errors
+        'timeout'   — DEADLINE_EXCEEDED, read timeout
+        'other'     — unrecognized errors
+    """
+    msg = str(e)
+    upper = msg.upper()
+    lower = msg.lower()
+    if "429" in msg or "RESOURCE_EXHAUSTED" in upper:
+        return "quota"
+    if (
+        "DEADLINE_EXCEEDED" in upper
+        or "TIMED OUT" in upper
+        or "read operation timed out" in lower
+        or "timeout" in lower
+    ):
+        return "timeout"
+    if "499" in msg or "CANCELLED" in upper:
+        return "transient"
+    if "500" in msg or "INTERNAL" in upper:
+        return "transient"
+    if any(kw in lower for kw in ("connectionreset", "connectionerror", "brokenpipe", "eof", "ssl")):
+        return "transient"
+    return "other"
+
+
+# ---------------------------------------------------------------------------
+# Single-chunk transcription with tight retry policy
+# ---------------------------------------------------------------------------
+
+def _transcribe_single_chunk(
+    *,
+    chunk_index: int,
+    total_chunks: int,
+    video_path: str,
+    c_start: float,
+    c_end: float,
+    tmpdir: str,
+    model: str,
+    location: str,
+    temperature: float,
+    retry_temperature: float,
+    loop_max_line_length: int,
+    spoken_only: bool,
+    media_resolution: str,
+    thinking_level: str,
+    thinking_budget: int | None,
+    fps: float,
+    width: int | None,
+    audio_bitrate: str,
+    crf: int,
+    max_inline_mb: float,
+    api_key: str,
+    vertex: bool,
+    count_tokens: bool,
+    input_price_per_million: float | None,
+    rate_limiter_acquire,
+) -> dict:
+    """Transcribe a single chunk with the maintained retry policy.
+
+    Retry policy (per chunk):
+    - One normal attempt.
+    - If transient (network/500): one retry, same settings.
+    - If quota (429/RESOURCE_EXHAUSTED): no retry, return quota error immediately.
+    - If loop/red QA/timeout: one retry with retry_temperature, no rolling context.
+    - If still bad after retry: return the failure record without raising.
+
+    Returns a chunk record dict.  On unrecoverable failure the record includes
+    an 'error' key with structured failure details.
+    """
+    i = chunk_index
+    label = f"[{i + 1}/{total_chunks}]"
+    chunk_path = os.path.join(tmpdir, f"chunk_{i}.mp4")
+
+    log(f"{label} Encoding chunk {c_start / 60:.1f}-{c_end / 60:.1f}min ({c_end - c_start:.0f}s)...")
+    extract_inline_video_chunk(
+        video_path,
+        chunk_path,
+        start_s=c_start,
+        duration_s=c_end - c_start,
+        fps=fps,
+        width=width,
+        audio_bitrate=audio_bitrate,
+        crf=crf,
+    )
+
+    chunk_size_mb = Path(chunk_path).stat().st_size / (1024 * 1024)
+    if chunk_size_mb > max_inline_mb:
+        return {
+            "chunk": i,
+            "chunk_start_s": c_start,
+            "chunk_end_s": c_end,
+            "chunk_size_mb": round(chunk_size_mb, 3),
+            "error": {
+                "type": "encoding",
+                "reason": f"Chunk encoded to {chunk_size_mb:.2f} MB, above inline target {max_inline_mb:.2f} MB",
+            },
+        }
+
+    prompt = build_prompt([], prev_context=None, include_visual_brackets=not spoken_only)
+    video_bytes = Path(chunk_path).read_bytes()
+
+    token_preview = None
+    if count_tokens:
+        try:
+            token_preview = count_request_tokens(
+                video_bytes, prompt, model, location,
+                mime_type="video/mp4",
+                media_resolution=media_resolution,
+                thinking_level=thinking_level,
+                thinking_budget=thinking_budget,
+                api_key=api_key,
+                vertex=vertex,
+            )
+        except Exception:
+            pass  # token counting is best-effort
+
+    attempt_history: list[dict] = []
+
+    def _do_attempt(
+        *,
+        attempt_model: str,
+        attempt_temp: float,
+        attempt_prompt: str,
+        attempt_label: str,
+        reason: str,
+    ) -> dict:
+        """Make one API call and return an attempt record."""
+        # Wait for rate limiter before sending the request
+        rate_limiter_acquire()
+
+        t0 = time.time()
+        try:
+            result = transcribe_chunk_result(
+                video_bytes,
+                attempt_prompt,
+                attempt_model,
+                location,
+                max_retries=1,  # no internal retries — we handle retries here
+                temperature=attempt_temp,
+                mime_type="video/mp4",
+                media_resolution=media_resolution,
+                thinking_level=thinking_level,
+                thinking_budget=thinking_budget,
+                api_key=api_key,
+                vertex=vertex,
+                max_timeout_errors=1,
+                max_rate_limit_errors=1,
+            )
+            elapsed = time.time() - t0
+            text = result["text"]
+            line_count = len([ln for ln in text.splitlines() if ln.strip()])
+            log(f"{label} {attempt_label}: {line_count} lines, {len(text)} chars in {elapsed:.1f}s (model={attempt_model})")
+            return {
+                "status": "ok",
+                "reason": reason,
+                "model": attempt_model,
+                "temperature": attempt_temp,
+                "text": text,
+                "elapsed_s": round(elapsed, 3),
+                "usage_metadata": result.get("usage_metadata"),
+                "response_id": result.get("response_id"),
+                "model_version": result.get("model_version"),
+            }
+        except Exception as e:
+            elapsed = time.time() - t0
+            err_class = _classify_api_error(e)
+            msg = str(e).strip().splitlines()[0] if str(e).strip() else repr(e)
+            log(f"{label} {attempt_label}: {err_class} after {elapsed:.1f}s — {msg}")
+            return {
+                "status": "error",
+                "reason": reason,
+                "model": attempt_model,
+                "temperature": attempt_temp,
+                "error_class": err_class,
+                "error_message": msg,
+                "elapsed_s": round(elapsed, 3),
+            }
+
+    # --- Attempt 1: normal ---
+    a1 = _do_attempt(
+        attempt_model=model,
+        attempt_temp=temperature,
+        attempt_prompt=prompt,
+        attempt_label="attempt 1",
+        reason="initial",
+    )
+    attempt_history.append(a1)
+
+    if a1["status"] == "error":
+        err_class = a1["error_class"]
+
+        if err_class == "quota":
+            return _build_chunk_record(
+                i, c_start, c_end, chunk_size_mb, media_resolution,
+                thinking_level, thinking_budget, token_preview,
+                attempt_history=attempt_history,
+                error={"type": "quota", "reason": a1["error_message"], "model": model},
+            )
+
+        if err_class == "transient":
+            log(f"{label} Retrying (transient error)...")
+            a2 = _do_attempt(
+                attempt_model=model,
+                attempt_temp=temperature,
+                attempt_prompt=prompt,
+                attempt_label="retry (transient)",
+                reason="transient_retry",
+            )
+            attempt_history.append(a2)
+            if a2["status"] == "ok":
+                a1 = a2
+            else:
+                if a2.get("error_class") == "quota":
+                    return _build_chunk_record(
+                        i, c_start, c_end, chunk_size_mb, media_resolution,
+                        thinking_level, thinking_budget, token_preview,
+                        attempt_history=attempt_history,
+                        error={"type": "quota", "reason": a2["error_message"], "model": model},
+                    )
+                return _build_chunk_record(
+                    i, c_start, c_end, chunk_size_mb, media_resolution,
+                    thinking_level, thinking_budget, token_preview,
+                    attempt_history=attempt_history,
+                    error={"type": a2["error_class"], "reason": a2["error_message"], "model": model},
+                )
+
+        elif err_class in ("timeout", "other"):
+            log(f"{label} Retrying (temp={retry_temperature})...")
+            retry_prompt = prompt + "\n\n" + _retry_prompt()
+            a2 = _do_attempt(
+                attempt_model=model,
+                attempt_temp=retry_temperature,
+                attempt_prompt=retry_prompt,
+                attempt_label="retry (temp bump)",
+                reason="timeout_retry",
+            )
+            attempt_history.append(a2)
+            if a2["status"] == "ok":
+                a1 = a2
+            else:
+                if a2.get("error_class") == "quota":
+                    return _build_chunk_record(
+                        i, c_start, c_end, chunk_size_mb, media_resolution,
+                        thinking_level, thinking_budget, token_preview,
+                        attempt_history=attempt_history,
+                        error={"type": "quota", "reason": a2["error_message"], "model": model},
+                    )
+                return _build_chunk_record(
+                    i, c_start, c_end, chunk_size_mb, media_resolution,
+                    thinking_level, thinking_budget, token_preview,
+                    attempt_history=attempt_history,
+                    error={"type": a2["error_class"], "reason": a2["error_message"], "model": model},
+                )
+
+    if a1["status"] == "error":
+        return _build_chunk_record(
+            i, c_start, c_end, chunk_size_mb, media_resolution,
+            thinking_level, thinking_budget, token_preview,
+            attempt_history=attempt_history,
+            error={"type": a1["error_class"], "reason": a1["error_message"], "model": model},
+        )
+
+    # --- We got text.  Check quality. ---
+    text = a1["text"]
+
+    # Loop detection
+    loop_issue = _detect_loop_issue(text, loop_max_line_length)
+    if loop_issue:
+        log(f"{label} Loop detected ({loop_issue['reason']}); retrying with temp={retry_temperature}...")
+        retry_prompt = build_prompt([], prev_context=None, include_visual_brackets=not spoken_only) + "\n\n" + _retry_prompt()
+        a2 = _do_attempt(
+            attempt_model=model,
+            attempt_temp=retry_temperature,
+            attempt_prompt=retry_prompt,
+            attempt_label="retry (loop)",
+            reason="loop_retry",
+        )
+        attempt_history.append(a2)
+        if a2["status"] == "ok":
+            retried_loop = _detect_loop_issue(a2["text"], loop_max_line_length)
+            if retried_loop is None or _max_line_length(a2["text"]) < _max_line_length(text):
+                text = a2["text"]
+                a1 = a2
+                loop_issue = retried_loop
+        if loop_issue is not None:
+            return _build_chunk_record(
+                i, c_start, c_end, chunk_size_mb, media_resolution,
+                thinking_level, thinking_budget, token_preview,
+                attempt_history=attempt_history,
+                error={"type": "loop", "reason": loop_issue["reason"], "model": model, "details": loop_issue},
+            )
+
+    # Red-chunk QA
+    temp_record = {
+        "chunk": i, "chunk_start_s": c_start, "chunk_end_s": c_end, "text": text,
+        "chunk_size_mb": round(chunk_size_mb, 3),
+        "media_resolution": media_resolution,
+        "thinking_level": thinking_level,
+        "thinking_budget": thinking_budget,
+    }
+    qa_red = _red_chunk_report(temp_record)
+    if qa_red is not None:
+        log(f"{label} Red QA ({', '.join(qa_red['issue_codes'])}); retrying with temp={retry_temperature}...")
+        retry_prompt = build_prompt([], prev_context=None, include_visual_brackets=not spoken_only) + "\n\n" + _qa_retry_prompt(spoken_only=spoken_only)
+        a2 = _do_attempt(
+            attempt_model=model,
+            attempt_temp=retry_temperature,
+            attempt_prompt=retry_prompt,
+            attempt_label="retry (QA red)",
+            reason="qa_retry",
+        )
+        attempt_history.append(a2)
+        if a2["status"] == "ok":
+            retry_loop = _detect_loop_issue(a2["text"], loop_max_line_length)
+            retry_temp_record = dict(temp_record)
+            retry_temp_record["text"] = a2["text"]
+            retry_qa = _red_chunk_report(retry_temp_record)
+            if retry_loop is None and retry_qa is None:
+                text = a2["text"]
+                a1 = a2
+                qa_red = None
+        if qa_red is not None:
+            return _build_chunk_record(
+                i, c_start, c_end, chunk_size_mb, media_resolution,
+                thinking_level, thinking_budget, token_preview,
+                attempt_history=attempt_history,
+                error={"type": "qa_red", "reason": ", ".join(qa_red["issue_codes"]), "model": model, "details": qa_red},
+            )
+
+    # --- Success ---
+    return _build_chunk_record(
+        i, c_start, c_end, chunk_size_mb, media_resolution,
+        thinking_level, thinking_budget, token_preview,
+        text=text,
+        attempt_history=attempt_history,
+        model_used=a1.get("model", model),
+        usage_metadata=a1.get("usage_metadata"),
+        response_id=a1.get("response_id"),
+        model_version=a1.get("model_version"),
+    )
+
+
+def _build_chunk_record(
+    chunk_index: int,
+    c_start: float,
+    c_end: float,
+    chunk_size_mb: float,
+    media_resolution: str,
+    thinking_level: str,
+    thinking_budget: int | None,
+    token_preview: dict | None,
+    *,
+    text: str | None = None,
+    attempt_history: list[dict] | None = None,
+    error: dict | None = None,
+    model_used: str | None = None,
+    usage_metadata: dict | None = None,
+    response_id: str | None = None,
+    model_version: str | None = None,
+) -> dict:
+    record: dict[str, Any] = {
+        "chunk": chunk_index,
+        "chunk_start_s": c_start,
+        "chunk_end_s": c_end,
+        "chunk_size_mb": round(chunk_size_mb, 3),
+        "media_resolution": media_resolution,
+        "thinking_level": thinking_level,
+        "thinking_budget": thinking_budget,
+    }
+    if text is not None:
+        record["text"] = text
+    if model_used:
+        record["model_used"] = model_used
+    if token_preview:
+        record["prompt_token_preview"] = token_preview
+    if usage_metadata is not None:
+        record["usage_metadata"] = usage_metadata
+    if response_id:
+        record["response_id"] = response_id
+    if model_version:
+        record["model_version"] = model_version
+    if attempt_history:
+        # Strip text from the attempt whose output was chosen as the top-level
+        # text — it's already there and duplicating it is just noise.  Keep text
+        # on failed/superseded attempts so the audit trail shows what changed.
+        cleaned = []
+        for a in attempt_history:
+            if text is not None and a.get("text") == text:
+                a = {k: v for k, v in a.items() if k != "text"}
+            cleaned.append(a)
+        record["attempt_history"] = cleaned
+    if error:
+        record["error"] = error
+    return record
+
+
+# ---------------------------------------------------------------------------
+# Concurrent orchestrator
+# ---------------------------------------------------------------------------
+
 def run_video_transcription(
     *,
     video_path: str,
@@ -290,6 +787,9 @@ def run_video_transcription(
     output_price_per_million: float | None,
     api_key: str = "",
     vertex: bool = False,
+    concurrency: int = 5,
+    fallback_models: list[str] | None = None,
+    rpm: int = 5,
 ):
     run = start_run("transcribe_gemini_video")
     requested_output = Path(output_path)
@@ -308,6 +808,9 @@ def run_video_transcription(
         stem = requested_output.stem
         raw_json_path = str(out_dir / f"{stem}_gemini_raw.json")
         preview_json_path = str(out_dir / f"{stem}_gemini_cost_preview.json")
+
+    chunks_dir = _chunks_dir_for_raw(raw_json_path)
+
     pricing = _pricing_for_model(model, input_price_per_million, output_price_per_million)
     if (
         (preview_cost or count_tokens)
@@ -335,9 +838,19 @@ def run_video_transcription(
         chunk_bounds = _default_chunk_bounds(duration, chunk_seconds)
     chunk_plan = describe_chunk_plan(chunk_json, chunk_bounds) if chunk_json else None
 
+    # Rolling context is incompatible with concurrency
+    effective_concurrency = max(1, concurrency)
+    if effective_concurrency > 1 and rolling_context_chunks > 0:
+        log(f"Note: rolling_context_chunks={rolling_context_chunks} is ignored in concurrent mode (concurrency={effective_concurrency}).")
+        rolling_context_chunks = 0
+
     log(f"Video: {video_path}")
     log(f"Output: {output_path}")
+    log(f"Chunks dir: {chunks_dir}")
     log(f"Duration: {duration:.1f}s")
+    log(f"Concurrency: {effective_concurrency} workers, {rpm} RPM")
+    if fallback_models:
+        log(f"Model chain: {model} -> {' -> '.join(fallback_models)}")
     if chunk_json:
         log(f"Chunks: {len(chunk_bounds)} from {chunk_json}")
         if chunk_plan is not None:
@@ -359,36 +872,395 @@ def run_video_transcription(
     if preview_cost:
         log("Preview mode: counting input tokens only; no transcription requests will be sent.")
 
-    all_chunks: list[dict] = []
-    preview_chunks: list[dict] = []
-    start_chunk = 0
-    if not preview_cost and os.path.exists(raw_json_path):
+    # --- Cost preview mode (sequential, like before) ---
+    if preview_cost:
+        _run_cost_preview(
+            video_path=video_path,
+            chunk_bounds=chunk_bounds,
+            model=model,
+            location=location,
+            fps=fps,
+            width=width,
+            audio_bitrate=audio_bitrate,
+            crf=crf,
+            max_inline_mb=max_inline_mb,
+            media_resolution=media_resolution,
+            thinking_level=thinking_level,
+            thinking_budget=thinking_budget,
+            api_key=api_key,
+            vertex=vertex,
+            pricing=pricing,
+            preview_json_path=preview_json_path,
+            raw_json_path=raw_json_path,
+            requested_output=requested_output,
+            run=run,
+            chunk_json=chunk_json,
+            chunk_plan=chunk_plan,
+            chunk_seconds=chunk_seconds,
+            rolling_context_chunks=rolling_context_chunks,
+            spoken_only=spoken_only,
+            preset_name=preset_name,
+            count_tokens=count_tokens,
+        )
+        return
+
+    # --- Resume from existing chunk files ---
+    existing_chunks = _load_chunk_files(chunks_dir)
+    done_indices: set[int] = set()
+
+    # Also check for an existing assembled JSON (backward compat with old runs)
+    if not existing_chunks and os.path.exists(raw_json_path):
         with open(raw_json_path, "r", encoding="utf-8") as f:
-            all_chunks = json.load(f)
-        red_chunks = []
-        for saved_chunk in all_chunks:
-            report = _red_chunk_report(saved_chunk)
-            if report is not None:
-                red_chunks.append({"chunk": report["chunk"], "issue_codes": report["issue_codes"], "reasons": report["reasons"]})
-        if red_chunks:
-            raise RuntimeError(
-                "Existing raw lineage contains red chunks; repair before resuming: "
-                + ", ".join(
-                    f"chunk {item['chunk']} ({'/'.join(item['issue_codes'])})"
-                    for item in red_chunks
-                )
+            old_chunks = json.load(f)
+        # Migrate old assembled format to per-chunk files
+        for c in old_chunks:
+            if c.get("text") and not c.get("error"):
+                _save_chunk_file(chunks_dir, c)
+        existing_chunks = _load_chunk_files(chunks_dir)
+        log(f"Migrated {len(existing_chunks)} chunks from existing assembled JSON to per-chunk files.")
+
+    # Check for red chunks in existing completed data
+    red_chunks = []
+    for saved_chunk in existing_chunks:
+        if saved_chunk.get("error"):
+            continue  # failed chunks from a previous run are retryable
+        report = _red_chunk_report(saved_chunk)
+        if report is not None:
+            red_chunks.append({"chunk": report["chunk"], "issue_codes": report["issue_codes"], "reasons": report["reasons"]})
+    if red_chunks:
+        raise RuntimeError(
+            "Existing raw lineage contains red chunks; repair before resuming: "
+            + ", ".join(
+                f"chunk {item['chunk']} ({'/'.join(item['issue_codes'])})"
+                for item in red_chunks
             )
-        done_chunks = set(c.get("chunk", 0) for c in all_chunks)
-        start_chunk = max(done_chunks) + 1 if done_chunks else 0
-        if start_chunk > 0:
-            log(f"Resuming from chunk {start_chunk + 1} ({len(all_chunks)} chunks already saved)")
+        )
+
+    # Find successfully completed chunks (those with text and no error)
+    for c in existing_chunks:
+        if c.get("text") and not c.get("error"):
+            done_indices.add(c["chunk"])
+    if done_indices:
+        log(f"Resuming: {len(done_indices)} chunks already completed, {len(chunk_bounds) - len(done_indices)} remaining")
+
+    # Figure out which chunks still need work
+    pending_indices = [i for i in range(len(chunk_bounds)) if i not in done_indices]
+    if stop_after_chunks > 0:
+        pending_indices = pending_indices[:stop_after_chunks]
+
+    if not pending_indices:
+        log("All chunks already completed.")
+    else:
+        # --- Run transcription passes ---
+        model_chain = [model] + (fallback_models or [])
+        remaining_indices = list(pending_indices)
+
+        for model_idx, current_model in enumerate(model_chain):
+            if not remaining_indices:
+                break
+
+            is_fallback = model_idx > 0
+            if is_fallback:
+                log()
+                log(f"=== Falling back to {current_model} for {len(remaining_indices)} remaining chunks ===")
+
+            results = _run_concurrent_pass(
+                indices=remaining_indices,
+                chunk_bounds=chunk_bounds,
+                video_path=video_path,
+                model=current_model,
+                location=location,
+                temperature=temperature,
+                retry_temperature=retry_temperature,
+                loop_max_line_length=loop_max_line_length,
+                spoken_only=spoken_only,
+                media_resolution=media_resolution,
+                thinking_level=thinking_level,
+                thinking_budget=thinking_budget,
+                fps=fps,
+                width=width,
+                audio_bitrate=audio_bitrate,
+                crf=crf,
+                max_inline_mb=max_inline_mb,
+                api_key=api_key,
+                vertex=vertex,
+                count_tokens=count_tokens,
+                input_price_per_million=input_price_per_million,
+                concurrency=effective_concurrency,
+                rpm=rpm,
+                chunks_dir=chunks_dir,
+            )
+
+            succeeded = []
+            failed_quota = []
+            failed_other = []
+
+            for r in results:
+                idx = r["chunk"]
+                if r.get("error"):
+                    err_type = r["error"].get("type", "")
+                    if err_type == "quota":
+                        failed_quota.append(idx)
+                    else:
+                        failed_other.append(idx)
+                else:
+                    succeeded.append(idx)
+
+            log()
+            log(f"Pass on {current_model}: {len(succeeded)} succeeded, {len(failed_quota)} quota-blocked, {len(failed_other)} failed")
+
+            # Remaining = only quota-blocked chunks advance to next model
+            remaining_indices = failed_quota
+
+            if failed_other:
+                log(f"Hard failures on chunks: {failed_other}")
+                log("These chunks need manual repair/splitting before the next run.")
+
+        if remaining_indices:
+            log(f"{len(remaining_indices)} chunks still quota-blocked with no more fallback models.")
+
+    # --- Assemble final JSON from chunk files ---
+    all_chunks = _assemble_raw_json(chunks_dir, raw_json_path)
+    if Path(raw_json_path).parent.name == "transcription":
+        update_preferred_manifest(Path(raw_json_path).parent, gemini_raw=Path(raw_json_path).name)
+
+    # --- Final summary ---
+    success_chunks = [c for c in all_chunks if c.get("text") and not c.get("error")]
+    error_chunks = [c for c in all_chunks if c.get("error")]
+
+    total_lines = sum(len([ln for ln in c.get("text", "").splitlines() if ln.strip()]) for c in success_chunks)
+    total_chars = sum(len(c.get("text", "")) for c in success_chunks)
+    usage_records = [c["usage_metadata"] for c in success_chunks if isinstance(c.get("usage_metadata"), dict)]
+    prompt_preview_tokens = sum(int((c.get("prompt_token_preview") or {}).get("total_tokens") or 0) for c in success_chunks)
+    prompt_preview_cost = _cost_for_tokens(prompt_preview_tokens or None, pricing.get("input_price_per_million_usd"))
+
+    models_used = {}
+    for c in success_chunks:
+        m = c.get("model_used", model)
+        models_used[m] = models_used.get(m, 0) + 1
+
+    metadata = finish_run(
+        run,
+        inputs={"video": video_path},
+        outputs={"video_gemini_json": raw_json_path, "chunks_dir": str(chunks_dir)},
+        settings={
+            "model": model,
+            "fallback_models": fallback_models or [],
+            "location": location,
+            "chunk_seconds": chunk_seconds,
+            "chunk_json": chunk_json,
+            "chunk_plan": chunk_plan,
+            "fps": fps,
+            "width": width,
+            "audio_bitrate": audio_bitrate,
+            "crf": crf,
+            "max_inline_mb": max_inline_mb,
+            "rolling_context_chunks": rolling_context_chunks,
+            "temperature": temperature,
+            "retry_temperature": retry_temperature,
+            "loop_max_line_length": loop_max_line_length,
+            "concurrency": effective_concurrency,
+            "rpm": rpm,
+            "stop_after_chunks": stop_after_chunks,
+            "spoken_only": spoken_only,
+            "preset": preset_name,
+            "media_resolution": media_resolution,
+            "thinking_level": thinking_level,
+            "thinking_budget": thinking_budget,
+            "preview_cost": preview_cost,
+            "count_tokens": count_tokens,
+            "pricing": pricing,
+            "requested_output_anchor": str(requested_output),
+        },
+        stats={
+            "duration_seconds": round(duration, 3),
+            "chunks_total": len(chunk_bounds),
+            "chunks_succeeded": len(success_chunks),
+            "chunks_failed": len(error_chunks),
+            "models_used": models_used,
+            "lines": total_lines,
+            "characters": total_chars,
+            "prompt_token_preview_count": prompt_preview_tokens if count_tokens else None,
+            "prompt_token_preview_cost_usd": _round_cost(prompt_preview_cost) if count_tokens else None,
+            "usage": _usage_cost_summary(usage_records, pricing),
+        },
+    )
+    write_metadata(raw_json_path, metadata)
+    if Path(raw_json_path).parent.name == "transcription":
+        update_preferred_manifest(Path(raw_json_path).parent, gemini_raw=Path(raw_json_path).name)
+
+    log()
+    log(f"Saved: {raw_json_path}")
+    log(f"Chunks dir: {chunks_dir}")
+    log(f"Metadata written: {metadata_path(raw_json_path)}")
+    log(f"Chunks: {len(success_chunks)}/{len(chunk_bounds)} succeeded")
+    if models_used:
+        log(f"Models used: {models_used}")
+    if error_chunks:
+        log(f"Failed chunks: {[c['chunk'] for c in error_chunks]}")
+        log("Run again to retry, or repair/split failed chunks first.")
+
+
+def _run_concurrent_pass(
+    *,
+    indices: list[int],
+    chunk_bounds: list[tuple[float, float]],
+    video_path: str,
+    model: str,
+    location: str,
+    temperature: float,
+    retry_temperature: float,
+    loop_max_line_length: int,
+    spoken_only: bool,
+    media_resolution: str,
+    thinking_level: str,
+    thinking_budget: int | None,
+    fps: float,
+    width: int | None,
+    audio_bitrate: str,
+    crf: int,
+    max_inline_mb: float,
+    api_key: str,
+    vertex: bool,
+    count_tokens: bool,
+    input_price_per_million: float | None,
+    concurrency: int,
+    rpm: int,
+    chunks_dir: Path,
+) -> list[dict]:
+    """Run a concurrent transcription pass over the given chunk indices.
+
+    Returns a list of chunk records (one per index).  Each record is either
+    a success (has 'text', no 'error') or a failure (has 'error').
+
+    Each completed chunk is saved to its own file immediately.
+    """
+    total = len(chunk_bounds)
+
+    # Detect quota exhaustion: if we see N consecutive quota errors across workers,
+    # stop sending new chunks on this model.
+    quota_exhausted = threading.Event()
+    consecutive_quota = [0]
+    quota_lock = threading.Lock()
+    QUOTA_THRESHOLD = 3  # stop after 3 consecutive quota errors
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        completed_this_run = 0
-        for i, (c_start, c_end) in enumerate(chunk_bounds):
-            if i < start_chunk:
-                continue
+        rate_limiter = _RateLimiter(rpm)
 
+        # Bridge: synchronous callable that blocks until rate limiter allows.
+        # Called from worker threads; internally runs the async acquire.
+        _rl_loop = asyncio.new_event_loop()
+        _rl_thread = threading.Thread(target=_rl_loop.run_forever, daemon=True)
+        _rl_thread.start()
+
+        def sync_acquire():
+            future = asyncio.run_coroutine_threadsafe(rate_limiter.acquire(), _rl_loop)
+            future.result()
+
+        def process_chunk(idx: int) -> dict:
+            if quota_exhausted.is_set():
+                c_start, c_end = chunk_bounds[idx]
+                record = _build_chunk_record(
+                    idx, c_start, c_end, 0.0, media_resolution,
+                    thinking_level, thinking_budget, None,
+                    error={"type": "quota", "reason": "skipped — model quota exhausted", "model": model},
+                )
+                _save_chunk_file(chunks_dir, record)
+                return record
+
+            c_start, c_end = chunk_bounds[idx]
+            record = _transcribe_single_chunk(
+                chunk_index=idx,
+                total_chunks=total,
+                video_path=video_path,
+                c_start=c_start,
+                c_end=c_end,
+                tmpdir=tmpdir,
+                model=model,
+                location=location,
+                temperature=temperature,
+                retry_temperature=retry_temperature,
+                loop_max_line_length=loop_max_line_length,
+                spoken_only=spoken_only,
+                media_resolution=media_resolution,
+                thinking_level=thinking_level,
+                thinking_budget=thinking_budget,
+                fps=fps,
+                width=width,
+                audio_bitrate=audio_bitrate,
+                crf=crf,
+                max_inline_mb=max_inline_mb,
+                api_key=api_key,
+                vertex=vertex,
+                count_tokens=count_tokens,
+                input_price_per_million=input_price_per_million,
+                rate_limiter_acquire=sync_acquire,
+            )
+
+            # Save immediately to per-chunk file
+            _save_chunk_file(chunks_dir, record)
+
+            # Track quota exhaustion
+            err = record.get("error")
+            if err and err.get("type") == "quota":
+                with quota_lock:
+                    consecutive_quota[0] += 1
+                    if consecutive_quota[0] >= QUOTA_THRESHOLD:
+                        quota_exhausted.set()
+                        log(f"Model {model} quota appears exhausted after {consecutive_quota[0]} consecutive quota errors.")
+            else:
+                with quota_lock:
+                    consecutive_quota[0] = 0
+
+            return record
+
+        executor = ThreadPoolExecutor(max_workers=concurrency)
+        try:
+            futures = [executor.submit(process_chunk, idx) for idx in indices]
+            results = [f.result() for f in futures]
+        finally:
+            executor.shutdown(wait=False)
+            _rl_loop.call_soon_threadsafe(_rl_loop.stop)
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Cost preview (unchanged, still sequential)
+# ---------------------------------------------------------------------------
+
+def _run_cost_preview(
+    *,
+    video_path: str,
+    chunk_bounds: list[tuple[float, float]],
+    model: str,
+    location: str,
+    fps: float,
+    width: int | None,
+    audio_bitrate: str,
+    crf: int,
+    max_inline_mb: float,
+    media_resolution: str,
+    thinking_level: str,
+    thinking_budget: int | None,
+    api_key: str,
+    vertex: bool,
+    pricing: dict,
+    preview_json_path: str,
+    raw_json_path: str,
+    requested_output: Path,
+    run: dict,
+    chunk_json: str,
+    chunk_plan: dict | None,
+    chunk_seconds: float,
+    rolling_context_chunks: int,
+    spoken_only: bool,
+    preset_name: str | None,
+    count_tokens: bool,
+):
+    preview_chunks: list[dict] = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for i, (c_start, c_end) in enumerate(chunk_bounds):
             chunk_path = os.path.join(tmpdir, f"chunk_{i}.mp4")
             log()
             log(f"--- Chunk {i + 1}/{len(chunk_bounds)} ---")
@@ -404,7 +1276,6 @@ def run_video_transcription(
                 audio_bitrate=audio_bitrate,
                 crf=crf,
             )
-
             chunk_size_mb = Path(chunk_path).stat().st_size / (1024 * 1024)
             log(f"Chunk size: {chunk_size_mb:.2f} MB")
             if chunk_size_mb > max_inline_mb:
@@ -412,307 +1283,87 @@ def run_video_transcription(
                     f"Chunk {i} encoded to {chunk_size_mb:.2f} MB, above inline target {max_inline_mb:.2f} MB"
                 )
 
-            prompt = build_prompt(
-                [],
-                prev_context=_rolling_prev_context(all_chunks, i, rolling_context_chunks),
-                include_visual_brackets=not spoken_only,
-            )
+            prompt = build_prompt([], prev_context=None, include_visual_brackets=not spoken_only)
             video_bytes = Path(chunk_path).read_bytes()
-            token_preview = None
-            if count_tokens or preview_cost:
-                log("Counting prompt tokens...")
-                token_preview = count_request_tokens(
-                    video_bytes,
-                    prompt,
-                    model,
-                    location,
-                    mime_type="video/mp4",
-                    media_resolution=media_resolution,
-                    thinking_level=thinking_level,
-                    thinking_budget=thinking_budget,
-                    api_key=api_key,
-                    vertex=vertex,
-                )
-                token_total = token_preview.get("total_tokens")
-                token_cost = _cost_for_tokens(token_total, pricing.get("input_price_per_million_usd"))
-                log(
-                    "Prompt tokens: "
-                    f"{token_total if token_total is not None else 'unknown'}"
-                    + (
-                        f" (~${_round_cost(token_cost):.6f})"
-                        if token_cost is not None
-                        else ""
-                    )
-                )
-            if preview_cost:
-                preview_chunks.append(
-                    {
-                        "chunk": i,
-                        "chunk_start_s": c_start,
-                        "chunk_end_s": c_end,
-                        "chunk_size_mb": round(chunk_size_mb, 3),
-                        "media_resolution": media_resolution,
-                        "prompt_token_preview": token_preview,
-                        "estimated_input_cost_usd": _round_cost(
-                            _cost_for_tokens(
-                                token_preview.get("total_tokens") if token_preview else None,
-                                pricing.get("input_price_per_million_usd"),
-                            )
-                        ),
-                    }
-                )
-                with open(preview_json_path, "w", encoding="utf-8") as f:
-                    json.dump(
-                        {
-                            "video": video_path,
-                            "model": model,
-                            "media_resolution": media_resolution,
-                            "pricing": pricing,
-                            "chunks": preview_chunks,
-                        },
-                        f,
-                        ensure_ascii=False,
-                        indent=2,
-                    )
-                continue
-
-            log("Sending video chunk to Gemini...")
-            result = transcribe_chunk_result(
+            log("Counting prompt tokens...")
+            token_preview = count_request_tokens(
                 video_bytes,
                 prompt,
                 model,
                 location,
-                max_retries=max_request_retries,
-                temperature=temperature,
                 mime_type="video/mp4",
                 media_resolution=media_resolution,
                 thinking_level=thinking_level,
                 thinking_budget=thinking_budget,
                 api_key=api_key,
                 vertex=vertex,
-                max_timeout_errors=max_timeout_errors,
-                max_rate_limit_errors=max_rate_limit_errors,
             )
-            text = result["text"]
-            retry_events = []
-            issue = _detect_loop_issue(text, loop_max_line_length)
-            if issue:
-                log(f"Detected loop-like chunk output ({issue['reason']}); retrying with temp={retry_temperature:.2f} and no rolling context...")
-                retry_prompt = build_prompt([], prev_context=None, include_visual_brackets=not spoken_only) + "\n\n" + _retry_prompt()
-                retried_result = transcribe_chunk_result(
-                    video_bytes,
-                    retry_prompt,
-                    model,
-                    location,
-                    max_retries=max_request_retries,
-                    temperature=retry_temperature,
-                    mime_type="video/mp4",
-                    media_resolution=media_resolution,
-                    thinking_level=thinking_level,
-                    thinking_budget=thinking_budget,
-                    api_key=api_key,
-                    vertex=vertex,
-                    max_timeout_errors=max_timeout_errors,
-                    max_rate_limit_errors=max_rate_limit_errors,
+            token_total = token_preview.get("total_tokens")
+            token_cost = _cost_for_tokens(token_total, pricing.get("input_price_per_million_usd"))
+            log(
+                "Prompt tokens: "
+                f"{token_total if token_total is not None else 'unknown'}"
+                + (
+                    f" (~${_round_cost(token_cost):.6f})"
+                    if token_cost is not None
+                    else ""
                 )
-                retried = retried_result["text"]
-                retry_issue = _detect_loop_issue(retried, loop_max_line_length)
-                retry_event = {
-                    "kind": "loop_retry",
-                    "trigger": issue,
-                    "retry_temperature": retry_temperature,
-                    "retry_issue": retry_issue,
-                    "retry_used": retry_issue is None or _max_line_length(retried) < _max_line_length(text),
-                    "retry_usage_metadata": retried_result.get("usage_metadata"),
-                    "retry_response_id": retried_result.get("response_id"),
-                    "retry_model_version": retried_result.get("model_version"),
-                }
-                retry_events.append(retry_event)
-                if retry_event["retry_used"]:
-                    text = retried
-                    result = retried_result
-                    issue = retry_issue
-                if issue is not None:
-                    raise RuntimeError(
-                        f"Chunk {i} output remained suspicious after retry ({issue['reason']}); "
-                        "shorten the chunk or change model before continuing."
-                    )
-
-            chunk_record = {
-                "chunk": i,
-                "chunk_start_s": c_start,
-                "chunk_end_s": c_end,
-                "text": text,
-                "chunk_size_mb": round(chunk_size_mb, 3),
-                "media_resolution": media_resolution,
-                "thinking_level": thinking_level,
-                "thinking_budget": thinking_budget,
-            }
-            qa_red = _red_chunk_report(chunk_record)
-            if qa_red is not None:
-                log(
-                    "Chunk failed transcript QA "
-                    f"({', '.join(qa_red['issue_codes'])}); retrying with temp={retry_temperature:.2f} and no rolling context..."
-                )
-                retry_prompt = build_prompt([], prev_context=None, include_visual_brackets=not spoken_only) + "\n\n" + _qa_retry_prompt(spoken_only=spoken_only)
-                retried_result = transcribe_chunk_result(
-                    video_bytes,
-                    retry_prompt,
-                    model,
-                    location,
-                    max_retries=max_request_retries,
-                    temperature=retry_temperature,
-                    mime_type="video/mp4",
-                    media_resolution=media_resolution,
-                    thinking_level=thinking_level,
-                    thinking_budget=thinking_budget,
-                    api_key=api_key,
-                    vertex=vertex,
-                    max_timeout_errors=max_timeout_errors,
-                    max_rate_limit_errors=max_rate_limit_errors,
-                )
-                retried = retried_result["text"]
-                retry_loop_issue = _detect_loop_issue(retried, loop_max_line_length)
-                retry_chunk_record = dict(chunk_record)
-                retry_chunk_record["text"] = retried
-                retry_qa_red = _red_chunk_report(retry_chunk_record)
-                retry_event = {
-                    "kind": "qa_retry",
-                    "trigger": qa_red,
-                    "retry_temperature": retry_temperature,
-                    "retry_loop_issue": retry_loop_issue,
-                    "retry_issue": retry_qa_red,
-                    "retry_used": retry_loop_issue is None and retry_qa_red is None,
-                    "retry_usage_metadata": retried_result.get("usage_metadata"),
-                    "retry_response_id": retried_result.get("response_id"),
-                    "retry_model_version": retried_result.get("model_version"),
-                }
-                retry_events.append(retry_event)
-                if retry_event["retry_used"]:
-                    text = retried
-                    result = retried_result
-                    chunk_record = retry_chunk_record
-                else:
-                    if retry_loop_issue is not None:
-                        raise RuntimeError(
-                            f"Chunk {i} QA retry fell into a loop-like output ({retry_loop_issue['reason']}); "
-                            "repair or split the chunk before continuing."
+            )
+            preview_chunks.append(
+                {
+                    "chunk": i,
+                    "chunk_start_s": c_start,
+                    "chunk_end_s": c_end,
+                    "chunk_size_mb": round(chunk_size_mb, 3),
+                    "media_resolution": media_resolution,
+                    "prompt_token_preview": token_preview,
+                    "estimated_input_cost_usd": _round_cost(
+                        _cost_for_tokens(
+                            token_preview.get("total_tokens") if token_preview else None,
+                            pricing.get("input_price_per_million_usd"),
                         )
-                    raise RuntimeError(
-                        f"Chunk {i} remained red after QA retry ({', '.join(retry_qa_red['issue_codes'])}); "
-                        "repair or split the chunk before continuing."
-                    )
-
-            line_count = len([ln for ln in text.splitlines() if ln.strip()])
-            log(f"Result: {line_count} lines, {len(text)} chars")
-            if result.get("usage_metadata"):
-                usage = result["usage_metadata"]
-                log(
-                    "Usage: "
-                    f"prompt={usage.get('prompt_token_count')} "
-                    f"output={usage.get('candidates_token_count')} "
-                    f"total={usage.get('total_token_count')}"
+                    ),
+                }
+            )
+            with open(preview_json_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "video": video_path,
+                        "model": model,
+                        "media_resolution": media_resolution,
+                        "pricing": pricing,
+                        "chunks": preview_chunks,
+                    },
+                    f,
+                    ensure_ascii=False,
+                    indent=2,
                 )
 
-            chunk_record = {
-                "chunk": i,
-                "chunk_start_s": c_start,
-                "chunk_end_s": c_end,
-                "text": text,
-                "chunk_size_mb": round(chunk_size_mb, 3),
-                "media_resolution": media_resolution,
-                "thinking_level": thinking_level,
-                "thinking_budget": thinking_budget,
-            }
-            if token_preview:
-                chunk_record["prompt_token_preview"] = token_preview
-            if result.get("usage_metadata") is not None:
-                chunk_record["usage_metadata"] = result["usage_metadata"]
-            if result.get("response_id"):
-                chunk_record["response_id"] = result["response_id"]
-            if result.get("model_version"):
-                chunk_record["model_version"] = result["model_version"]
-            if retry_events:
-                chunk_record["retries"] = retry_events
-                chunk_record["retry"] = retry_events[-1]
-            all_chunks.append(chunk_record)
-
-            with open(raw_json_path, "w", encoding="utf-8") as f:
-                json.dump(all_chunks, f, ensure_ascii=False, indent=2)
-            if Path(raw_json_path).parent.name == "transcription":
-                update_preferred_manifest(Path(raw_json_path).parent, gemini_raw=Path(raw_json_path).name)
-            completed_this_run += 1
-            if stop_after_chunks > 0 and completed_this_run >= stop_after_chunks:
-                log(f"Stopping after {completed_this_run} newly completed chunks as requested.")
-                break
-
-    if preview_cost:
-        preview_prompt_tokens = sum(
-            int((c.get("prompt_token_preview") or {}).get("total_tokens") or 0) for c in preview_chunks
-        )
-        preview_input_cost = _cost_for_tokens(preview_prompt_tokens or None, pricing.get("input_price_per_million_usd"))
-        preview_payload = {
-            "video": video_path,
-            "model": model,
-            "media_resolution": media_resolution,
-            "thinking_level": thinking_level,
-            "thinking_budget": thinking_budget,
-            "pricing": pricing,
-            "summary": {
-                "chunks": len(preview_chunks),
-                "prompt_token_count": preview_prompt_tokens,
-                "estimated_input_cost_usd": _round_cost(preview_input_cost),
-                "note": "Preflight token counting is exact for the request payload. Output tokens cannot be known before generation.",
-            },
-            "chunks": preview_chunks,
-        }
-        with open(preview_json_path, "w", encoding="utf-8") as f:
-            json.dump(preview_payload, f, ensure_ascii=False, indent=2)
-        metadata = finish_run(
-            run,
-            inputs={"video": video_path},
-            outputs={"cost_preview_json": preview_json_path},
-            settings={
-                "model": model,
-                "location": location,
-                "chunk_seconds": chunk_seconds,
-                "chunk_json": chunk_json,
-                "chunk_plan": chunk_plan,
-                "fps": fps,
-                "width": width,
-                "audio_bitrate": audio_bitrate,
-                "crf": crf,
-                "max_inline_mb": max_inline_mb,
-                "rolling_context_chunks": rolling_context_chunks,
-                "spoken_only": spoken_only,
-                "preset": preset_name,
-                "media_resolution": media_resolution,
-                "thinking_level": thinking_level,
-                "thinking_budget": thinking_budget,
-                "preview_cost": preview_cost,
-                "count_tokens": count_tokens,
-                "pricing": pricing,
-                "requested_output_anchor": str(requested_output),
-            },
-            stats=preview_payload["summary"],
-        )
-        write_metadata(preview_json_path, metadata)
-        if Path(preview_json_path).parent.name == "transcription":
-            update_preferred_manifest(Path(preview_json_path).parent, gemini_cost_preview=Path(preview_json_path).name)
-        log(f"Saved cost preview: {preview_json_path}")
-        log(f"Metadata written: {metadata_path(preview_json_path)}")
-        return
-
-    total_lines = sum(len([ln for ln in c.get("text", "").splitlines() if ln.strip()]) for c in all_chunks)
-    total_chars = sum(len(c.get("text", "")) for c in all_chunks)
-    usage_records = [c["usage_metadata"] for c in all_chunks if isinstance(c.get("usage_metadata"), dict)]
-    prompt_preview_tokens = sum(int((c.get("prompt_token_preview") or {}).get("total_tokens") or 0) for c in all_chunks)
-    prompt_preview_cost = _cost_for_tokens(prompt_preview_tokens or None, pricing.get("input_price_per_million_usd"))
-
+    preview_prompt_tokens = sum(
+        int((c.get("prompt_token_preview") or {}).get("total_tokens") or 0) for c in preview_chunks
+    )
+    preview_input_cost = _cost_for_tokens(preview_prompt_tokens or None, pricing.get("input_price_per_million_usd"))
+    preview_payload = {
+        "video": video_path,
+        "model": model,
+        "media_resolution": media_resolution,
+        "thinking_level": thinking_level,
+        "thinking_budget": thinking_budget,
+        "pricing": pricing,
+        "summary": {
+            "chunks": len(preview_chunks),
+            "prompt_token_count": preview_prompt_tokens,
+            "estimated_input_cost_usd": _round_cost(preview_input_cost),
+            "note": "Preflight token counting is exact for the request payload. Output tokens cannot be known before generation.",
+        },
+        "chunks": preview_chunks,
+    }
+    with open(preview_json_path, "w", encoding="utf-8") as f:
+        json.dump(preview_payload, f, ensure_ascii=False, indent=2)
     metadata = finish_run(
         run,
         inputs={"video": video_path},
-        outputs={"video_gemini_json": raw_json_path},
+        outputs={"cost_preview_json": preview_json_path},
         settings={
             "model": model,
             "location": location,
@@ -720,43 +1371,28 @@ def run_video_transcription(
             "chunk_json": chunk_json,
             "chunk_plan": chunk_plan,
             "fps": fps,
-            "width": width,
-            "audio_bitrate": audio_bitrate,
-            "crf": crf,
-            "max_inline_mb": max_inline_mb,
+            "width": None,
+            "audio_bitrate": "24k",
+            "crf": 36,
+            "max_inline_mb": 14.0,
             "rolling_context_chunks": rolling_context_chunks,
-            "temperature": temperature,
-            "retry_temperature": retry_temperature,
-            "loop_max_line_length": loop_max_line_length,
-            "max_request_retries": max_request_retries,
-            "max_timeout_errors": max_timeout_errors,
-            "max_rate_limit_errors": max_rate_limit_errors,
-            "stop_after_chunks": stop_after_chunks,
             "spoken_only": spoken_only,
             "preset": preset_name,
             "media_resolution": media_resolution,
             "thinking_level": thinking_level,
             "thinking_budget": thinking_budget,
-            "preview_cost": preview_cost,
+            "preview_cost": True,
             "count_tokens": count_tokens,
             "pricing": pricing,
             "requested_output_anchor": str(requested_output),
         },
-        stats={
-            "duration_seconds": round(duration, 3),
-            "chunks": len(all_chunks),
-            "lines": total_lines,
-            "characters": total_chars,
-            "prompt_token_preview_count": prompt_preview_tokens if count_tokens else None,
-            "prompt_token_preview_cost_usd": _round_cost(prompt_preview_cost) if count_tokens else None,
-            "usage": _usage_cost_summary(usage_records, pricing),
-        },
+        stats=preview_payload["summary"],
     )
-    write_metadata(raw_json_path, metadata)
-    if Path(raw_json_path).parent.name == "transcription":
-        update_preferred_manifest(Path(raw_json_path).parent, gemini_raw=Path(raw_json_path).name)
-    log(f"Saved: {raw_json_path}")
-    log(f"Metadata written: {metadata_path(raw_json_path)}")
+    write_metadata(preview_json_path, metadata)
+    if Path(preview_json_path).parent.name == "transcription":
+        update_preferred_manifest(Path(preview_json_path).parent, gemini_cost_preview=Path(preview_json_path).name)
+    log(f"Saved cost preview: {preview_json_path}")
+    log(f"Metadata written: {metadata_path(preview_json_path)}")
 
 
 def main():
@@ -803,6 +1439,23 @@ def main():
         type=int,
         default=0,
         help="Stop cleanly after writing this many newly completed chunks. Useful for one-chunk smoke tests.",
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=None,
+        help="Max concurrent chunk workers (default: 5). Use 1 for sequential mode.",
+    )
+    parser.add_argument(
+        "--rpm",
+        type=int,
+        default=None,
+        help="Max API requests per minute per model (default: 5, matching free tier).",
+    )
+    parser.add_argument(
+        "--fallback-models",
+        default=None,
+        help="Comma-separated fallback model chain for quota exhaustion (e.g. 'gemini-3-flash-preview,gemini-2.5-flash').",
     )
     prompt_mode = parser.add_mutually_exclusive_group()
     prompt_mode.add_argument(
@@ -867,6 +1520,10 @@ def main():
     if model_override is None and not args.preset:
         model_override = os.environ.get("GEMINI_MODEL")
 
+    fallback_models_override = None
+    if args.fallback_models is not None:
+        fallback_models_override = [m.strip() for m in args.fallback_models.split(",") if m.strip()]
+
     resolved, chosen_preset = resolve_settings(
         "transcribe_gemini_video",
         args.preset,
@@ -882,6 +1539,9 @@ def main():
             "max_request_retries": args.max_request_retries,
             "max_timeout_errors": args.max_timeout_errors,
             "max_rate_limit_errors": args.max_rate_limit_errors,
+            "concurrency": args.concurrency,
+            "fallback_models": fallback_models_override,
+            "rpm": args.rpm,
         },
     )
 
@@ -922,6 +1582,9 @@ def main():
         input_price_per_million=args.input_price_per_1m,
         output_price_per_million=args.output_price_per_1m,
         vertex=args.vertex,
+        concurrency=resolved["concurrency"],
+        fallback_models=resolved["fallback_models"],
+        rpm=resolved["rpm"],
     )
 
 

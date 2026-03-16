@@ -39,6 +39,8 @@ ROCm faster-whisper env defaults matter operationally.
 - faster-whisper on ROCm should always run with `CT2_CUDA_ALLOCATOR=cub_caching`
 - forgetting that can turn a normal pre-pass into a GPU hang / allocator failure
 - helper scripts that invoke faster-whisper as part of a maintained workflow should set that env themselves instead of expecting the operator to remember it
+- Codex sandbox runs also need escalation before ROCm is actually visible; setting the env inside an already-started Python process is not enough to expose the device
+- for `ctranslate2` and `faster-whisper`, `LD_LIBRARY_PATH=/opt/rocm-7.2.0/lib` needs to be present when Python starts, not added later after import failures
 
 Semantic chunk review should also reuse pre-pass artifacts when possible.
 
@@ -51,6 +53,13 @@ Hard-max chunking also needs a short-gap fallback before true forced splits.
 - a dense dialogue span on `great_escape_s02e03` had no `>=1.5s` silence gap late enough to stay under the hard max
 - both the plain VAD path and semantic finalize would otherwise cut through active speech at the hard cap
 - the better fallback is to accept a shorter real silence gap, down to about `0.75s`, before ever inserting a mid-speech split
+
+Spoken-only Gemini chunks can occasionally volunteer visual prompt text even when the base prompt did not ask for `[画面: ...]` lines.
+
+- on `great_escape_s02e05`, a spoken-only chunk leaked `[画面: クロちゃんの現在の貯金額を答えよ]`
+- this was rare, and not enough evidence by itself to justify a broader spoken-only prompt rewrite
+- but it is important to remember during transcript review, because one leaked visual line can become a bad English subtitle later if nobody catches it
+- treat this as a manual review watchpoint, especially around obvious on-screen prompt cards and quiz text
 
 ### 2. CTC forced alignment replaced stable-ts and nearly eliminated stranded words
 
@@ -1019,16 +1028,30 @@ Most likely direction:
 
 This still needs a concrete simplification pass before it should be treated as the stable OCR-assisted default.
 
-### 5. Video-only transcription still needs automatic loop recovery baked into the maintained pipeline
+### 5. Sequential retry loops waste time — concurrent chunk-first is better
 
-The retry logic exists in the dedicated video script experiments, but the broader maintained path still needs a fully settled policy.
+The original sequential transcription loop spent too much time retrying one bad chunk before knowing the episode-wide failure pattern. On episodes with fragile models or quota limits, this meant:
 
-Current best behavior:
+- minutes spent in backoff loops on a single chunk while other chunks sat idle
+- quota used up on retries instead of getting a first pass across all chunks
+- no visibility into whether a failure was chunk-local or episode-wide until very late
 
-- detect loop-like output per chunk
-- retry only the failed chunk
-- slightly higher temperature on retry
-- no rolling context on retry
+The concurrent redesign (March 2026) fixes this:
+
+- 5 concurrent workers by default, RPM-limited to 5 req/min (free-tier ceiling)
+- per-chunk results saved to individual files for concurrent-safe writes and trivial resume
+- tight retry policy: one attempt + one retry per chunk per model (not 8 internal retries)
+- transient errors (network, 500) get one same-settings retry
+- quality errors (loop, red QA, timeout) get one retry with temperature bump to `0.1`
+- quota errors trigger immediate model fallback, not retry
+- the full first pass completes across all chunks before spending more effort
+- rolling context is disabled in concurrent mode (chunks run out of order)
+
+Tradeoff: losing rolling context means slightly less continuity between adjacent chunks. In practice, rolling context was already set to 0 on fragile models and the quality impact was minimal. Robust chunk completion across the full episode matters more than inter-chunk continuity hints.
+
+The old retry policy still exists in `transcribe_gemini.py` for `max_retries` in the low-level API call, but the orchestrator now passes `max_retries=1` so the outer policy controls everything.
+
+Previous retry-focused findings (still relevant for understanding the behavior):
 
 New failure mode from `great_escape_s02e01` on `gemini-3.1-flash-lite-preview`:
 

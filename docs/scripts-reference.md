@@ -104,7 +104,7 @@ Lineage artifact naming:
 
 | Script | Purpose | Status |
 |---|---|---|
-| `transcribe_gemini_video.py` | Gemini video-only transcription (sends compressed video inline, no OCR needed) | Maintained |
+| `transcribe_gemini_video.py` | Gemini video-only transcription with bounded concurrency, quota-aware model fallback, and tight retry policy (sends compressed video inline, no OCR needed) | Maintained |
 | `transcribe_gemini_raw.py` | Gemini audio transcription with chunk-wise local OCR context | Maintained |
 | `transcribe_gemini.py` | Gemini transcription (JSON schema mode, used by `transcribe_pipeline.py`) | Maintained |
 | `transcribe_pipeline.py` | Integrated pipeline: VAD → Gemini → alignment → reflow | Maintained |
@@ -115,10 +115,20 @@ Lineage artifact naming:
 
 When `transcribe_gemini_video.py` writes into an episode `transcription/` directory, it now emits short run-ID lineage artifacts and updates `transcription/preferred.json`.
 
+Concurrency and retry behavior:
+
+- `--concurrency N` (default 5): run N chunk workers simultaneously. Use `--concurrency 1` for sequential mode.
+- `--rpm N` (default 5): RPM rate limiter enforcing the free-tier ceiling of 5 requests/minute per model. Workers block on the rate limiter before each API call.
+- `--fallback-models`: comma-separated model chain for quota exhaustion (e.g. `gemini-3-flash-preview,gemini-2.5-flash`). When the primary model's quota is exhausted, remaining unsaved chunks automatically continue on the next model.
+- Per-chunk results are saved to individual files in a run-ID folder under `transcription/chunks/<run_id>/`; the assembled JSON is built at the end. This makes concurrent writes safe and resume trivial (each chunk is independently resumable).
+- Rolling context (`--rolling-context-chunks`) is automatically disabled when concurrency > 1 since chunks run out of order.
+- Retry policy per chunk: one normal attempt, then one retry. Transient errors (network, 500) retry with the same settings. Quality/timeout errors (loop, red QA, DEADLINE_EXCEEDED) retry with `retry_temperature`. Quota errors (429/RESOURCE_EXHAUSTED) are not retried — they trigger the fallback model chain instead.
+- Failed chunks are recorded as error records with full `attempt_history`. Other chunks still proceed. Re-running the same command skips completed chunks and retries failed ones.
+
 Named presets:
 
-- `flash25_free_default` — maintained `2.5-flash` transcript preset with `spoken_only`, `media_resolution=high`, and no thinking override
-- `flash_free_default` — maintained free-tier transcript preset
+- `flash25_free_default` — maintained `2.5-flash` transcript preset with `spoken_only`, `media_resolution=high`, concurrent, with `gemini-3-flash-preview` fallback
+- `flash_free_default` — maintained free-tier transcript preset with concurrent, `gemini-2.5-flash` fallback
 - `flash_visual_artifact` — same model family, but keeps selective visual `[画面: ...]` lines
 - `flashlite_debug_transcript` — cheap Flash Lite debug transcript preset with `spoken_only`, `media_resolution=high`, `rolling_context_chunks=0`, and bounded retries
 - `pro_quality_video` — higher-quality Pro video baseline
@@ -131,14 +141,13 @@ Named presets:
 - local inline chunk encoding now preserves source width by default; use `--width` only when you intentionally want a smaller upload
 - `--thinking-level {unspecified,minimal,low,medium,high}` and `--thinking-budget` expose Gemini thinking controls for transcription experiments.
 - `--stop-after-chunks N` cleanly stops after `N` newly completed chunks, which is useful for one-chunk smoke tests after changing model, prompt, or retry logic.
-- `--max-request-retries`, `--max-timeout-errors`, and `--max-rate-limit-errors` now bound how much one bad chunk can burn before the run stops resumably.
-- when `--chunk-json` is used, the script now logs a human-readable chunk-plan label plus min/avg/max duration stats instead of only echoing the raw filename.
-- interrupted runs now resume from the preferred raw lineage even when the last run did not finish writing a fresh `.meta.json` sidecar.
-- the maintained video path now also runs deterministic red-chunk QA in-run:
-  one red chunk gets one no-context retry, and the run stops resumably if the
-  chunk still fails
-- resume now refuses to continue from an existing raw lineage that already
-  contains red QA failures
+- `--max-request-retries`, `--max-timeout-errors`, and `--max-rate-limit-errors` are still accepted for backward compatibility but are largely superseded by the new per-chunk retry policy.
+- when `--chunk-json` is used, the script logs a human-readable chunk-plan label plus min/avg/max duration stats instead of only echoing the raw filename.
+- interrupted runs resume from the preferred raw lineage even when the last run did not finish writing a fresh `.meta.json` sidecar.
+- the maintained video path runs deterministic red-chunk QA in-run:
+  one red chunk gets one no-context retry at retry temperature
+- resume refuses to continue from an existing raw lineage that already
+  contains red QA failures (but error records from a previous incomplete run are retryable)
 
 Common chunk-plan names:
 
@@ -149,8 +158,9 @@ Common chunk-plan names:
 
 Operational guardrails:
 
-- suspiciously oversized chunk output now triggers a targeted retry and then a hard stop instead of being silently accepted
-- repeated timeout-heavy or rate-limit-heavy chunks now stop the run with a resumable partial JSON instead of sitting in long retry loops
+- suspiciously oversized chunk output triggers a targeted retry; if still bad, the chunk is recorded as failed and other chunks continue
+- quota exhaustion on the primary model triggers automatic fallback to the next model in the `fallback_models` chain
+- failed chunks are recorded with full `attempt_history` (model used, temperature, error class, timing) for inspectability
 - after code changes or a model switch, prefer `--stop-after-chunks 1` first to confirm the raw JSON is being checkpointed correctly before spending a full-episode run
 
 Important limitation:

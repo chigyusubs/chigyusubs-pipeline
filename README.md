@@ -160,12 +160,13 @@ mid-speech forced split.
 
 Current free-tier production rule:
 
-- run `gemini-2.5-flash` first on the canonical chunk plan
-- continue with `gemini-3-flash-preview` when `2.5-flash` RPD is exhausted
-- keep the same chunk plan and rolling context; use manual repair only for bad chunks
-- `transcribe_gemini_video.py` now also reuses the same QA rules in-run: one
-  `red` chunk gets one no-context retry, and if it stays `red` the run stops
-  resumably before rollover continues on poisoned context
+- run `gemini-3-flash-preview` first with 5 concurrent workers, RPM-limited to 5 req/min (`--preset flash_free_default`)
+- when Flash 3 quota is exhausted, automatically fall back to `gemini-2.5-flash` for remaining chunks
+- each chunk gets one attempt + one retry (transient=same settings, quality/timeout=temp bump)
+- the full first pass completes across all chunks before spending more effort on hard chunks
+- per-chunk results saved individually; assembled JSON built at the end
+- failed chunks are recorded as error records; re-running the command retries them
+- rolling context is disabled in concurrent mode
 
 If you want the older OCR-first path or manual experiment tooling, see:
 

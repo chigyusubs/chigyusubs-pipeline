@@ -196,10 +196,128 @@ If you need to choose where to invest next, prefer:
 
 Prefer evidence from real episode artifacts over theoretical prompt ideas.
 
+## End-to-End Episode Pipeline
+
+When the user asks to process an episode end-to-end, follow this sequence.
+The only required input is the video path. Infer the episode directory from it.
+
+All paths below use `<ep>` for the episode directory and `<stem>` for the
+run-ID-prefixed artifact stem that each step produces.
+
+### Phase 1 — Semantic chunking (interactive)
+
+```bash
+PYTHONPATH=. python3 scripts/build_semantic_chunks.py prepare \
+  --video <ep>/source/<video>.mp4 \
+  --target-chunk-s 90
+```
+
+This runs Silero VAD + faster-whisper pre-pass internally.
+Then use the `$chunk-review` skill to loop through all candidates.
+Finalize when done.
+
+### Phase 2 — Transcription + OCR sidecar (automated)
+
+Run transcription with Flash 3 (concurrent, auto-falls back to Flash 2.5
+on quota exhaustion):
+
+```bash
+PYTHONPATH=. python3 scripts/transcribe_gemini_video.py \
+  --video <ep>/source/<video>.mp4 \
+  --output <ep>/transcription/<stem>_gemini_raw.json \
+  --chunk-json <ep>/transcription/vad_chunks_semantic_90.json \
+  --preset flash_free_default
+```
+
+The preset runs 5 concurrent workers RPM-limited to 5 req/min (free-tier
+ceiling), saves per-chunk results to individual files, and automatically
+falls back to `gemini-2.5-flash` if the primary model's quota is exhausted.
+
+Then run the OCR sidecar on the same chunk plan:
+
+```bash
+PYTHONPATH=. python3 scripts/extract_gemini_chunk_ocr.py \
+  --video <ep>/source/<video>.mp4 \
+  --chunk-json <ep>/transcription/vad_chunks_semantic_90.json \
+  --preset flashlite_ocr_sidecar
+```
+
+Then run the raw chunk sanity gate:
+
+```bash
+PYTHONPATH=. python3 scripts/check_raw_chunk_sanity.py \
+  --input <ep>/transcription/<stem>_gemini_raw.json
+```
+
+Stop on any chunk-level `red`. Retry red chunks before proceeding.
+
+### Phase 3 — Glossary (interactive)
+
+Use the `$glossary-context` skill on the raw transcript from Phase 2.
+The OCR sidecar from Phase 2 is auto-discovered as supporting evidence.
+
+This runs before alignment so that glossary work fills the time between
+transcription and the automated alignment/reflow steps.
+
+### Phase 4 — Alignment + reflow (automated)
+
+```bash
+PYTHONPATH=. python3 scripts/align_ctc.py \
+  --video <ep>/source/<video>.mp4 \
+  --chunks <ep>/transcription/<stem>_gemini_raw.json \
+  --output-words <ep>/transcription/<stem>_ctc_words.json
+
+PYTHONPATH=. python3 scripts/reflow_words.py \
+  --input <ep>/transcription/<stem>_ctc_words.json \
+  --output <ep>/transcription/<stem>_reflow.vtt \
+  --line-level --stats
+```
+
+### Phase 5 — Reflow review (interactive)
+
+Use the `$subtitle-reflow` skill to review the reflowed VTT.
+Follow its green/yellow/red decision policy. Only repair on yellow.
+
+### Phase 6 — Translation (interactive)
+
+Use the `$subtitle-translation` skill on the recommended Japanese VTT
+from Phase 5. Glossary and OCR sidecar are auto-discovered.
+
+### Phase 7 — Publish (automated)
+
+```bash
+python3 scripts/publish_vtt.py <ep>/translation/<final_en>.vtt
+```
+
+### Defaults summary
+
+| Setting | Default |
+|---|---|
+| Semantic chunk target | 90 s |
+| Transcription preset | `flash_free_default` (Gemini 3-Flash) |
+| Transcription fallback | `flash25_free_default` (Gemini 2.5-Flash) |
+| OCR sidecar preset | `flashlite_ocr_sidecar` (Gemini 3.1-Flash-Lite) |
+| Alignment | CTC (`align_ctc.py`) on system python3.12 |
+| Reflow | line-level (`reflow_words.py --line-level`) |
+| Translation | Codex-interactive (`translate_vtt_codex.py`) |
+
+### Resumability
+
+Every phase produces saved artifacts. If a run is interrupted, re-entering
+the pipeline should skip completed phases by checking for existing artifacts:
+
+- Phase 1 done: `vad_chunks_semantic_90.json` exists
+- Phase 2 done: `*_gemini_raw.json` + `*_flash_lite_chunk_ocr.json` exist
+- Phase 3 done: `glossary/glossary.json` + `glossary/episode_context.json` exist
+- Phase 4 done: `*_ctc_words.json` + `*_reflow.vtt` exist
+- Phase 5 done: reflow review completed (check `preferred.json`)
+- Phase 6 done: `*_en_codex.vtt` exists in `translation/`
+
 ## Codex Skills
 
 This repo has tracked Codex-interactive skills under:
 
+- `codex/skills/chunk-review`
 - `codex/skills/subtitle-reflow`
 - `codex/skills/glossary-context`
 - `codex/skills/subtitle-translation`
@@ -209,8 +327,23 @@ Treat the repo copy as canonical. Do not treat `~/.codex/skills/` as the source 
 If the live Codex install needs refreshing, use:
 
 - `python3 scripts/install_codex_skills.py`
+- `python3 scripts/install_codex_skills.py --skill chunk-review`
 - `python3 scripts/install_codex_skills.py --skill subtitle-reflow`
 - `python3 scripts/install_codex_skills.py --skill subtitle-translation`
+
+### When to use `chunk-review`
+
+Use the chunk-review skill when building chunk boundaries for a new episode.
+Semantic chunking with interactive review is the default path.
+
+Default behavior should be:
+
+- `scripts/build_semantic_chunks.py prepare --target-chunk-s 90`
+- `next-candidate -> Codex split/skip decision -> apply-candidate` loop
+- `scripts/build_semantic_chunks.py finalize`
+
+Do not skip chunk review and fall back to automatic `build_vad_chunks.py`
+unless the user explicitly asks for unreviewed chunking.
 
 ### When to use `subtitle-reflow`
 
@@ -260,10 +393,14 @@ Important translation-skill rules:
 
 ### Handoff order
 
-Preferred Codex-interactive handoff is:
+Preferred end-to-end handoff is:
 
-1. aligned words
-2. `subtitle-reflow`
-3. `glossary-context`
-4. `subtitle-translation`
-5. English VTT in `translation/`
+1. `chunk-review` (semantic chunking, 90 s target)
+2. Gemini transcription + OCR sidecar + sanity gate (automated)
+3. `glossary-context` (needs raw transcript)
+4. CTC alignment + reflow (automated)
+5. `subtitle-reflow` (review, optional repair)
+6. `subtitle-translation` (batch loop)
+7. `publish_vtt.py` (automated)
+
+See "End-to-End Episode Pipeline" above for full commands and defaults.

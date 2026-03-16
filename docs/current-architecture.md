@@ -47,9 +47,13 @@ Named preset:
 
 Current free-tier production policy:
 
-- start with `gemini-2.5-flash`
-- keep the same chunk plan and rolling context when switching models
-- use `gemini-3-flash-preview` as quota-overflow backfill, not as a separate rerun path
+- start with `gemini-3-flash-preview` using 5 concurrent workers, RPM-limited to 5 req/min
+- rolling context is disabled in concurrent mode (chunks run out of order)
+- each chunk gets one attempt + one retry (transient=same settings, quality/timeout=temp bump)
+- complete a full first pass before investing more retries
+- on quota exhaustion, automatically fall back to `gemini-2.5-flash` for remaining chunks
+- per-chunk results are saved to individual files in a run-ID folder under `transcription/chunks/`; assembled JSON is built at the end
+- hard failures are recorded; other chunks proceed independently
 
 Important chunking rule:
 
@@ -170,8 +174,11 @@ Produced by:
 Maintained default behavior:
 
 - spoken transcript first
-- chunkwise
-- resumable
+- chunkwise with bounded concurrency (default 5 workers, RPM-limited)
+- per-chunk files saved individually for concurrent safety and trivial resume
+- resumable (completed chunks are skipped on re-run)
+- automatic quota-aware model fallback chain
+- each chunk gets a tight retry policy (1 attempt + 1 retry)
 - visual cues optional depending on prompt mode
 
 OCR is not required here.
@@ -203,11 +210,11 @@ Current red conditions:
 
 Live-run consequence:
 
-- `scripts/transcribe_gemini_video.py` now runs the same red-chunk checks after
-  each chunk response
+- `scripts/transcribe_gemini_video.py` runs red-chunk checks after each chunk response
 - one red chunk gets one no-context retry at retry temperature
-- if it still stays red, the run stops resumably instead of carrying bad text
-  forward into rolling context or model rollover
+- if it still stays red, the chunk is recorded as failed and other chunks continue
+- failed chunks are retried on the next run or can be repaired/split manually
+- chunk records include full `attempt_history` for inspectability
 
 ### 3b. Optional Chunkwise OCR Sidecar
 

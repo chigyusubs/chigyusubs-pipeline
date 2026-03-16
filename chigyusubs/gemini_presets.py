@@ -18,6 +18,9 @@ SCRIPT_DEFAULTS: dict[str, dict[str, Any]] = {
         "max_request_retries": 8,
         "max_timeout_errors": 3,
         "max_rate_limit_errors": 4,
+        "concurrency": 5,
+        "fallback_models": [],
+        "rpm": 5,
     },
     "extract_gemini_chunk_ocr": {
         "model": "gemini-3.1-flash-lite-preview",
@@ -32,28 +35,32 @@ SCRIPT_DEFAULTS: dict[str, dict[str, Any]] = {
 PRESETS: dict[str, dict[str, Any]] = {
     "flash25_free_default": {
         "script": "transcribe_gemini_video",
-        "description": "Maintained free-tier transcript default for 2.5-Flash: video spoken-only high-res with no thinking override.",
+        "description": "Maintained free-tier transcript default for 2.5-Flash: video spoken-only high-res, concurrent, with 3-Flash fallback.",
         "settings": {
             "model": "gemini-2.5-flash",
             "temperature": 0.0,
-            "retry_temperature": 0.3,
+            "retry_temperature": 0.1,
             "spoken_only": True,
             "media_resolution": "high",
             "thinking_level": "unspecified",
             "thinking_budget": None,
+            "concurrency": 5,
+            "fallback_models": ["gemini-3-flash-preview"],
         },
     },
     "flash_free_default": {
         "script": "transcribe_gemini_video",
-        "description": "Maintained free-tier transcript default: 3-Flash video spoken-only low-thinking high-res.",
+        "description": "Maintained free-tier transcript default: 3-Flash video spoken-only low-thinking high-res, concurrent, with 2.5-Flash fallback.",
         "settings": {
             "model": "gemini-3-flash-preview",
             "temperature": 0.0,
-            "retry_temperature": 0.3,
+            "retry_temperature": 0.1,
             "spoken_only": True,
             "media_resolution": "high",
             "thinking_level": "low",
             "thinking_budget": None,
+            "concurrency": 5,
+            "fallback_models": ["gemini-2.5-flash"],
         },
     },
     "flash_visual_artifact": {

@@ -26,18 +26,24 @@ For serious Gemini transcription experiments:
 
 Current free-tier default for real episode work:
 
-- `gemini-2.5-flash`
+- `gemini-3-flash-preview` (primary — stronger model)
 - `video`
 - `spoken_only`
 - `media_resolution=high`
 - `temperature=0.0`
+- `concurrency=5`, RPM-limited to 5 req/min (free-tier ceiling)
+- automatic fallback to `gemini-2.5-flash` on quota exhaustion
 
-Current free-tier production rollover:
+Current free-tier production behavior:
 
-- run `gemini-2.5-flash` first on the canonical chunk plan
-- keep `rolling_context_chunks=1` for real production runs
-- if `2.5-flash` RPD is exhausted, continue from the next chunk with `gemini-3-flash-preview`
-- do not restart the episode on `3-flash` unless the user explicitly wants a comparison run
+- run `gemini-3-flash-preview` first on the canonical chunk plan with 5 concurrent workers
+- RPM rate limiter enforces free-tier 5 req/min per model
+- rolling context is disabled in concurrent mode (chunks run out of order)
+- each chunk gets one normal attempt, then one retry (transient=same settings, quality/timeout=temp bump to 0.1)
+- complete a full pass across all chunks before spending more effort
+- if Flash 3 quota is exhausted, automatically continue remaining unsaved chunks on `gemini-2.5-flash`
+- per-chunk results are saved to individual files in a run-ID folder under `transcription/chunks/`; assembled JSON is built at the end
+- hard failures (loop, red QA, persistent timeout) are recorded but do not block other chunks
 - do not resume or roll over onto an existing raw lineage that already contains
   chunk-level `red` QA failures
 
@@ -168,14 +174,14 @@ So chunk size is a second-order lever after:
 Recommended defaults:
 
 - `temperature=0.0`
-- retry at `0.3`
-- `rolling_context_chunks=0` on fragile Gemini video-only paths
+- retry at `0.1` (lower than before — enough to unstick loops without adding drift)
+- `rolling_context_chunks=0` in concurrent mode (automatic when concurrency > 1)
 - do not assume higher thinking helps transcription; test it explicitly before paying the latency/cost
 
 Reason:
 
 - low temperature keeps the transcript more literal
-- zero rolling context reduces loop/repetition carryover on weaker models
+- zero rolling context is required for concurrent processing and also reduces loop/repetition carryover on weaker models
 - transcription failures so far have looked more like visual-density / lexical-ASR failures than under-reasoning failures
 - on `great_escape_s02e01` Flash Lite probes, `temperature=0.0`, `0.1`, and `0.2` all completed on the same stable `120s` section, but `0.3` hit `504 DEADLINE_EXCEEDED`
 - `0.0` was the cleanest of the cheap Flash Lite probes structurally; `0.1` compressed more aggressively; `0.2` added slightly more drift
@@ -218,16 +224,14 @@ When a model struggles, escalate in this order:
 
 Do not assume shorter chunks alone will rescue a weak model on dense visual sections.
 
-Operational stop rules:
+Operational stop rules (now handled automatically by the concurrent transcription loop):
 
-- if one chunk hits repeated timeout failures, split that chunk and resume
-  rather than increasing retries indefinitely
-- if the API starts returning repeated quota/rate-limit errors, stop and resume
-  after reset instead of letting the helper sit in long backoff loops
-- if one chunk returns suspiciously large output, treat that as a chunk-local
-  failure and repair/split it before trusting the raw transcript
-- if one chunk stays `red` after one no-context retry, stop resumably and
-  repair/split it before continuing so rolling context does not inherit bad text
+- each chunk gets one attempt + one retry (transient=same settings, quality=temp bump)
+- the full first pass completes across all chunks before spending more effort
+- quota exhaustion on the primary model triggers automatic fallback to the next model in the chain
+- hard failures (loop, red QA, persistent timeout) are recorded as error records in the output JSON — other chunks still proceed
+- if a chunk stays `red` after one no-context retry, it is recorded as failed and the run continues
+- the run stops cleanly and is resumable: re-running the same command skips completed chunks and retries failed ones
 
 ## Recommended Evaluation Pattern
 
