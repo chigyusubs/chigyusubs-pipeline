@@ -21,4 +21,7 @@ def ensure_rocm_env(env: dict[str, str] | None = None) -> dict[str, str]:
 
 def apply_rocm_env() -> None:
     """Mutate os.environ in-process so imported ROCm libs see the expected env."""
+    # Codex note: this helper normalizes env vars, but sandboxed runs still need
+    # an escalated command to see the ROCm device, and LD_LIBRARY_PATH must be
+    # present when Python starts for ctranslate2/faster-whisper to load cleanly.
     os.environ.update(ensure_rocm_env())
