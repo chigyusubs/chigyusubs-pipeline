@@ -9,9 +9,11 @@ before alignment and restored later.
 import argparse
 import json
 import os
+import queue
 import re
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -150,6 +152,8 @@ def _retry_delay_from_error_message(msg: str) -> float | None:
 def _classify_error(msg: str) -> str:
     upper = msg.upper()
     lower = msg.lower()
+    if "NO_PROGRESS_TIMEOUT" in upper:
+        return "NO PROGRESS"
     if "429" in msg or "RESOURCE_EXHAUSTED" in upper:
         return "RATE LIMITED"
     if (
@@ -341,6 +345,7 @@ def transcribe_chunk_result(
     vertex: bool = False,
     max_timeout_errors: int = 3,
     max_rate_limit_errors: int = 4,
+    first_token_timeout_s: float | None = 60.0,
 ) -> dict[str, Any]:
     """Send a media chunk to Gemini via streaming, return plain transcript text."""
     from google.genai import types
@@ -384,11 +389,44 @@ def transcribe_chunk_result(
             usage_metadata = None
             response_id = None
             model_version = None
-            for chunk in client.models.generate_content_stream(
-                model=model,
-                contents=parts,
-                config=config,
-            ):
+            event_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+
+            def _stream_request() -> None:
+                try:
+                    for chunk in client.models.generate_content_stream(
+                        model=model,
+                        contents=parts,
+                        config=config,
+                    ):
+                        event_queue.put(("chunk", chunk))
+                    event_queue.put(("done", None))
+                except BaseException as exc:
+                    event_queue.put(("error", exc))
+
+            threading.Thread(target=_stream_request, daemon=True).start()
+
+            first_token_deadline = None
+            if first_token_timeout_s is not None and first_token_timeout_s > 0:
+                first_token_deadline = t0 + float(first_token_timeout_s)
+
+            while True:
+                timeout = None
+                if first_chunk and first_token_deadline is not None:
+                    timeout = max(0.0, first_token_deadline - time.time())
+                try:
+                    event_type, payload = event_queue.get(timeout=timeout)
+                except queue.Empty:
+                    waited = time.time() - t0
+                    raise RuntimeError(
+                        f"NO_PROGRESS_TIMEOUT: no first token within {waited:.1f}s; likely blocked API/network path."
+                    )
+
+                if event_type == "error":
+                    raise payload
+                if event_type == "done":
+                    break
+
+                chunk = payload
                 text = chunk.text or ""
                 if getattr(chunk, "usage_metadata", None) is not None:
                     usage_metadata = _usage_metadata_to_dict(chunk.usage_metadata)

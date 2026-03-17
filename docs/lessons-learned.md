@@ -1462,6 +1462,15 @@ Maintained fix direction:
 - split at the midpoint of usable silence gaps instead of dropping the silence span
 - legacy speech-bounded chunk JSONs should be rebuilt or rejected
 
+### Sandbox no-progress hangs should fail fast
+
+- on `great_escape_s02e07`, sandboxed Gemini video runs could sit for minutes with no first token, no chunk file writes, and no useful exception
+- the same commands worked immediately once network access was escalated, which means the bad behavior was environmental, not chunk-specific
+- maintained fix: each request attempt now has a first-token watchdog (`60s` default)
+- if the initial worker wave all hits that `no_progress` watchdog before any chunk gets a real response, abort the whole run immediately with a clear blocked-network/sandbox hint
+- probe runs (`--stop-after-chunks`) should not replace the main episode raw lineage in `preferred.json`
+- resume should key off the requested output anchor, not only `preferred.json`, so debug probes do not strand the main lineage
+
 ## Next High-Value Work
 
 1. Finish one full `oni_no_dokkiri_de_namida_ep2` translation run with checkpointing.

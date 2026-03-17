@@ -21,6 +21,7 @@ SCRIPT_DEFAULTS: dict[str, dict[str, Any]] = {
         "concurrency": 5,
         "fallback_models": [],
         "rpm": 5,
+        "first_token_timeout_s": 60.0,
     },
     "extract_gemini_chunk_ocr": {
         "model": "gemini-3.1-flash-lite-preview",

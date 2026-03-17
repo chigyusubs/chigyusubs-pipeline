@@ -40,10 +40,13 @@ Current free-tier production behavior:
 - RPM rate limiter enforces free-tier 5 req/min per model
 - rolling context is disabled in concurrent mode (chunks run out of order)
 - each chunk gets one normal attempt, then one retry (transient=same settings, quality/timeout=temp bump to 0.1)
+- each request attempt has a first-token watchdog (`60s` by default); a blocked request fails as `no_progress` instead of hanging indefinitely
 - complete a full pass across all chunks before spending more effort
 - if Flash 3 quota is exhausted, automatically continue remaining unsaved chunks on `gemini-2.5-flash`
 - per-chunk results are saved to individual files in a run-ID folder under `transcription/chunks/`; assembled JSON is built at the end
+- resume should key off the requested output anchor, not only `preferred.json`, so one-off debug runs do not strand the main lineage
 - hard failures (loop, red QA, persistent timeout) are recorded but do not block other chunks
+- if the initial worker wave all hits `no_progress` before any real chunk response arrives, abort the whole run and fix the environment instead of letting the process sit half-dead
 - do not resume or roll over onto an existing raw lineage that already contains
   chunk-level `red` QA failures
 

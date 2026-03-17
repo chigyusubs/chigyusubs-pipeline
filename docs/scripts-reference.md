@@ -113,12 +113,13 @@ Lineage artifact naming:
 
 `transcribe_gemini_video.py` supports `--spoken-only` for experiments that ask Gemini to return spoken dialogue only and not emit `[画面: ...]` visual cue lines.
 
-When `transcribe_gemini_video.py` writes into an episode `transcription/` directory, it now emits short run-ID lineage artifacts and updates `transcription/preferred.json`.
+When `transcribe_gemini_video.py` writes into an episode `transcription/` directory, it emits short run-ID lineage artifacts and updates `transcription/preferred.json` for normal runs.
 
 Concurrency and retry behavior:
 
 - `--concurrency N` (default 5): run N chunk workers simultaneously. Use `--concurrency 1` for sequential mode.
 - `--rpm N` (default 5): RPM rate limiter enforcing the free-tier ceiling of 5 requests/minute per model. Workers block on the rate limiter before each API call.
+- `--first-token-timeout-s N` (default 60): per-attempt watchdog. If no first token arrives within `N` seconds, the attempt fails as `no_progress`.
 - `--fallback-models`: comma-separated model chain for quota exhaustion (e.g. `gemini-3-flash-preview,gemini-2.5-flash`). When the primary model's quota is exhausted, remaining unsaved chunks automatically continue on the next model.
 - Per-chunk results are saved to individual files in a run-ID folder under `transcription/chunks/<run_id>/`; the assembled JSON is built at the end. This makes concurrent writes safe and resume trivial (each chunk is independently resumable).
 - Rolling context (`--rolling-context-chunks`) is automatically disabled when concurrency > 1 since chunks run out of order.
@@ -140,10 +141,11 @@ Named presets:
 - `--media-resolution {unspecified,low,medium,high}` lets Gemini choose a different multimodal processing resolution for the same inline media payload.
 - local inline chunk encoding now preserves source width by default; use `--width` only when you intentionally want a smaller upload
 - `--thinking-level {unspecified,minimal,low,medium,high}` and `--thinking-budget` expose Gemini thinking controls for transcription experiments.
-- `--stop-after-chunks N` cleanly stops after `N` newly completed chunks, which is useful for one-chunk smoke tests after changing model, prompt, or retry logic.
+- `--stop-after-chunks N` cleanly stops after `N` newly completed chunks, which is useful for one-chunk smoke tests after changing model, prompt, or retry logic. Probe runs with `--stop-after-chunks` do not replace `transcription/preferred.json`.
 - `--max-request-retries`, `--max-timeout-errors`, and `--max-rate-limit-errors` are still accepted for backward compatibility but are largely superseded by the new per-chunk retry policy.
 - when `--chunk-json` is used, the script logs a human-readable chunk-plan label plus min/avg/max duration stats instead of only echoing the raw filename.
-- interrupted runs resume from the preferred raw lineage even when the last run did not finish writing a fresh `.meta.json` sidecar.
+- interrupted runs first try the preferred raw lineage, then fall back to any matching run-ID raw artifact in the same `transcription/` directory whose `requested_output_anchor` matches the current output anchor. This keeps resume working even if a debug/probe run temporarily changed `preferred.json`.
+- if the initial worker wave all hits `no_progress` before any chunk gets a real response, the whole run aborts immediately. This is meant to fail fast on blocked API/network environments such as sandboxed runs without the needed network access.
 - the maintained video path runs deterministic red-chunk QA in-run:
   one red chunk gets one no-context retry at retry temperature
 - resume refuses to continue from an existing raw lineage that already

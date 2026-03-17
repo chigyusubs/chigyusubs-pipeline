@@ -18,7 +18,7 @@ import sys
 import tempfile
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -230,6 +230,44 @@ def _load_chunk_bounds(chunk_json_path: str) -> list[tuple[float, float]]:
     return [(float(c["start_sec"]), float(c["end_sec"])) for c in chunks]
 
 
+def _requested_output_anchor_from_meta(meta: dict | None) -> str | None:
+    if not isinstance(meta, dict):
+        return None
+    anchor = meta.get("requested_output_anchor")
+    if anchor is not None:
+        return str(anchor)
+    settings = meta.get("settings")
+    if isinstance(settings, dict) and settings.get("requested_output_anchor") is not None:
+        return str(settings["requested_output_anchor"])
+    return None
+
+
+def _candidate_matches_requested_output(candidate: Path, requested_output: Path) -> bool:
+    meta = read_artifact_metadata(candidate)
+    if not meta:
+        return requested_output.parent == candidate.parent
+    anchor = _requested_output_anchor_from_meta(meta)
+    if anchor and anchor != str(requested_output):
+        return False
+    return True
+
+
+def _successful_chunk_count_for_raw(candidate: Path) -> int:
+    chunks_dir = _chunks_dir_for_raw(str(candidate))
+    chunk_records = _load_chunk_files(chunks_dir)
+    if chunk_records:
+        return sum(1 for c in chunk_records if c.get("text") and not c.get("error"))
+    if not candidate.exists():
+        return 0
+    try:
+        payload = json.loads(candidate.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return 0
+    if not isinstance(payload, list):
+        return 0
+    return sum(1 for c in payload if isinstance(c, dict) and c.get("text") and not c.get("error"))
+
+
 def _reuse_lineage_output_from_preferred(area_dir: Path, key: str, requested_output: Path) -> Path | None:
     manifest_path = preferred_manifest_path(area_dir)
     if not manifest_path.exists():
@@ -241,17 +279,34 @@ def _reuse_lineage_output_from_preferred(area_dir: Path, key: str, requested_out
     candidate = area_dir / str(name)
     if not candidate.exists():
         return None
-    meta = read_artifact_metadata(candidate)
-    if not meta:
-        return candidate if requested_output.parent == area_dir else None
-    anchor = meta.get("requested_output_anchor")
-    if anchor is None:
-        settings = meta.get("settings")
-        if isinstance(settings, dict):
-            anchor = settings.get("requested_output_anchor")
-    if anchor and str(anchor) != str(requested_output):
+    return candidate if _candidate_matches_requested_output(candidate, requested_output) else None
+
+
+def _artifact_glob_for_preferred_key(key: str) -> str:
+    if key == "gemini_raw":
+        return "*_gemini_raw.json"
+    if key == "gemini_cost_preview":
+        return "*_gemini_cost_preview.json"
+    return "*.json"
+
+
+def _reuse_lineage_output_from_scan(area_dir: Path, key: str, requested_output: Path) -> Path | None:
+    candidates = []
+    for candidate in area_dir.glob(_artifact_glob_for_preferred_key(key)):
+        if not candidate.is_file():
+            continue
+        if not _candidate_matches_requested_output(candidate, requested_output):
+            continue
+        success_count = _successful_chunk_count_for_raw(candidate)
+        try:
+            mtime = candidate.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        candidates.append((success_count, mtime, candidate))
+    if not candidates:
         return None
-    return candidate
+    candidates.sort(key=lambda item: (item[0], item[1], item[2].name))
+    return candidates[-1][2]
 
 
 # ---------------------------------------------------------------------------
@@ -364,6 +419,8 @@ def _classify_api_error(e: Exception) -> str:
     lower = msg.lower()
     if "429" in msg or "RESOURCE_EXHAUSTED" in upper:
         return "quota"
+    if "NO_PROGRESS_TIMEOUT" in upper:
+        return "no_progress"
     if (
         "DEADLINE_EXCEEDED" in upper
         or "TIMED OUT" in upper
@@ -411,6 +468,7 @@ def _transcribe_single_chunk(
     count_tokens: bool,
     input_price_per_million: float | None,
     rate_limiter_acquire,
+    first_token_timeout_s: float,
 ) -> dict:
     """Transcribe a single chunk with the maintained retry policy.
 
@@ -502,6 +560,7 @@ def _transcribe_single_chunk(
                 vertex=vertex,
                 max_timeout_errors=1,
                 max_rate_limit_errors=1,
+                first_token_timeout_s=first_token_timeout_s,
             )
             elapsed = time.time() - t0
             text = result["text"]
@@ -552,6 +611,14 @@ def _transcribe_single_chunk(
                 thinking_level, thinking_budget, token_preview,
                 attempt_history=attempt_history,
                 error={"type": "quota", "reason": a1["error_message"], "model": model},
+            )
+
+        if err_class == "no_progress":
+            return _build_chunk_record(
+                i, c_start, c_end, chunk_size_mb, media_resolution,
+                thinking_level, thinking_budget, token_preview,
+                attempt_history=attempt_history,
+                error={"type": "no_progress", "reason": a1["error_message"], "model": model},
             )
 
         if err_class == "transient":
@@ -790,6 +857,7 @@ def run_video_transcription(
     concurrency: int = 5,
     fallback_models: list[str] | None = None,
     rpm: int = 5,
+    first_token_timeout_s: float = 60.0,
 ):
     run = start_run("transcribe_gemini_video")
     requested_output = Path(output_path)
@@ -797,6 +865,8 @@ def run_video_transcription(
     out_dir.mkdir(parents=True, exist_ok=True)
     if out_dir.name == "transcription" and not requested_output.name.startswith(f"{run['run_id']}_"):
         reused_raw = _reuse_lineage_output_from_preferred(out_dir, "gemini_raw", requested_output)
+        if reused_raw is None:
+            reused_raw = _reuse_lineage_output_from_scan(out_dir, "gemini_raw", requested_output)
         if reused_raw is not None:
             run["run_id"] = reused_raw.name.split("_", 1)[0]
             raw_json_path = str(reused_raw)
@@ -989,6 +1059,7 @@ def run_video_transcription(
                 concurrency=effective_concurrency,
                 rpm=rpm,
                 chunks_dir=chunks_dir,
+                first_token_timeout_s=first_token_timeout_s,
             )
 
             succeeded = []
@@ -1021,7 +1092,7 @@ def run_video_transcription(
 
     # --- Assemble final JSON from chunk files ---
     all_chunks = _assemble_raw_json(chunks_dir, raw_json_path)
-    if Path(raw_json_path).parent.name == "transcription":
+    if Path(raw_json_path).parent.name == "transcription" and stop_after_chunks <= 0:
         update_preferred_manifest(Path(raw_json_path).parent, gemini_raw=Path(raw_json_path).name)
 
     # --- Final summary ---
@@ -1061,6 +1132,7 @@ def run_video_transcription(
             "loop_max_line_length": loop_max_line_length,
             "concurrency": effective_concurrency,
             "rpm": rpm,
+            "first_token_timeout_s": first_token_timeout_s,
             "stop_after_chunks": stop_after_chunks,
             "spoken_only": spoken_only,
             "preset": preset_name,
@@ -1086,7 +1158,7 @@ def run_video_transcription(
         },
     )
     write_metadata(raw_json_path, metadata)
-    if Path(raw_json_path).parent.name == "transcription":
+    if Path(raw_json_path).parent.name == "transcription" and stop_after_chunks <= 0:
         update_preferred_manifest(Path(raw_json_path).parent, gemini_raw=Path(raw_json_path).name)
 
     log()
@@ -1127,6 +1199,7 @@ def _run_concurrent_pass(
     concurrency: int,
     rpm: int,
     chunks_dir: Path,
+    first_token_timeout_s: float,
 ) -> list[dict]:
     """Run a concurrent transcription pass over the given chunk indices.
 
@@ -1140,6 +1213,7 @@ def _run_concurrent_pass(
     # Detect quota exhaustion: if we see N consecutive quota errors across workers,
     # stop sending new chunks on this model.
     quota_exhausted = threading.Event()
+    systemic_no_progress = threading.Event()
     consecutive_quota = [0]
     quota_lock = threading.Lock()
     QUOTA_THRESHOLD = 3  # stop after 3 consecutive quota errors
@@ -1158,6 +1232,8 @@ def _run_concurrent_pass(
             future.result()
 
         def process_chunk(idx: int) -> dict:
+            if systemic_no_progress.is_set():
+                raise RuntimeError("NO_PROGRESS_TIMEOUT: aborting queued work after systemic no-progress failure.")
             if quota_exhausted.is_set():
                 c_start, c_end = chunk_bounds[idx]
                 record = _build_chunk_record(
@@ -1195,6 +1271,7 @@ def _run_concurrent_pass(
                 count_tokens=count_tokens,
                 input_price_per_million=input_price_per_million,
                 rate_limiter_acquire=sync_acquire,
+                first_token_timeout_s=first_token_timeout_s,
             )
 
             # Save immediately to per-chunk file
@@ -1216,8 +1293,38 @@ def _run_concurrent_pass(
 
         executor = ThreadPoolExecutor(max_workers=concurrency)
         try:
-            futures = [executor.submit(process_chunk, idx) for idx in indices]
-            results = [f.result() for f in futures]
+            futures = {executor.submit(process_chunk, idx): idx for idx in indices}
+            results = []
+            initial_indices = set(indices[: min(concurrency, len(indices))])
+            initial_finished: set[int] = set()
+            initial_no_progress: set[int] = set()
+            saw_real_response = False
+
+            for future in as_completed(futures):
+                idx = futures[future]
+                record = future.result()
+                results.append(record)
+
+                err = record.get("error")
+                if not (err and err.get("type") == "no_progress"):
+                    saw_real_response = True
+
+                if idx in initial_indices:
+                    initial_finished.add(idx)
+                    if err and err.get("type") == "no_progress":
+                        initial_no_progress.add(idx)
+                    if (
+                        not saw_real_response
+                        and initial_finished == initial_indices
+                        and initial_no_progress == initial_indices
+                    ):
+                        systemic_no_progress.set()
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        raise RuntimeError(
+                            "No chunk received a first token within the watchdog window. "
+                            "This looks like a blocked API/network path, often from sandboxed execution. "
+                            "Abort and rerun with network access."
+                        )
         finally:
             executor.shutdown(wait=False)
             _rl_loop.call_soon_threadsafe(_rl_loop.stop)
@@ -1453,6 +1560,12 @@ def main():
         help="Max API requests per minute per model (default: 5, matching free tier).",
     )
     parser.add_argument(
+        "--first-token-timeout-s",
+        type=float,
+        default=None,
+        help="Abort a request attempt if no first token arrives within this many seconds (default: 60).",
+    )
+    parser.add_argument(
         "--fallback-models",
         default=None,
         help="Comma-separated fallback model chain for quota exhaustion (e.g. 'gemini-3-flash-preview,gemini-2.5-flash').",
@@ -1542,6 +1655,7 @@ def main():
             "concurrency": args.concurrency,
             "fallback_models": fallback_models_override,
             "rpm": args.rpm,
+            "first_token_timeout_s": args.first_token_timeout_s,
         },
     )
 
@@ -1585,6 +1699,7 @@ def main():
         concurrency=resolved["concurrency"],
         fallback_models=resolved["fallback_models"],
         rpm=resolved["rpm"],
+        first_token_timeout_s=resolved["first_token_timeout_s"],
     )
 
 
