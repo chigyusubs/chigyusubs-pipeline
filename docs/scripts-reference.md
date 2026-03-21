@@ -146,6 +146,7 @@ Named presets:
 - when `--chunk-json` is used, the script logs a human-readable chunk-plan label plus min/avg/max duration stats instead of only echoing the raw filename.
 - interrupted runs first try the preferred raw lineage, then fall back to any matching run-ID raw artifact in the same `transcription/` directory whose `requested_output_anchor` matches the current output anchor. This keeps resume working even if a debug/probe run temporarily changed `preferred.json`.
 - if the initial worker wave all hits `no_progress` before any chunk gets a real response, the whole run aborts immediately. This is meant to fail fast on blocked API/network environments such as sandboxed runs without the needed network access.
+- live request logging is newline-based: each attempt logs `Requesting`, `First token`, `Completed`, and periodic pass-progress summaries. The old dot-style streaming progress is gone because it rendered badly in Codex and other buffered terminals.
 - the maintained video path runs deterministic red-chunk QA in-run:
   one red chunk gets one no-context retry at retry temperature
 - resume refuses to continue from an existing raw lineage that already
@@ -229,6 +230,7 @@ Chunk coverage rule:
 
 | Script | Purpose | Status |
 |---|---|---|
+| `adapt_translation_by_timewarp.py` | Seed-draft helper for nearby alternate cuts. Projects a finished English VTT onto a target VTT timeline with a simple proportional time warp, writes a target-timed draft VTT, and saves a cue-mapping report for manual cleanup. Useful for YouTube -> TV-cut adaptation before `translate_vtt_codex.py prepare --seed-from`. | Maintained |
 | `translate_vtt_codex.py` | Codex-interactive translation with session/checkpoint, batch-tier auto-fallback (84→60→48), source hash validation, seed draft import, alignment/turn advisory context, optional auto-discovered chunkwise OCR visual cues, CPS diagnostics, lineage run-ID draft outputs, and `translation/preferred.json` updates on finalize | Maintained |
 | `translate_vtt_api.py` | Unattended LLM translation (Vertex Gemini or any OpenAI-compatible API). For benchmarking, testing model capability, or use without Codex. | Maintained |
 

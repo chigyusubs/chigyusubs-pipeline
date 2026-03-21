@@ -376,16 +376,18 @@ def transcribe_chunk_result(
 
     timeout_errors = 0
     rate_limit_errors = 0
+    stream_progress_char_step = 5000
 
     for attempt in range(max_retries):
         attempt_label = f"[attempt {attempt + 1}/{max_retries}]"
         try:
-            print(f"  {attempt_label} Requesting...", end="", flush=True)
+            print(f"  {attempt_label} Requesting...", flush=True)
             t0 = time.time()
 
             chunks: list[str] = []
             char_count = 0
             first_chunk = True
+            next_progress_chars = stream_progress_char_step
             usage_metadata = None
             response_id = None
             model_version = None
@@ -436,17 +438,18 @@ def transcribe_chunk_result(
                     model_version = chunk.model_version
                 if first_chunk and text:
                     ttfb = time.time() - t0
-                    print(f" first token in {ttfb:.1f}s, streaming", end="", flush=True)
+                    print(f"  {attempt_label} First token in {ttfb:.1f}s", flush=True)
                     first_chunk = False
                 chunks.append(text)
                 char_count += len(text)
-                if char_count % 1000 < len(text):
-                    print(".", end="", flush=True)
+                while char_count >= next_progress_chars:
+                    print(f"  {attempt_label} Streamed ~{next_progress_chars} raw chars...", flush=True)
+                    next_progress_chars += stream_progress_char_step
 
             elapsed = time.time() - t0
             raw = "".join(chunks)
             normalized = _normalize_transcript_text(raw)
-            print(f" {len(normalized)} chars in {elapsed:.1f}s", flush=True)
+            print(f"  {attempt_label} Completed with {len(normalized)} chars in {elapsed:.1f}s", flush=True)
             return {
                 "text": normalized,
                 "usage_metadata": usage_metadata,
@@ -459,7 +462,6 @@ def transcribe_chunk_result(
             }
         except Exception as e:
             elapsed = time.time() - t0
-            print(flush=True)
             msg = str(e).strip().splitlines()[0] if str(e).strip() else repr(e)
             err_type = _classify_error(msg)
             if err_type == "TIMEOUT":

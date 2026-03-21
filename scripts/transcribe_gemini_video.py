@@ -1299,15 +1299,39 @@ def _run_concurrent_pass(
             initial_finished: set[int] = set()
             initial_no_progress: set[int] = set()
             saw_real_response = False
+            completed_count = 0
+            ok_count = 0
+            quota_count = 0
+            other_error_count = 0
+            progress_every = 1 if len(indices) <= 10 else 5
 
             for future in as_completed(futures):
                 idx = futures[future]
                 record = future.result()
                 results.append(record)
+                completed_count += 1
 
                 err = record.get("error")
                 if not (err and err.get("type") == "no_progress"):
                     saw_real_response = True
+                if err:
+                    if err.get("type") == "quota":
+                        quota_count += 1
+                    else:
+                        other_error_count += 1
+                else:
+                    ok_count += 1
+
+                if (
+                    completed_count == len(indices)
+                    or err is not None
+                    or completed_count % progress_every == 0
+                ):
+                    log(
+                        f"Pass progress on {model}: "
+                        f"{completed_count}/{len(indices)} finished "
+                        f"({ok_count} ok, {quota_count} quota, {other_error_count} other)"
+                    )
 
                 if idx in initial_indices:
                     initial_finished.add(idx)
