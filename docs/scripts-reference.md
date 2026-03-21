@@ -211,7 +211,7 @@ Chunk coverage rule:
 
 | Script | Purpose | Status |
 |---|---|---|
-| `align_ctc.py` | CTC forced alignment using `NTQAI/wav2vec2-large-japanese`. Default alignment path. 0.3% zero-duration words vs 13.4% with stable-ts. Writes `.diagnostics.json` sidecar with per-chunk repair details and visual-substitution risk flags, inherits upstream run IDs, and updates `transcription/preferred.json`. | Maintained |
+| `align_ctc.py` | CTC forced alignment using `NTQAI/wav2vec2-large-japanese`. Default alignment path. 0.3% zero-duration words vs 13.4% with stable-ts. Writes `.diagnostics.json` sidecar with per-chunk repair details and visual-substitution risk flags, re-applies monotonic timing after weak-anchor rescue, inherits upstream run IDs by default, supports `--fresh-run-id` when a rerun should become a new lineage root, and updates `transcription/preferred.json`. | Maintained |
 | `align_chunkwise.py` | Chunk-wise stable-ts forced alignment | Legacy |
 | `align_stable_ts.py` | Global stable-ts alignment (single pass) | Legacy |
 | `align_qwen_forced.py` | Qwen forced-alignment benchmark (GGUF backend) | Archived |
@@ -335,6 +335,13 @@ python3.12 scripts/align_ctc.py \
   --video samples/episodes/<slug>/source/video.mp4 \
   --chunks samples/episodes/<slug>/transcription/<stem>_gemini_raw.json \
   --output-words samples/episodes/<slug>/transcription/<stem>_ctc_words.json
+
+# If alignment should start a new lineage root from an older raw transcript:
+python3.12 scripts/align_ctc.py \
+  --video samples/episodes/<slug>/source/video.mp4 \
+  --chunks samples/episodes/<slug>/transcription/<stem>_gemini_raw.json \
+  --output-words samples/episodes/<slug>/transcription/<stem>_ctc_words.json \
+  --fresh-run-id
 
 # Uses NTQAI/wav2vec2-large-japanese + torchaudio CTC forced alignment.
 # Runs on system python3.12 with ROCm GPU.

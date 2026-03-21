@@ -74,7 +74,11 @@ Results on `oni_no_dokkiri_de_namida_ep2`:
 | Zero-duration segments | 42 (3.8%) | 3 (0.3%) |
 | Zero-duration words | 947 (13.4%) | 3 (0.3%) |
 
-The 3 remaining zero-duration segments are non-Japanese text (`Shit!`, `30?`, `50。`) with no characters in the model's Japanese vocabulary. These are trivially fixable.
+On the original `oni_no_dokkiri_de_namida_ep2` benchmark, the 3 remaining
+zero-duration segments were non-Japanese text (`Shit!`, `30?`, `50。`) with no
+characters in the model's Japanese vocabulary. That result was encouraging, but
+later real episodes showed the residual failure surface is broader than "only
+trivial non-Japanese leftovers."
 
 Key properties of CTC alignment:
 
@@ -127,6 +131,42 @@ The fix is to repair all-unaligned line timings inside `align_ctc.py` before chu
 This preserves short answers and other high-value lines without pretending the timing confidence is high.
 
 This is the correct default for a translation-first pipeline, even if the repaired Japanese cue timing is imperfect.
+
+Another real failure on `great_escape_s03e02_youtube` showed a later variant of the same problem:
+
+- one quiz-answer line (`190kg。`) survived only as a zero-duration orphan in the aligned words JSON
+- a later unrelated answer (`161cm。` / `70。`) also survived as zero-duration orphan text
+- line-level reflow preserved the later question prompt (`大鶴肥満の本日の体重を答えよ。`) but then filled the next cue with the wrong later answer
+- the published English VTT therefore showed a blank answer window around `23:51` and then the wrong `161 centimeters / 70` text at `23:56`
+
+Operational rule:
+
+- when a prompt-card cue is followed by a long silence gap and the next cue contains a short numeric answer with weak alignment provenance, compare that region against the raw Gemini chunk or a local Whisper clip before accepting the reflow
+- treat this as a local `yellow`/repair case even if the rest of the episode is structurally healthy
+
+Another recurring CTC-adjacent pattern shows up on short repeated wake-word or
+command phrases such as `OK Google` / `オッケー、Google`:
+
+- these lines are short, mixed-script, and often repeated several times within a small span
+- they may not fail as full zero-duration orphans, but they still behave like weak alignment anchors
+- in `great_escape_s00e03`, several `Google` wake phrases aligned, but the local cue boundaries stayed brittle enough that adjacent assistant/chatter text could get merged into the same cue
+- this is the same family of issue as the numeric-answer leak: a very short high-value line with weak timing confidence is allowed to propagate downstream as if it were ordinary aligned dialogue
+
+Operational rule:
+
+- treat short repeated mixed-script command phrases (`OK Google`, brand wake words, device commands, clipped English interjections) as weak-alignment lines even when they have non-zero timings
+- surface them in review alongside zero-duration orphan answers, especially when they appear in repeated bursts or next to assistant/device responses
+- if such a line lands inside a cue that also contains unrelated adjacent dialogue, prefer a local raw/Whisper check over trusting the CTC boundary blindly
+
+Another real failure on `great_escape_s03e02_youtube` showed that rescue itself
+can create a second-order timing bug if the saved JSON is not re-clamped:
+
+- stable-ts rescue moved `8、9。` earlier than the preceding `うん、うん、うん。`
+- stable-ts rescue also left `35発。` ending after the following `あ、来た来た来た!`
+- line-level reflow preserved transcript order, so those backward jumps became negative-duration cues in the Japanese VTT
+
+The fix is to run the monotonic timing pass again after weak-anchor rescue and
+before writing `*_ctc_words.json`, not only before rescue.
 
 ### 5. Reflow must not use text-only word-timestamp lookup for repeated lines
 
@@ -1437,7 +1477,9 @@ Keep OCR reusable and local:
 - runs on system python3.12 with ROCm GPU
 - chunked: aligns per-chunk from Gemini raw transcription JSON
 - keep per-chunk diagnostics
-- preserve zero-duration segment text for translation support (rare with CTC, but still applies to non-Japanese text)
+- preserve zero-duration or weakly aligned segment text for translation support
+  (rare with CTC, but still relevant for mixed-script short answers, wake-word
+  commands, and other weak-anchor lines)
 
 ### For translation
 
@@ -1470,6 +1512,55 @@ Maintained fix direction:
 - if the initial worker wave all hits that `no_progress` watchdog before any chunk gets a real response, abort the whole run immediately with a clear blocked-network/sandbox hint
 - probe runs (`--stop-after-chunks`) should not replace the main episode raw lineage in `preferred.json`
 - resume should key off the requested output anchor, not only `preferred.json`, so debug probes do not strand the main lineage
+
+### Dense aftershow talk can break a nominally sane semantic chunk plan without requiring a full episode restart
+
+Validated on `great_escape_s00e01`.
+
+What happened:
+
+- a reviewed `90s` semantic plan finalized to `15` chunks with a superficially acceptable average duration, but it still needed `5` forced hard-cap splits
+- the dense cast roundtable section produced several `120s` maxed-out chunks and one tiny orphan tail chunk
+- Gemini still completed `14/15` chunks, so the real failure surface was one bad span, not the whole episode
+
+What worked:
+
+- do not throw away the whole raw lineage just because the chunk plan was ugly
+- salvage the episode if the failures are localized and the finished chunks are structurally usable
+- for `great_escape_s00e01`, a single missing `~60s` span was repaired cleanly with an AI Studio pack, then merged back into the saved raw lineage
+- after that, the standard path still held: raw chunk sanity -> glossary -> CTC alignment -> line-level reflow -> Codex reflow repair -> translation
+
+Operational takeaway:
+
+- dense aftershow / panel-talk episodes should bias chunk review more aggressively toward transcript density, not just wall-clock duration
+- a weak semantic chunk plan is still recoverable if only one or two chunks fail; prefer targeted AI Studio or repair-split recovery over restarting the episode
+- line-level reflow from the salvaged raw transcript can still be translation-ready after a small Codex repair pass, so bad chunk aesthetics alone are not a reason to abandon the lineage
+- if a chunk plan shows multiple forced hard-cap splits plus tiny orphan tails on a talk-heavy special, tighten the next plan before spending more quota
+
+### If only one or two original production chunks fail, AI Studio should try the exact failed spans first before fallback subsplits
+
+Validated on `great_escape_s00e02`.
+
+What happened:
+
+- the reviewed `90s` plan finalized to `6` chunks and needed `2` forced hard-cap splits
+- the main `gemini-3-flash-preview` production run still saved `4/6` chunks successfully
+- only the two middle production chunks failed, at `142.800-214.704` and `214.704-334.704`, both by timeout
+
+What worked:
+
+- keep the saved raw lineage and OCR sidecar; do not restart the episode
+- build an AI Studio pack that includes the exact failed production spans as first-pass clips
+- use smaller fallback sub-scenes only if the full failed span still compresses or fails in AI Studio
+- for `great_escape_s00e02`, `gemini-3.1-pro-preview` handled both original failed spans directly, which let the repaired Japanese flow back into the main raw lineage without an extra repair transcription run
+- once those two spans were promoted, the normal path held cleanly: raw sanity `green` -> glossary -> CTC alignment -> line-level reflow -> Codex translation -> publish
+
+Operational takeaway:
+
+- when the failure surface is already localized to one or two original chunks, prefer "exact failed span first" over immediately micro-splitting for AI Studio
+- keep fallback subsplits ready, but treat them as fallback, not default
+- preserving the original chunk boundaries in the repair transcript makes the final raw lineage easier to inspect against the failed production run
+- this is especially useful when Flash timed out for runtime reasons rather than producing obviously broken text
 
 ## Next High-Value Work
 

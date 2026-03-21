@@ -40,7 +40,11 @@ from chigyusubs.metadata import (
 SAMPLE_RATE = 16000
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_NAME = "NTQAI/wav2vec2-large-japanese"
+RESCUE_MODEL_NAME = "large-v3"
 _FALLBACK_LINE_SLOT_S = 0.08
+_WEAK_ANCHOR_VOCAB_THRESHOLD = 0.4
+_RESCUE_CONTEXT_NEIGHBORS = 2
+_RESCUE_CLIP_PAD_S = 1.0
 CPU_THREADS = 24
 
 # Lines that should be stripped before alignment (visual-only context)
@@ -215,7 +219,7 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[dict]) -> 
     num_frames = log_probs.shape[1]
     audio_duration = waveform.shape[-1] / SAMPLE_RATE
 
-    # Build full token sequence from all lines
+    # Build full token sequence from all lines, tracking per-line vocab coverage
     full_text = "".join(line["text"] for line in lines)
     token_ids = []
     chars = []
@@ -224,6 +228,12 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[dict]) -> 
         if tid is not None and tid != pad_id:
             token_ids.append(tid)
             chars.append(ch)
+
+    # Per-line vocab coverage ratio (fraction of chars the CTC model can tokenize)
+    for line in lines:
+        line_chars = len(line["text"])
+        line_hits = sum(1 for ch in line["text"] if vocab.get(ch) is not None and vocab.get(ch) != pad_id)
+        line["_vocab_ratio"] = round(line_hits / max(line_chars, 1), 3)
 
     if not token_ids:
         return [], []
@@ -307,6 +317,7 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[dict]) -> 
                 "text": line_text,
                 "_line_index": line_idx,
                 "_unaligned": True,
+                "_vocab_ratio": float(line.get("_vocab_ratio", 0.0)),
                 "turn_index": int(line.get("turn_index", line_idx)),
                 "starts_new_turn": bool(line.get("starts_new_turn", False)),
                 "words": [{"start": 0.0, "end": 0.0, "word": line_text, "probability": 0.0}],
@@ -330,6 +341,7 @@ def align_chunk(model, processor, waveform: torch.Tensor, lines: list[dict]) -> 
             "end": seg_end,
             "text": line_text,
             "_line_index": line_idx,
+            "_vocab_ratio": float(line.get("_vocab_ratio", 1.0)),
             "turn_index": int(line.get("turn_index", line_idx)),
             "starts_new_turn": bool(line.get("starts_new_turn", False)),
             "words": words,
@@ -486,14 +498,278 @@ def _enforce_monotonic_timings(segments: list[dict]) -> None:
         prev_end = seg["end"]
 
 
+def _is_weak_anchor(seg: dict) -> bool:
+    """Check if a segment is a weak anchor based on vocab coverage and duration."""
+    vocab_ratio = float(seg.get("_vocab_ratio", 1.0))
+    if vocab_ratio < _WEAK_ANCHOR_VOCAB_THRESHOLD:
+        return True
+    # Zero-duration with very short text is also suspect
+    dur = float(seg.get("end", 0.0)) - float(seg.get("start", 0.0))
+    if dur <= 0.0 and len(seg.get("text", "")) <= 10:
+        return True
+    return False
+
+
+def _build_rescue_groups(
+    segments: list[dict],
+    weak_indices: list[int],
+) -> list[dict]:
+    """Cluster nearby weak segments and attach strong neighbors as context."""
+    if not weak_indices:
+        return []
+
+    # Cluster weak indices that are consecutive or within 2 positions
+    clusters: list[list[int]] = []
+    current = [weak_indices[0]]
+    for idx in weak_indices[1:]:
+        if idx - current[-1] <= _RESCUE_CONTEXT_NEIGHBORS:
+            current.append(idx)
+        else:
+            clusters.append(current)
+            current = [idx]
+    clusters.append(current)
+
+    groups = []
+    for cluster in clusters:
+        first_weak = cluster[0]
+        last_weak = cluster[-1]
+
+        # Grab strong neighbors on each side for context
+        ctx_start = max(0, first_weak - _RESCUE_CONTEXT_NEIGHBORS)
+        ctx_end = min(len(segments) - 1, last_weak + _RESCUE_CONTEXT_NEIGHBORS)
+
+        # Find valid clip boundaries — expand outward if context neighbors
+        # are also zero-duration (they might be weak too)
+        clip_left = ctx_start
+        while clip_left > 0 and segments[clip_left]["end"] <= segments[clip_left]["start"]:
+            clip_left -= 1
+        clip_right = ctx_end
+        while clip_right < len(segments) - 1 and segments[clip_right]["end"] <= segments[clip_right]["start"]:
+            clip_right += 1
+
+        clip_start = float(segments[clip_left]["start"]) - _RESCUE_CLIP_PAD_S
+        clip_end = float(segments[clip_right]["end"]) + _RESCUE_CLIP_PAD_S
+        clip_start = max(0.0, clip_start)
+
+        groups.append({
+            "ctx_range": (ctx_start, ctx_end),
+            "weak_indices": set(cluster),
+            "clip_start": clip_start,
+            "clip_end": clip_end,
+        })
+    return groups
+
+
+def _run_rescue_pass(
+    segments: list[dict],
+    video_path: str,
+    rescue_model_name: str = RESCUE_MODEL_NAME,
+) -> list[dict]:
+    """Run stable-ts alignment rescue on weak-anchor segments.
+
+    Returns a list of rescue detail dicts for diagnostics.
+    """
+    weak_indices = [i for i, seg in enumerate(segments) if _is_weak_anchor(seg)]
+    if not weak_indices:
+        print("\nRescue pass: no weak-anchor segments detected.")
+        return []
+
+    print(f"\nRescue pass: {len(weak_indices)} weak-anchor segments detected")
+    for i in weak_indices:
+        seg = segments[i]
+        print(f"  [{i}] vocab={seg.get('_vocab_ratio', '?'):.2f}  "
+              f"dur={float(seg['end']) - float(seg['start']):.3f}s  "
+              f"{seg['text']!r}")
+
+    groups = _build_rescue_groups(segments, weak_indices)
+    print(f"  Built {len(groups)} rescue group(s)")
+
+    import stable_whisper
+
+    print(f"  Loading stable-ts model: {rescue_model_name}")
+    rescue_model = stable_whisper.load_model(rescue_model_name, device=DEVICE)
+
+    rescue_details: list[dict] = []
+
+    with tempfile.TemporaryDirectory() as work_dir:
+        for gi, group in enumerate(groups):
+            ctx_start, ctx_end = group["ctx_range"]
+            group_segs = segments[ctx_start:ctx_end + 1]
+
+            # Build text for the full context group
+            group_text = "\n".join(seg["text"] for seg in group_segs)
+            clip_start = group["clip_start"]
+            clip_end = group["clip_end"]
+
+            print(f"\n  Rescue group {gi + 1}/{len(groups)}: "
+                  f"segs [{ctx_start}..{ctx_end}], "
+                  f"clip {clip_start:.1f}-{clip_end:.1f}s")
+
+            # Extract audio clip
+            clip_path = os.path.join(work_dir, f"rescue_{gi}.wav")
+            try:
+                extract_audio_slice(video_path, clip_start, clip_end - clip_start, clip_path)
+            except subprocess.CalledProcessError:
+                print(f"    ffmpeg clip extraction failed, skipping group")
+                continue
+
+            # Run stable-ts alignment
+            try:
+                result = rescue_model.align(
+                    clip_path,
+                    group_text,
+                    language="ja",
+                )
+            except Exception as e:
+                print(f"    stable-ts align failed: {e}")
+                continue
+
+            if result is None:
+                print(f"    stable-ts returned None")
+                continue
+
+            # Collect all words from result, offset to episode time
+            rescue_words = []
+            for rs in result.segments:
+                for w in rs.words:
+                    rescue_words.append({
+                        "word": w.word,
+                        "start": round(w.start + clip_start, 3),
+                        "end": round(w.end + clip_start, 3),
+                        "probability": round(getattr(w, "probability", 0.0), 4),
+                    })
+
+            # Map rescue words back to each segment by walking through text
+            _apply_rescue_to_group(
+                segments, group, rescue_words, rescue_details,
+            )
+
+    del rescue_model
+    torch.cuda.empty_cache()
+
+    rescued = sum(1 for d in rescue_details if d["status"] == "rescued")
+    failed = sum(1 for d in rescue_details if d["status"] == "rescue_failed")
+    print(f"\nRescue pass complete: {rescued} rescued, {failed} failed")
+    return rescue_details
+
+
+def _apply_rescue_to_group(
+    segments: list[dict],
+    group: dict,
+    rescue_words: list[dict],
+    rescue_details: list[dict],
+):
+    """Map stable-ts rescue words back to segments, updating only weak ones."""
+    ctx_start, ctx_end = group["ctx_range"]
+    weak_indices = group["weak_indices"]
+
+    # Walk through rescue words and match to each segment's text in order.
+    # We consume rescue words character by character, matching against each
+    # segment's text to determine which words belong to which segment.
+    word_idx = 0
+    rescue_text_flat = "".join(w["word"] for w in rescue_words)
+
+    for seg_idx in range(ctx_start, ctx_end + 1):
+        seg = segments[seg_idx]
+        seg_text = seg["text"]
+
+        # Find which rescue words cover this segment's text
+        seg_word_start = word_idx
+        chars_remaining = len(seg_text.replace("\n", ""))
+        chars_consumed = 0
+
+        while word_idx < len(rescue_words) and chars_consumed < chars_remaining:
+            w_text = rescue_words[word_idx]["word"].replace("\n", "")
+            chars_consumed += len(w_text)
+            word_idx += 1
+
+        seg_rescue_words = rescue_words[seg_word_start:word_idx]
+
+        if seg_idx not in weak_indices:
+            continue
+
+        # Filter to words with non-zero duration
+        timed_words = [w for w in seg_rescue_words if w["end"] > w["start"]]
+
+        original_start = float(seg["start"])
+        original_end = float(seg["end"])
+        original_dur = original_end - original_start
+
+        detail = {
+            "segment_index": seg_idx,
+            "text": seg_text,
+            "vocab_ratio": float(seg.get("_vocab_ratio", 0.0)),
+            "original_start": original_start,
+            "original_end": original_end,
+            "original_duration": round(original_dur, 3),
+            "rescue_words": seg_rescue_words,
+        }
+
+        if not timed_words:
+            detail["status"] = "rescue_failed"
+            detail["reason"] = "no timed words from stable-ts"
+            rescue_details.append(detail)
+            print(f"    [{seg_idx}] FAILED: {seg_text!r} — no timed rescue words")
+            continue
+
+        new_start = timed_words[0]["start"]
+        new_end = timed_words[-1]["end"]
+        new_dur = new_end - new_start
+
+        # Sanity: rescue result should have positive duration
+        if new_dur <= 0.0:
+            detail["status"] = "rescue_failed"
+            detail["reason"] = "rescue duration <= 0"
+            rescue_details.append(detail)
+            print(f"    [{seg_idx}] FAILED: {seg_text!r} — zero rescue duration")
+            continue
+
+        # Apply rescued timestamps
+        seg["start"] = round(new_start, 3)
+        seg["end"] = round(new_end, 3)
+
+        # Replace word-level timestamps with rescue words
+        seg["words"] = [{
+            "start": w["start"],
+            "end": w["end"],
+            "word": w["word"],
+            "probability": w["probability"],
+        } for w in seg_rescue_words]
+
+        seg["_rescue"] = {
+            "method": "stable_ts",
+            "model": RESCUE_MODEL_NAME,
+            "original_start": original_start,
+            "original_end": original_end,
+        }
+
+        detail["status"] = "rescued"
+        detail["new_start"] = round(new_start, 3)
+        detail["new_end"] = round(new_end, 3)
+        detail["new_duration"] = round(new_dur, 3)
+        rescue_details.append(detail)
+        print(f"    [{seg_idx}] RESCUED: {seg_text!r}  "
+              f"{original_start:.3f}-{original_end:.3f} → "
+              f"{new_start:.3f}-{new_end:.3f}")
+
+
 def main():
     run = start_run("align_ctc")
     parser = argparse.ArgumentParser(description="CTC forced alignment using wav2vec2 Japanese.")
     parser.add_argument("--video", required=True, help="Input video/audio file.")
     parser.add_argument("--chunks", required=True, help="Gemini raw transcription JSON with chunks.")
     parser.add_argument("--output-words", required=True, help="Output JSON with aligned words.")
+    parser.add_argument(
+        "--fresh-run-id",
+        action="store_true",
+        help="Start a new lineage root for this alignment run while preserving the chunk JSON as lineage_source.",
+    )
+    parser.add_argument("--no-rescue", action="store_true", help="Skip stable-ts rescue pass for weak-anchor segments.")
     args = parser.parse_args()
-    run = inherit_run_id(run, args.chunks)
+    if args.fresh_run_id:
+        run["lineage_source"] = str(args.chunks)
+    else:
+        run = inherit_run_id(run, args.chunks)
     requested_output = Path(args.output_words)
     if requested_output.parent.name == "transcription" and not requested_output.name.startswith(f"{run['run_id']}_"):
         args.output_words = str(
@@ -628,6 +904,33 @@ def main():
                 ),
             })
 
+    # Rescue weak-anchor segments with stable-ts
+    rescue_details: list[dict] = []
+    if not args.no_rescue:
+        # Unload CTC model to free VRAM for stable-ts
+        del model, processor
+        torch.cuda.empty_cache()
+
+        rescue_details = _run_rescue_pass(all_segments, args.video)
+    else:
+        weak_count = sum(1 for seg in all_segments if _is_weak_anchor(seg))
+        if weak_count:
+            print(f"\nRescue pass skipped (--no-rescue): {weak_count} weak-anchor segments")
+
+    # Rescue can move weak-anchor segments backward past neighboring transcript
+    # lines, so re-assert monotonic order before serializing artifacts.
+    _enforce_monotonic_timings(all_segments)
+
+    # Strip internal fields before writing
+    for seg in all_segments:
+        rescue_info = seg.pop("_rescue", None)
+        vocab_ratio = seg.pop("_vocab_ratio", None)
+        if rescue_info:
+            seg["rescue"] = rescue_info
+        if vocab_ratio is not None and vocab_ratio < _WEAK_ANCHOR_VOCAB_THRESHOLD:
+            seg["anchor_confidence"] = "weak"
+            seg["vocab_ratio"] = vocab_ratio
+
     # Write output
     total_words = sum(len(s["words"]) for s in all_segments)
     zero_segs = sum(1 for s in all_segments if s["start"] == s["end"])
@@ -643,20 +946,43 @@ def main():
           f"{zero_words} words ({zero_words/max(total_words,1)*100:.1f}%)")
     print(f"Interpolated all-unaligned segments: {repaired_segments} across {repaired_chunks} chunks")
     print(f"Visual-only narration risk chunks: {visual_risk_chunks}")
+    rescued_count = sum(1 for d in rescue_details if d["status"] == "rescued")
+    rescue_failed_count = sum(1 for d in rescue_details if d["status"] == "rescue_failed")
+    weak_anchor_count = sum(1 for seg in all_segments if seg.get("anchor_confidence") == "weak")
+    if rescue_details:
+        print(f"Weak-anchor rescue: {rescued_count} rescued, {rescue_failed_count} failed")
 
     Path(args.output_words).parent.mkdir(parents=True, exist_ok=True)
     with open(args.output_words, "w", encoding="utf-8") as f:
         json.dump(all_segments, f, ensure_ascii=False, indent=2)
     print(f"Written to {args.output_words}")
     diag_path = diagnostics_path(args.output_words)
-    diag_path.write_text(json.dumps(all_chunk_diagnostics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    full_diagnostics = {
+        "chunks": all_chunk_diagnostics,
+    }
+    if rescue_details:
+        full_diagnostics["rescue"] = {
+            "model": RESCUE_MODEL_NAME,
+            "weak_anchor_threshold": _WEAK_ANCHOR_VOCAB_THRESHOLD,
+            "segments_attempted": len(rescue_details),
+            "segments_rescued": rescued_count,
+            "segments_failed": rescue_failed_count,
+            "details": rescue_details,
+        }
+    diag_path.write_text(json.dumps(full_diagnostics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"Diagnostics written: {diag_path}")
 
     metadata = finish_run(
         run,
         inputs={"video": args.video, "chunks_json": args.chunks},
         outputs={"words_json": args.output_words, "alignment_diagnostics_json": str(diag_path)},
-        settings={"model": MODEL_NAME, "language": "ja", "cpu_threads": CPU_THREADS},
+        settings={
+            "model": MODEL_NAME,
+            "language": "ja",
+            "cpu_threads": CPU_THREADS,
+            "rescue_model": None if args.no_rescue else RESCUE_MODEL_NAME,
+            "weak_anchor_threshold": _WEAK_ANCHOR_VOCAB_THRESHOLD,
+        },
         stats={
             "chunks_loaded": len(chunks_data),
             "segments_written": len(all_segments),
@@ -667,6 +993,9 @@ def main():
             "interpolated_unaligned_segments": repaired_segments,
             "chunks_with_interpolated_unaligned_segments": repaired_chunks,
             "chunks_with_visual_narration_substitution_risk": visual_risk_chunks,
+            "weak_anchor_segments": weak_anchor_count,
+            "weak_anchor_rescued": rescued_count,
+            "weak_anchor_rescue_failed": rescue_failed_count,
         },
     )
     write_metadata(args.output_words, metadata)
