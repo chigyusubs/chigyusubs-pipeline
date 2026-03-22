@@ -230,6 +230,11 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     else:
         with tempfile.TemporaryDirectory() as work_dir:
             vad_segments = run_silero_vad(str(video_path), work_dir=work_dir)
+        vad_cache.write_text(
+            json.dumps(vad_segments, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(f"  Saved VAD cache: {vad_cache}", flush=True)
 
     total_speech = sum(s["end"] - s["start"] for s in vad_segments)
     print(f"Speech: {total_speech:.0f}s / {duration:.0f}s ({total_speech / duration * 100:.0f}%)", flush=True)

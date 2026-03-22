@@ -98,7 +98,7 @@ Lineage artifact naming:
 |---|---|---|
 | `run_vad_episode.py` | Silero VAD segmentation — reusable artifact | Maintained |
 | `build_vad_chunks.py` | Build full-coverage chunk boundaries from saved VAD segments, using silence only to place split points and defaulting to a hard max chunk duration of `target_chunk_s + 30s`. Before a true forced split, it now prefers a shorter real silence gap down to `0.75s`. | Maintained |
-| `build_semantic_chunks.py` | Codex-interactive semantic chunk review helper. Uses Silero VAD candidate gaps plus a faster-whisper pre-pass transcript so accepted splits can be reviewed semantically, then finalizes to contiguous full-coverage chunk JSON by splitting at silence-gap midpoints and validating coverage. Defaults to a hard max chunk duration of `target_chunk_s + 30s`, reuses `transcription/whisper_prepass_transcript.json` by default when present, and only reruns the faster-whisper pre-pass when `--rerun-whisper` is passed. Before a true forced split, finalize now prefers a shorter real silence gap down to `0.75s`. | Maintained |
+| `build_semantic_chunks.py` | Codex-interactive semantic chunk review helper. Uses Silero VAD candidate gaps plus a faster-whisper pre-pass transcript so accepted splits can be reviewed semantically, then finalizes to contiguous full-coverage chunk JSON by splitting at silence-gap midpoints and validating coverage. Defaults to a hard max chunk duration of `target_chunk_s + 30s`, reuses `transcription/whisper_prepass_transcript.json` by default when present, saves `transcription/silero_vad_segments.json` for reuse, and only reruns the faster-whisper pre-pass when `--rerun-whisper` is passed. Before a true forced split, finalize now prefers a shorter real silence gap down to `0.75s`. | Maintained |
 
 ### Transcription
 
@@ -183,6 +183,7 @@ Chunking fallback note:
 
 - both maintained chunk builders still enforce the hard max duration
 - but before cutting through speech they now search for a shorter real silence gap down to `--fallback-min-gap-s` (default `0.75s`)
+- for `build_semantic_chunks.py`, that fallback path depends on saved `transcription/silero_vad_segments.json`, which fresh `prepare` runs now persist automatically
 
 Named preset:
 
