@@ -17,6 +17,11 @@ from chigyusubs.alignment_diagnostics import discover_alignment_diagnostics_path
 from chigyusubs.metadata import finish_run, metadata_path, start_run, write_metadata
 from chigyusubs.paths import find_episode_dir_from_path
 from chigyusubs.rocm import ensure_rocm_env
+from chigyusubs.transcript_comparison import load_json, load_segments
+
+from compare_transcript_coverage import run_coverage_report
+from report_raw_chunk_omissions import run_omission_report
+from report_short_line_disagreements import run_short_disagreement_report
 
 
 def discover_video_for_words(words_path: Path) -> Path | None:
@@ -307,75 +312,64 @@ def main() -> None:
     else:
         print(f"Reusing existing second-opinion transcript: {secondary_words_path}")
 
-    compare_cmd = [
-        sys.executable,
-        "scripts/compare_transcript_coverage.py",
-        "--primary",
-        str(words_path),
-        "--secondary",
-        str(secondary_words_path),
-        "--output",
-        str(coverage_path),
-        "--window-s",
-        str(args.window_s),
-        "--step-s",
-        str(args.step_s),
-        "--top",
-        str(args.top),
-    ]
+    primary_segments = load_segments(words_path)
+    secondary_segments = load_segments(secondary_words_path)
+
+    vad_segments = None
     if episode_dir:
         vad_json = episode_dir / "transcription" / "silero_vad_segments.json"
         if vad_json.exists():
-            compare_cmd.extend(["--vad-json", str(vad_json)])
+            vad_segments = json.loads(vad_json.read_text(encoding="utf-8"))
 
-    subprocess.run(compare_cmd, check=True)
+    coverage_report = run_coverage_report(
+        primary_segments,
+        secondary_segments,
+        primary_path=str(words_path),
+        secondary_path=str(secondary_words_path),
+        window_s=args.window_s,
+        step_s=args.step_s,
+        top=args.top,
+        vad_segments=vad_segments,
+    )
+    coverage_path.parent.mkdir(parents=True, exist_ok=True)
+    coverage_path.write_text(json.dumps(coverage_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     omission_summary = None
     short_disagreement_summary = None
     gemini_raw_path = discover_gemini_raw_for_words(words_path)
     if gemini_raw_path:
-        omission_cmd = [
-            sys.executable,
-            "scripts/report_raw_chunk_omissions.py",
-            "--gemini-raw",
-            str(gemini_raw_path),
-            "--primary",
-            str(words_path),
-            "--secondary",
-            str(secondary_words_path),
-            "--output",
-            str(omission_report_path),
-            "--window-s",
-            str(args.window_s),
-            "--step-s",
-            str(args.step_s),
-            "--top",
-            str(args.top),
-        ]
-        subprocess.run(omission_cmd, check=True)
-        omission_report = json.loads(omission_report_path.read_text(encoding="utf-8"))
+        raw_chunks = load_json(gemini_raw_path)
+
+        omission_report = run_omission_report(
+            raw_chunks,
+            primary_segments,
+            secondary_segments,
+            gemini_raw_path=str(gemini_raw_path),
+            primary_path=str(words_path),
+            secondary_path=str(secondary_words_path),
+            window_s=args.window_s,
+            step_s=args.step_s,
+            top=args.top,
+        )
+        omission_report_path.parent.mkdir(parents=True, exist_ok=True)
+        omission_report_path.write_text(json.dumps(omission_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         omission_summary = omission_report.get("summary", {})
         summary["gemini_raw_json"] = str(gemini_raw_path)
 
-        short_disagreement_cmd = [
-            sys.executable,
-            "scripts/report_short_line_disagreements.py",
-            "--gemini-raw",
-            str(gemini_raw_path),
-            "--primary",
-            str(words_path),
-            "--secondary",
-            str(secondary_words_path),
-            "--output",
-            str(short_disagreement_report_path),
-            "--top",
-            str(args.top),
-        ]
-        subprocess.run(short_disagreement_cmd, check=True)
-        short_disagreement_report = json.loads(short_disagreement_report_path.read_text(encoding="utf-8"))
+        short_disagreement_report = run_short_disagreement_report(
+            raw_chunks,
+            primary_segments,
+            secondary_segments,
+            gemini_raw_path=str(gemini_raw_path),
+            primary_path=str(words_path),
+            secondary_path=str(secondary_words_path),
+            top=args.top,
+        )
+        short_disagreement_report_path.parent.mkdir(parents=True, exist_ok=True)
+        short_disagreement_report_path.write_text(json.dumps(short_disagreement_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         short_disagreement_summary = short_disagreement_report.get("summary", {})
 
-    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
+    coverage = coverage_report
     summary.update(
         {
             "status": "completed",
