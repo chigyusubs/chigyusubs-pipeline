@@ -1,10 +1,11 @@
 # Codex Skills
 
-This repo now has four Codex-interactive skills for subtitle work:
+This repo now has five Codex-interactive skills for subtitle work:
 
 - `chunk-review`
 - `subtitle-reflow`
 - `glossary-context`
+- `speaker-diarization`
 - `subtitle-translation`
 
 These skills are not replacements for the maintained scripts. They are Codex
@@ -30,6 +31,7 @@ python3 scripts/install_codex_skills.py
 python3 scripts/install_codex_skills.py --skill chunk-review
 python3 scripts/install_codex_skills.py --skill subtitle-reflow
 python3 scripts/install_codex_skills.py --skill glossary-context
+python3 scripts/install_codex_skills.py --skill speaker-diarization
 python3 scripts/install_codex_skills.py --skill subtitle-translation
 ```
 
@@ -183,6 +185,38 @@ Example invocation in Codex:
 Use $glossary-context on samples/episodes/<slug>/transcription/<slug>_gemini_raw.json
 ```
 
+## `speaker-diarization`
+
+Purpose:
+
+- identify anonymous voice clusters from `speaker_map.json` by cross-referencing
+  sample turns with the glossary
+- produce `named_speaker_map.json` with per-cluster identifications, merge decisions,
+  and a pre-resolved effective speakers rollup
+
+Default behavior:
+
+1. Read `transcription/*_speaker_map.json` — extract per-cluster stats and ~10 longest
+   sample turns per cluster
+2. Read `glossary/glossary.json` + `glossary/episode_context.json` — extract cast/person
+   entries
+3. Cross-reference turn content with glossary names, identify patterns (self-introductions,
+   quiz-reading, singing, speech register, dialect)
+4. Write `transcription/<stem>_named_speaker_map.json`
+
+Important:
+
+- every cluster in the source speaker map must get an identification entry
+- merges are single-hop only (no chains), never merge speakers who interact
+- the named speaker map is auto-discovered by `translate_vtt_codex.py prepare`
+- speaker context appears in `next-batch` payloads as advisory per-cue labels
+
+Example invocation in Codex:
+
+```text
+Use $speaker-diarization on samples/episodes/<slug>/transcription/<stem>_speaker_map.json
+```
+
 ## `subtitle-translation`
 
 Purpose:
@@ -218,6 +252,7 @@ The maintained helper automatically:
 - writes a deterministic batch summary in diagnostics
 - auto-discovers a sibling chunkwise OCR sidecar in `ocr/*_flash_lite_chunk_ocr.json` and includes filtered visual cues in batch payloads when present
 - carries advisory alignment warnings from CTC diagnostics into batch payloads and diagnostics when present
+- auto-discovers a sibling `*_named_speaker_map.json` and includes per-cue speaker context in batch payloads when present
 - uses the `84 -> 60 -> 48` batch-tier fallback
 - keeps minimum-tier CPS overruns as diagnostics/warnings instead of auto-stopping the whole run
 - continues through `yellow` batches by default; only structural errors or explicit `red` stop the session
@@ -243,7 +278,10 @@ video
   -> recommended Japanese VTT
   -> glossary-context
   -> glossary/episode_context.json
-  -> subtitle-translation
+  -> cluster_speakers.py (automated)
+  -> speaker-diarization (interactive)
+  -> named_speaker_map.json
+  -> subtitle-translation (auto-discovers named speaker map)
   -> English VTT in translation/
   -> publish_vtt.py
   -> source/<video_stem>.vtt
@@ -257,6 +295,9 @@ boundary review or repair.
 
 Use `glossary-context` once the raw transcript is available and before English
 translation starts.
+
+Use `speaker-diarization` after voice clustering to name anonymous clusters
+using glossary context. The named speaker map is auto-discovered by translation.
 
 Use `subtitle-translation` once there is a single recommended Japanese VTT that
 is safe to hand to English subtitle editing.

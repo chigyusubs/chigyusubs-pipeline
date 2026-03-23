@@ -105,6 +105,7 @@ For each cue in a batch:
 - do not invent content that is unsupported by the source
 - if the batch payload includes `alignment_warnings`, treat them as timing-confidence notes for the affected cues, not as a stop condition by themselves
 - if the batch payload includes `turn_context`, treat it as speaker-turn awareness only; do not restore visible `-- ` markers or transcript-style labels into the subtitle text
+- if the batch payload includes `speaker_context`, use it for translation voice/register and pronoun disambiguation (see Speaker Context section below)
 
 If one cue is semantically weak in isolation, use adjacent cues to distribute meaning more naturally, but still keep one non-empty output per cue.
 
@@ -118,6 +119,17 @@ come from chunkwise OCR sidecars and have chunk-level timestamps, not cue-level 
 - They are context only — do not emit them as subtitle lines
 - On-screen instructions often clarify what speakers are referring to
 - Prefer `title_card`, `name_card`, and `info_card` items over generic labels when deciding what matters
+
+### Speaker Context
+
+If `speaker_context` is present in the batch payload, it provides per-cue speaker identifications from voice clustering. Use this information to improve translation quality:
+
+- **Pronoun disambiguation** — this is the primary purpose. Use speaker identity to resolve ambiguous Japanese pronouns: a solo speaker's utterance is first-person ("I"), references to an identified speaker by others use "he"/"she", etc.
+- **Voice and register** — presenters (role: `presenter`) should use MC-style English. Contestants may have more casual register. Match the speaker's personality when translating.
+- **Speaker changes within a cue** — if the speaker context for adjacent cues differs, be aware of potential speaker changes. Handle transitions carefully.
+- **Advisory only** — do not add speaker labels or names to subtitle text unless the source already contains them. The speaker info is for your translation decisions, not for display.
+- **Confidence levels** — `high` confidence identifications are reliable. `medium` and `low` are best-effort; use them but don't make bold translation choices solely based on low-confidence IDs.
+- **Group context** — the `group` field (e.g., `phone_quiz_room`, `karaoke_room`) provides spatial context that can help with scene awareness.
 
 ### 5. Visual Context (Optional)
 
@@ -148,6 +160,7 @@ Do not extract frames for every batch. Use this selectively when translation qua
 - If `prepare` finds a sibling `ocr/*_flash_lite_chunk_ocr.json`, expect `next-batch` to auto-include filtered visual cue context from that sidecar.
 - If `prepare` auto-discovers an alignment diagnostics sidecar, expect `next-batch` payloads and diagnostics to carry advisory warnings for cues whose source timing was locally interpolated during alignment.
 - If the aligned words JSON preserves Gemini turn metadata, expect `next-batch` payloads and diagnostics to carry advisory turn-boundary context for cues that span multiple source turns.
+- If a `*_named_speaker_map.json` exists in the sibling `transcription/` directory, expect `next-batch` payloads to carry per-cue speaker context for pronoun disambiguation and voice register.
 - If you intentionally restart with `prepare --force`, expect the helper to clear the old session, partial output, final output, and diagnostics so stale batch history does not leak into the new run.
 - After each `apply-batch`, immediately loop back to `next-batch` — do not pause or summarize between batches.
 

@@ -23,6 +23,12 @@ from chigyusubs.turn_context import (
     turn_context_for_cue_ids,
     turn_summary_payload,
 )
+from chigyusubs.speaker_context import (
+    build_speaker_review,
+    discover_named_speaker_map_path,
+    speaker_context_for_cue_ids,
+    speaker_summary_payload,
+)
 from chigyusubs.translation import (
     Cue,
     batch_cues,
@@ -223,6 +229,11 @@ def _initial_session(args, input_path: Path, output_path: Path, cues: list[Cue])
     )
     alignment_review = build_alignment_review(cues, alignment_diagnostics) if alignment_diagnostics else None
     turn_review = build_turn_review(cues, words_path) if words_path else None
+    named_speaker_map_path = discover_named_speaker_map_path(
+        explicit_path=args.speaker_map,
+        input_path=input_path,
+    )
+    speaker_review = build_speaker_review(cues, named_speaker_map_path) if named_speaker_map_path else None
     status = "ready"
     stop_reason = ""
     if preflight["negative_duration_cues"] or preflight["overlap_after_cues"]:
@@ -245,6 +256,8 @@ def _initial_session(args, input_path: Path, output_path: Path, cues: list[Cue])
         "alignment_diagnostics_path": str(alignment_diagnostics) if alignment_diagnostics else "",
         "alignment_review": alignment_review,
         "turn_review": turn_review,
+        "speaker_review": speaker_review,
+        "speaker_map_path": str(named_speaker_map_path) if named_speaker_map_path else "",
         "target_language": args.target_lang,
         "glossary_path": args.glossary or "",
         "summary_path": args.summary or "",
@@ -451,6 +464,7 @@ def _session_diagnostics(session: dict, cues: list[Cue]) -> dict:
         "batch_tiers": session["batch_tiers"],
         "alignment_warning_summary": alignment_summary_payload(session.get("alignment_review")),
         "turn_context_summary": turn_summary_payload(session.get("turn_review")),
+        "speaker_context_summary": speaker_summary_payload(session.get("speaker_review")),
         "completed_cues": completed,
         "total_cues": len(cues),
         "completed_batches": len(session.get("completed_batches", [])),
@@ -564,6 +578,12 @@ def cmd_prepare(args) -> int:
             "Turn advisory: "
             f"{session['turn_review']['multi_turn_cues_count']} cues span multiple source turns"
         )
+    if session.get("speaker_review"):
+        print(
+            "Speaker advisory: "
+            f"{session['speaker_review']['effective_speaker_count']} speakers identified, "
+            f"{session['speaker_review']['cue_speaker_count']} cues with speaker context"
+        )
     if seed_path:
         print(f"Seeded from: {seed_path} ({session['seeded_cues']} cues)")
     if session["status"] == "stopped":
@@ -585,6 +605,7 @@ def cmd_next_batch(args) -> int:
     visual_cues = _load_visual_cues_for_batch(session.get("visual_cues_path", ""), batch_start, batch_end)
     target_alignment = alignment_warnings_for_cue_ids(session.get("alignment_review"), batch["cue_ids"])
     target_turn_context = turn_context_for_cue_ids(session.get("turn_review"), batch["cue_ids"])
+    target_speaker_context = speaker_context_for_cue_ids(session.get("speaker_review"), batch["cue_ids"])
     context_ids = [
         batch["start_index"] - len(batch["prev_context"]) + idx + 1
         for idx, _ in enumerate(batch["prev_context"])
@@ -594,6 +615,7 @@ def cmd_next_batch(args) -> int:
     ]
     context_alignment = alignment_warnings_for_cue_ids(session.get("alignment_review"), context_ids)
     context_turn_context = turn_context_for_cue_ids(session.get("turn_review"), context_ids)
+    context_speaker_context = speaker_context_for_cue_ids(session.get("speaker_review"), context_ids)
     payload = {
         "batch_index": batch["batch_index"],
         "current_batch_tier": session["current_batch_tier"],
@@ -614,6 +636,7 @@ def cmd_next_batch(args) -> int:
         "summary": _load_text_blob(session.get("summary_path", "")),
         "alignment_warnings": _batch_alignment_payload(target_alignment, context_alignment),
         "turn_context": _batch_turn_payload(target_turn_context, context_turn_context),
+        "speaker_context": _batch_speaker_payload(target_speaker_context, context_speaker_context),
         "review_policy": {
             "allowed_reviews": ["green", "yellow", "red"],
             "green": "apply batch and continue",
@@ -757,6 +780,7 @@ def cmd_status(args) -> int:
         "current_batch_tier": session["current_batch_tier"],
         "alignment_warning_summary": alignment_summary_payload(session.get("alignment_review")),
         "turn_context_summary": turn_summary_payload(session.get("turn_review")),
+        "speaker_context_summary": speaker_summary_payload(session.get("speaker_review")),
         "next_batch_index": None if pending_batch is None else pending_batch["batch_index"],
         "next_batch_range": None if pending_batch is None else [pending_batch["cue_ids"][0], pending_batch["cue_ids"][-1]],
     }
@@ -839,6 +863,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Optional alignment diagnostics sidecar. If omitted, prepare auto-discovers it from the input VTT.",
     )
+    prepare.add_argument(
+        "--speaker-map",
+        default="",
+        help="Optional named speaker map JSON. If omitted, prepare auto-discovers it from the input VTT.",
+    )
     prepare.add_argument("--preferred-model", default="gpt-5.4")
     prepare.add_argument("--preferred-thinking", default="medium")
     prepare.add_argument("--preferred-temperature", type=float, default=0.2)
@@ -894,6 +923,16 @@ def _batch_turn_payload(target_turn_context: dict | None, context_turn_context: 
         "advisory_only": True,
         "target": target_turn_context,
         "context": context_turn_context,
+    }
+
+
+def _batch_speaker_payload(target_speaker_context: dict | None, context_speaker_context: dict | None) -> dict | None:
+    if not target_speaker_context and not context_speaker_context:
+        return None
+    return {
+        "advisory_only": True,
+        "target": target_speaker_context,
+        "context": context_speaker_context,
     }
 
 

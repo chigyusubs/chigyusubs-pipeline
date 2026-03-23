@@ -320,6 +320,7 @@ This repo has tracked Codex-interactive skills under:
 - `codex/skills/chunk-review`
 - `codex/skills/subtitle-reflow`
 - `codex/skills/glossary-context`
+- `codex/skills/speaker-diarization`
 - `codex/skills/subtitle-translation`
 
 Treat the repo copy as canonical. Do not treat `~/.codex/skills/` as the source of truth.
@@ -374,6 +375,19 @@ Default behavior should be:
 - output `glossary/glossary.json` and `glossary/episode_context.json`
 - merge with existing global glossary if present
 
+### When to use `speaker-diarization`
+
+Use the speaker-diarization skill after `cluster_speakers.py` has produced a `speaker_map.json` and before translation begins.
+
+Default behavior should be:
+
+- read `transcription/*_speaker_map.json` — extract per-cluster stats and sample turns
+- read `glossary/glossary.json` + `glossary/episode_context.json` — extract cast/person entries
+- cross-reference turn content with glossary names, identify patterns
+- produce `transcription/*_named_speaker_map.json` with identifications, merges, and effective speakers
+
+The named speaker map is auto-discovered by `translate_vtt_codex.py prepare` and injected as per-cue `speaker_context` in `next-batch` payloads.
+
 ### When to use `subtitle-translation`
 
 Use the translation skill when the user wants Codex itself to do subtitle translation interactively instead of an API-backed translation run.
@@ -400,7 +414,8 @@ Preferred end-to-end handoff is:
 3. `glossary-context` (needs raw transcript)
 4. CTC alignment + reflow (automated)
 5. `subtitle-reflow` (review, optional repair)
-6. `subtitle-translation` (batch loop)
-7. `publish_vtt.py` (automated)
+6. Speaker clustering (automated) + `speaker-diarization` (interactive)
+7. `subtitle-translation` (batch loop, auto-discovers named speaker map)
+8. `publish_vtt.py` (automated)
 
 See "End-to-End Episode Pipeline" above for full commands and defaults.

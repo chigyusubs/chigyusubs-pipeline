@@ -1,0 +1,4 @@
+interface:
+  display_name: "Speaker Diarization"
+  short_description: "Identify anonymous voice clusters from speaker_map.json using glossary context"
+  default_prompt: "Use $speaker-diarization to identify and name voice clusters from the speaker map for this episode."
