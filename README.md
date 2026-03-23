@@ -18,7 +18,10 @@ Video file
   ├─ Raw transcript → glossary/context extraction
   ├─ Raw chunk sanity gate
   ├─ CTC forced alignment (wav2vec2-ja)
-  ├─ Whisper second-opinion coverage check
+  ├─ Whisper second-opinion
+  │     ├─ coverage-gap check
+  │     ├─ raw-omission check
+  │     └─ short-line disagreement check
   ├─ Reflow → timed Japanese VTT
   ├─ Optional cue repair (interactive)
   │
@@ -88,7 +91,7 @@ The maintained practical path is no longer “local OCR first.” It is:
 - deterministic raw chunk QA before alignment/reflow
 - optional chunkwise Flash Lite OCR sidecar
 - CTC alignment
-- faster-whisper second opinion
+- faster-whisper second opinion with saved coverage, omission, and short-line disagreement diagnostics
 - reflow
 - Codex translation/review
 

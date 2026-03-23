@@ -7,6 +7,10 @@ This document records what the repo has actually taught us so far, based on real
 
 It is intentionally operational. The goal is to capture what worked, what did not, and what still needs to be fixed.
 
+For a detailed worked example of one repair-heavy real episode, see:
+
+- `docs/session-notes-great_escape-s03e04-transcript-repairs.md`
+
 ## Current Conclusions
 
 ### 1. Reusable artifacts were the right architectural move
@@ -168,6 +172,54 @@ can create a second-order timing bug if the saved JSON is not re-clamped:
 
 The fix is to run the monotonic timing pass again after weak-anchor rescue and
 before writing `*_ctc_words.json`, not only before rescue.
+
+Another real failure class on `great_escape_s03e04_tvcut` showed that omission
+review alone is not enough for the maintained Gemini path:
+
+- the first spoken block from roughly `00:08` to `00:18` was missing entirely
+  from `*_gemini_raw.json`, which then propagated cleanly through alignment,
+  reflow, translation, and publish
+- a short hunger check line was misheard as `小田さん減ってる？` instead of
+  `お腹減ってる？`
+- a short cast-name line was misheard as `パタノか` instead of `高野か`
+
+The important point is that the latter two are not omission problems. They are
+short high-value disagreement problems:
+
+- the raw transcript still has a compact plausible line
+- CTC will happily align it
+- reflow will happily preserve it
+- translation can then confidently produce a wrong English line
+
+Operational conclusion:
+
+- keep Gemini as the maintained base transcript
+- keep faster-whisper as an explicit second opinion
+- but do not stop at coverage-gap / omission classification
+- also surface short high-value line disagreements where the Gemini-based raw
+  line and the Whisper line strongly disagree in the same local window
+
+Maintained follow-up:
+
+- `scripts/pre_reflow_second_opinion.py` should save a dedicated short-line
+  disagreement report alongside the existing coverage and omission reports
+- review those candidates especially around:
+  - names and honorific-bearing lines
+  - short question/response turns
+  - early opening lines
+  - short body-state / status lines (`お腹減ってる？`, etc.)
+- calibrate that report against real full-episode second-opinion artifacts, not
+  coarse prepass stand-ins; on `great_escape_s03e04_tvcut`, the first real
+  `large-v3` pass produced `271` candidates, but tuning the matcher to prefer
+  best nearby text agreement over raw timing reduced the same episode to `27`
+  candidates while still surfacing the useful `高野か` vs `タカノか` class
+
+This is the practical compromise validated by the session:
+
+- Whisper alone is not the maintained answer
+- Gemini alone is not safe enough
+- the maintained answer is Gemini base + Whisper second opinion + explicit
+  disagreement diagnostics
 
 ### 5. Reflow must not use text-only word-timestamp lookup for repeated lines
 

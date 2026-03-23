@@ -46,6 +46,12 @@ def default_omission_report_path(words_path: Path, model_name: str) -> Path:
     return diagnostics_dir / f"{words_path.stem}_vs_{model_slug}_raw_omissions.json"
 
 
+def default_short_disagreement_report_path(words_path: Path, model_name: str) -> Path:
+    diagnostics_dir = words_path.parent / "diagnostics"
+    model_slug = model_name.replace("/", "_").replace(".", "_")
+    return diagnostics_dir / f"{words_path.stem}_vs_{model_slug}_short_disagreements.json"
+
+
 def discover_existing_secondary(words_path: Path, model_name: str) -> tuple[Path, Path] | None:
     diagnostics_dir = words_path.parent / "diagnostics"
     if not diagnostics_dir.exists():
@@ -200,6 +206,7 @@ def main() -> None:
     parser.add_argument("--faster-vtt", default="", help="Optional faster-whisper VTT output path")
     parser.add_argument("--coverage-json", default="", help="Optional coverage report output path")
     parser.add_argument("--omission-report-json", default="", help="Optional raw-chunk omission report output path")
+    parser.add_argument("--short-disagreement-report-json", default="", help="Optional short-line disagreement report output path")
     parser.add_argument("--summary-json", default="", help="Optional helper summary output path")
     parser.add_argument("--glossary", default="", help="Optional glossary file for Whisper initial_prompt. Auto-discovered from episode glossary if not given.")
     parser.add_argument("--model", default="large-v3", help="Whisper model name passed to run_faster_whisper.py")
@@ -232,6 +239,9 @@ def main() -> None:
     omission_report_path = default_omission_report_path(words_path, args.model)
     if args.omission_report_json:
         omission_report_path = Path(args.omission_report_json)
+    short_disagreement_report_path = default_short_disagreement_report_path(words_path, args.model)
+    if args.short_disagreement_report_json:
+        short_disagreement_report_path = Path(args.short_disagreement_report_json)
     if args.summary_json:
         summary_path = Path(args.summary_json)
 
@@ -246,6 +256,7 @@ def main() -> None:
         "secondary_words_json": str(secondary_words_path),
         "coverage_report_json": str(coverage_path),
         "raw_omission_report_json": str(omission_report_path),
+        "short_disagreement_report_json": str(short_disagreement_report_path),
     }
 
     episode_dir = find_episode_dir_from_path(words_path)
@@ -320,6 +331,7 @@ def main() -> None:
     subprocess.run(compare_cmd, check=True)
 
     omission_summary = None
+    short_disagreement_summary = None
     gemini_raw_path = discover_gemini_raw_for_words(words_path)
     if gemini_raw_path:
         omission_cmd = [
@@ -345,6 +357,24 @@ def main() -> None:
         omission_summary = omission_report.get("summary", {})
         summary["gemini_raw_json"] = str(gemini_raw_path)
 
+        short_disagreement_cmd = [
+            sys.executable,
+            "scripts/report_short_line_disagreements.py",
+            "--gemini-raw",
+            str(gemini_raw_path),
+            "--primary",
+            str(words_path),
+            "--secondary",
+            str(secondary_words_path),
+            "--output",
+            str(short_disagreement_report_path),
+            "--top",
+            str(args.top),
+        ]
+        subprocess.run(short_disagreement_cmd, check=True)
+        short_disagreement_report = json.loads(short_disagreement_report_path.read_text(encoding="utf-8"))
+        short_disagreement_summary = short_disagreement_report.get("summary", {})
+
     coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
     summary.update(
         {
@@ -357,6 +387,8 @@ def main() -> None:
     )
     if omission_summary is not None:
         summary["raw_omission_summary"] = omission_summary
+    if short_disagreement_summary is not None:
+        summary["short_disagreement_summary"] = short_disagreement_summary
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -371,6 +403,7 @@ def main() -> None:
             "summary_json": str(summary_path),
             "coverage_json": str(coverage_path),
             "raw_omission_report_json": str(omission_report_path) if omission_summary is not None else None,
+            "short_disagreement_report_json": str(short_disagreement_report_path) if short_disagreement_summary is not None else None,
             "secondary_vtt": str(faster_vtt_path),
             "secondary_words_json": str(secondary_words_path),
         },
@@ -389,6 +422,7 @@ def main() -> None:
             "reused_existing_secondary": int(reused_existing),
             "flagged_regions": int(coverage.get("summary", {}).get("flagged_regions", 0)),
             "raw_omission_candidates": int(omission_summary.get("classified_candidates", 0)) if omission_summary else 0,
+            "short_disagreement_candidates": int(short_disagreement_summary.get("classified_candidates", 0)) if short_disagreement_summary else 0,
         },
     )
     write_metadata(summary_path, metadata)

@@ -24,6 +24,9 @@ source video
   -> optional chunkwise Flash Lite OCR sidecar
   -> CTC forced alignment
   -> faster-whisper second opinion
+     -> coverage-gap report
+     -> raw-omission report
+     -> short-line disagreement report
   -> reflow
   -> optional Codex repair
   -> Codex or API translation
@@ -70,6 +73,9 @@ Important chunking rule:
 - Treat OCR as optional evidence, not a mandatory front door.
 - Keep speech alignment speech-only.
 - Use local models as verification/backstop artifacts, not hidden replacement logic.
+- Treat second-opinion review as two separate tasks:
+  - omission/coverage checks
+  - short high-value disagreement checks
 
 ## Canonical Artifact Layout
 

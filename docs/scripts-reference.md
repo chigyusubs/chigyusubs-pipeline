@@ -205,9 +205,10 @@ Chunk coverage rule:
 | `run_faster_whisper.py` | faster-whisper ASR (ROCm/CUDA), initial prompt + hotwords | Maintained |
 | `run_whisper_cpp.py` | whisper.cpp ASR via `whisper-cli` | Maintained |
 | `run_local_whisper.py` | OpenAI Whisper Python package ASR | Maintained |
-| `pre_reflow_second_opinion.py` | Always-on faster-whisper second-opinion coverage check with VAD cross-reference and optional raw-chunk omission classification | Maintained |
+| `pre_reflow_second_opinion.py` | Always-on faster-whisper second-opinion coverage check with VAD cross-reference, optional raw-chunk omission classification, and short high-value disagreement reporting | Maintained |
 | `compare_transcript_coverage.py` | Time-local coverage-gap comparison between primary and secondary transcripts, with optional VAD confirmation | Maintained |
 | `report_raw_chunk_omissions.py` | Classify omissions from `*_gemini_raw.json` as `visual_substituted_narration`, `missing_narration_high_confidence`, or `compressed_vs_missing_unclear` | Maintained |
+| `report_short_line_disagreements.py` | Flag short high-value raw lines where the Gemini-based transcript and the Whisper second opinion strongly disagree in the same local span | Maintained |
 
 ### Alignment
 
