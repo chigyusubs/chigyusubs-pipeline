@@ -22,6 +22,34 @@ Do not optimize for:
 
 ## Working Rules
 
+### Privilege escalation
+
+Some scripts require GPU or network access that the default sandbox does not provide.
+Before running any of these, confirm with the user and escalate privileges.
+
+**ROCm (GPU) scripts** — require `LD_LIBRARY_PATH=/opt/rocm/lib` and
+`CT2_CUDA_ALLOCATOR=cub_caching` set before Python starts:
+
+- `scripts/build_semantic_chunks.py prepare` (faster-whisper pre-pass)
+- `scripts/align_ctc.py` (wav2vec2 + torchaudio CTC alignment)
+- `scripts/run_faster_whisper.py` (standalone whisper runs)
+- `scripts/cluster_speakers.py` (pyannote diarization)
+
+**Network scripts** — require outbound API access:
+
+- `scripts/transcribe_gemini_video.py` (Gemini API)
+- `scripts/extract_gemini_chunk_ocr.py` (Gemini API)
+- `scripts/translate_vtt_api.py --backend vertex` (Vertex AI)
+
+**No escalation needed** — these are pure CPU/local:
+
+- `scripts/reflow_words.py`
+- `scripts/repair_vtt_codex.py`
+- `scripts/translate_vtt_codex.py`
+- `scripts/publish_vtt.py`
+
+Do not attempt ROCm or network scripts in the default sandbox — they will fail silently or hang.
+
 ### Artifact-first workflow
 
 Keep these as reusable saved artifacts whenever possible:
@@ -204,22 +232,23 @@ The only required input is the video path. Infer the episode directory from it.
 All paths below use `<ep>` for the episode directory and `<stem>` for the
 run-ID-prefixed artifact stem that each step produces.
 
-### Phase 1 — Semantic chunking (interactive)
+### Phase 1 — Semantic chunking (interactive) [ROCm]
 
 ```bash
+LD_LIBRARY_PATH=/opt/rocm/lib CT2_CUDA_ALLOCATOR=cub_caching \
 PYTHONPATH=. python3 scripts/build_semantic_chunks.py prepare \
   --video <ep>/source/<video>.mp4 \
   --target-chunk-s 90
 ```
 
-This runs Silero VAD + faster-whisper pre-pass internally.
+This runs Silero VAD + faster-whisper pre-pass internally. Requires GPU escalation.
 Then use the `$chunk-review` skill to loop through all candidates.
 Finalize when done.
 
-### Phase 2 — Transcription + OCR sidecar (automated)
+### Phase 2 — Transcription + OCR sidecar (automated) [Network]
 
 Run transcription with Flash 3 (concurrent, auto-falls back to Flash 2.5
-on quota exhaustion):
+on quota exhaustion). Requires network escalation.
 
 ```bash
 PYTHONPATH=. python3 scripts/transcribe_gemini_video.py \
@@ -259,9 +288,12 @@ The OCR sidecar from Phase 2 is auto-discovered as supporting evidence.
 This runs before alignment so that glossary work fills the time between
 transcription and the automated alignment/reflow steps.
 
-### Phase 4 — Alignment + reflow (automated)
+### Phase 4 — Alignment + reflow (automated) [ROCm for alignment]
+
+Alignment requires GPU escalation. Reflow is CPU-only.
 
 ```bash
+LD_LIBRARY_PATH=/opt/rocm/lib CT2_CUDA_ALLOCATOR=cub_caching \
 PYTHONPATH=. python3 scripts/align_ctc.py \
   --video <ep>/source/<video>.mp4 \
   --chunks <ep>/transcription/<stem>_gemini_raw.json \
