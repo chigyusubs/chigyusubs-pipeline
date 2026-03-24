@@ -154,7 +154,7 @@ def run_omission_report(
     for chunk in raw_chunks:
         c_start = float(chunk["chunk_start_s"])
         c_end = float(chunk["chunk_end_s"])
-        chunk_primary = [seg for seg in primary if float(seg["start"]) < c_end and float(seg["end"]) > c_start]
+        chunk_primary = [seg for seg in primary if float(seg["start"]) >= c_start and float(seg["start"]) < c_end]
         chunk_items.append(assign_item_timings(chunk, chunk_primary))
 
     classified = []

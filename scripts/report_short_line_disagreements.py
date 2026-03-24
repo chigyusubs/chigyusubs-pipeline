@@ -198,7 +198,7 @@ def run_short_disagreement_report(
     for chunk_index, chunk in enumerate(raw_chunks):
         c_start = float(chunk["chunk_start_s"])
         c_end = float(chunk["chunk_end_s"])
-        chunk_primary = [seg for seg in primary if float(seg["start"]) < c_end and float(seg["end"]) > c_start]
+        chunk_primary = [seg for seg in primary if float(seg["start"]) >= c_start and float(seg["start"]) < c_end]
         items = assign_item_timings(chunk, chunk_primary)
         for item in items:
             if item["type"] != "spoken" or "start_s" not in item or "end_s" not in item:

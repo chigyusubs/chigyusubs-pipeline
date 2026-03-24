@@ -162,6 +162,8 @@ def discover_gemini_raw_for_words(words_path: Path) -> Path | None:
         if path.exists():
             return path
     return None
+
+
 def _build_whisper_prompt_from_glossary(glossary_path: Path) -> str:
     """Read glossary.json and concatenate source terms into a comma-separated prompt string."""
     data = json.loads(glossary_path.read_text(encoding="utf-8"))
