@@ -343,9 +343,9 @@ def _next_batch_from_session(session: dict, cues: list[Cue]) -> dict | None:
     }
 
 
-def _cue_payload(cue_id: int, cue: Cue) -> dict:
+def _cue_payload(cue_id: int, cue: Cue, turn_review: dict | None = None) -> dict:
     duration = max(0.001, cue.end - cue.start)
-    return {
+    payload = {
         "cue_id": cue_id,
         "start": cue.start,
         "end": cue.end,
@@ -356,6 +356,12 @@ def _cue_payload(cue_id: int, cue: Cue) -> dict:
         "duration": round(duration, 3),
         "source_cps": round(text_cps(cue.text, duration), 3),
     }
+    if turn_review:
+        cue_turn = turn_review.get("cue_turns", {}).get(str(cue_id))
+        if cue_turn:
+            payload["turn_index"] = cue_turn["turn_indices"][0] if cue_turn["turn_indices"] else None
+            payload["starts_new_turn"] = cue_turn["starts_new_turn"]
+    return payload
 
 
 def _validate_translation_source_signature(item: dict, cue_id: int, source: Cue) -> None:
@@ -616,19 +622,20 @@ def cmd_next_batch(args) -> int:
     context_alignment = alignment_warnings_for_cue_ids(session.get("alignment_review"), context_ids)
     context_turn_context = turn_context_for_cue_ids(session.get("turn_review"), context_ids)
     context_speaker_context = speaker_context_for_cue_ids(session.get("speaker_review"), context_ids)
+    full_turn_review = session.get("turn_review")
     payload = {
         "batch_index": batch["batch_index"],
         "current_batch_tier": session["current_batch_tier"],
         "target_cues": [
-            _cue_payload(cue_id, cue)
+            _cue_payload(cue_id, cue, full_turn_review)
             for cue_id, cue in zip(batch["cue_ids"], batch["cues"])
         ],
         "previous_context": [
-            _cue_payload(batch["start_index"] - len(batch["prev_context"]) + idx + 1, cue)
+            _cue_payload(batch["start_index"] - len(batch["prev_context"]) + idx + 1, cue, full_turn_review)
             for idx, cue in enumerate(batch["prev_context"])
         ],
         "next_context": [
-            _cue_payload(batch["end_index"] + idx + 1, cue)
+            _cue_payload(batch["end_index"] + idx + 1, cue, full_turn_review)
             for idx, cue in enumerate(batch["next_context"])
         ],
         "visual_cues": visual_cues,
@@ -643,6 +650,7 @@ def cmd_next_batch(args) -> int:
             "yellow": "apply batch, warn, and continue",
             "red": "apply batch and stop episode",
         },
+        "turn_policy": _build_turn_policy(target_turn_context),
     }
     rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
     if args.output_json:
@@ -913,6 +921,34 @@ def _batch_alignment_payload(target_alignment: dict | None, context_alignment: d
         "advisory_only": True,
         "target": target_alignment,
         "context": context_alignment,
+    }
+
+
+def _build_turn_policy(target_turn_context: dict | None) -> dict | None:
+    if not target_turn_context:
+        return None
+    multi_turn = target_turn_context.get("multi_turn_cues_count", 0)
+    affected = target_turn_context.get("affected_cues_count", 0)
+    has_rapid_exchange = affected >= 3 and any(
+        entry.get("starts_new_turn", False)
+        for entry in target_turn_context.get("cue_turns", {}).values()
+    )
+    if not has_rapid_exchange and multi_turn == 0:
+        return None
+    return {
+        "instructions": (
+            "This batch contains speaker turn boundaries. "
+            "Cues with starts_new_turn=true mark where a different person starts speaking. "
+            "Use the alternation pattern to track pronouns: in a back-and-forth between two people, "
+            "odd turns and even turns are different speakers. If speaker A says something about/to "
+            "speaker B, speaker B's reply should use first-person ('I') not third-person ('he'). "
+            "Avoid defaulting to third-person pronouns when the dialogue is clearly addressed between "
+            "the speakers present. "
+            "If you cannot confidently determine who is addressing whom and it affects "
+            "pronoun choice, set review to 'yellow' and add a note explaining the ambiguity."
+        ),
+        "has_rapid_exchange": has_rapid_exchange,
+        "multi_turn_cue_count": multi_turn,
     }
 
 
