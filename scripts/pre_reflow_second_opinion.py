@@ -149,6 +149,49 @@ def materialize_secondary_words_from_chunk_json(source_json: Path, dest_words_js
     return dest_words_json
 
 
+def discover_whisper_prepass(words_path: Path) -> Path | None:
+    """Find a cached whisper_prepass_transcript.json in the same transcription dir."""
+    prepass = words_path.parent / "whisper_prepass_transcript.json"
+    if not prepass.exists():
+        return None
+    try:
+        payload = json.loads(prepass.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    segments = payload.get("segments")
+    if not isinstance(segments, list) or len(segments) < 10:
+        return None
+    return prepass
+
+
+def materialize_segments_from_prepass(prepass_path: Path, dest_words_json: Path) -> Path | None:
+    """Extract a flat segment list from whisper_prepass_transcript.json for comparison use."""
+    try:
+        payload = json.loads(prepass_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    segments = payload.get("segments")
+    if not isinstance(segments, list):
+        return None
+    flattened: list[dict] = []
+    for seg in segments:
+        if not isinstance(seg, dict):
+            return None
+        text = str(seg.get("text", "")).strip()
+        if not text:
+            continue
+        flattened.append({
+            "start": round(float(seg.get("start", 0.0)), 3),
+            "end": round(float(seg.get("end", 0.0)), 3),
+            "text": text,
+        })
+    if not flattened:
+        return None
+    dest_words_json.parent.mkdir(parents=True, exist_ok=True)
+    dest_words_json.write_text(json.dumps(flattened, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return dest_words_json
+
+
 def discover_gemini_raw_for_words(words_path: Path) -> Path | None:
     candidates = [words_path.stem]
     if words_path.stem.endswith("_ctc_words"):
@@ -279,6 +322,7 @@ def main() -> None:
     rerun = args.rerun_whisper or args.force
     discovered_secondary = None if rerun else discover_existing_secondary(words_path, args.model)
     discovered_secondary_json = None if rerun else discover_existing_secondary_chunk_json(words_path, args.model)
+    discovered_prepass = None if rerun else discover_whisper_prepass(words_path)
     if discovered_secondary and not (faster_vtt_path.exists() and secondary_words_path.exists()):
         faster_vtt_path, secondary_words_path = discovered_secondary
         summary["secondary_vtt"] = str(faster_vtt_path)
@@ -288,6 +332,13 @@ def main() -> None:
         if materialized is not None:
             summary["secondary_source_json"] = str(discovered_secondary_json)
             summary["secondary_words_json"] = str(materialized)
+    elif discovered_prepass and not secondary_words_path.exists():
+        materialized = materialize_segments_from_prepass(discovered_prepass, secondary_words_path)
+        if materialized is not None:
+            summary["secondary_source"] = "whisper_prepass"
+            summary["secondary_source_json"] = str(discovered_prepass)
+            summary["secondary_words_json"] = str(materialized)
+            print(f"Reusing whisper pre-pass as second opinion: {discovered_prepass}")
     reused_existing = secondary_words_path.exists() and not rerun
     if not reused_existing:
         cmd = [
@@ -312,7 +363,8 @@ def main() -> None:
         print("Running faster-whisper second opinion...")
         subprocess.run(cmd, check=True, env=ensure_rocm_env(os.environ))
     else:
-        print(f"Reusing existing second-opinion transcript: {secondary_words_path}")
+        if "secondary_source" not in summary:
+            print(f"Reusing existing second-opinion transcript: {secondary_words_path}")
 
     primary_segments = load_segments(words_path)
     secondary_segments = load_segments(secondary_words_path)

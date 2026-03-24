@@ -141,8 +141,27 @@ def _count_chars_in_interval(
     return total
 
 
+def _strip_consecutive_dupes(segments: list[dict], max_run: int = 2) -> list[dict]:
+    """Strip runs of 3+ consecutive segments with identical text (hallucination loops)."""
+    if not segments:
+        return segments
+    result: list[dict] = []
+    run_count = 1
+    for i, seg in enumerate(segments):
+        if i > 0 and seg["text"] == segments[i - 1]["text"]:
+            run_count += 1
+        else:
+            run_count = 1
+        if run_count <= max_run:
+            result.append(seg)
+    stripped = len(segments) - len(result)
+    if stripped:
+        print(f"  Stripped {stripped} consecutive-dupe segments (hallucination filter)", flush=True)
+    return result
+
+
 def _run_whisper_prepass(video_path: str, model_name: str, compute_type: str) -> list[dict]:
-    """Run faster-whisper on the full audio and return segment-level results."""
+    """Run faster-whisper on the full audio and return segment-level results with word timestamps."""
     apply_rocm_env()
     from faster_whisper import WhisperModel
 
@@ -153,19 +172,27 @@ def _run_whisper_prepass(video_path: str, model_name: str, compute_type: str) ->
     segments, info = model.transcribe(
         video_path,
         language="ja",
-        condition_on_previous_text=True,
+        condition_on_previous_text=False,
         vad_filter=True,
         vad_parameters=dict(min_silence_duration_ms=500),
-        word_timestamps=False,
+        compression_ratio_threshold=2.4,
+        word_timestamps=True,
     )
 
     results = []
     for seg in segments:
+        words = []
+        if seg.words:
+            words = [{"start": round(w.start, 3), "end": round(w.end, 3),
+                       "word": w.word, "probability": round(w.probability, 4)}
+                      for w in seg.words]
         results.append({
             "start": round(seg.start, 3),
             "end": round(seg.end, 3),
             "text": seg.text.strip(),
+            "words": words,
         })
+    results = _strip_consecutive_dupes(results)
     print(f"  Pre-pass: {len(results)} segments", flush=True)
     return results
 
@@ -185,11 +212,14 @@ def _load_cached_transcript(path: Path) -> list[dict] | None:
         if not isinstance(item, dict):
             return None
         try:
-            cleaned.append({
+            entry: dict = {
                 "start": round(float(item["start"]), 3),
                 "end": round(float(item["end"]), 3),
                 "text": str(item["text"]).strip(),
-            })
+            }
+            if "words" in item and isinstance(item["words"], list):
+                entry["words"] = item["words"]
+            cleaned.append(entry)
         except Exception:
             return None
     return cleaned
