@@ -22,12 +22,12 @@ Key artifacts per episode:
   ```
   LD_LIBRARY_PATH=/opt/rocm/lib CT2_CUDA_ALLOCATOR=cub_caching python3.12 ...
   ```
-  Setting these via `os.environ` in Python is too late for faster-whisper/ctranslate2.
+  Setting these via `os.environ` in Python is too late for ctranslate2 (used by CTC alignment).
 
 ## Architecture notes
 
 - CTC alignment (`align_ctc.py`) is the default. Uses `NTQAI/wav2vec2-large-japanese` + `torchaudio.functional.forced_align`.
 - When filtering CTC segments per chunk, assign by **start time** (`seg.start >= chunk_start and seg.start < chunk_end`), not by overlap. Overlap-based filtering causes segment leak across chunk boundaries.
-- Whisper pre-pass uses `condition_on_previous_text=False` to prevent hallucination loops, with a consecutive-dupe strip as safety net.
+- Whisper pre-pass uses openai-whisper (not faster-whisper — faster-whisper silently stops producing segments partway through long files). Uses `condition_on_previous_text=False` with a consecutive-dupe strip as safety net.
 - Shared transcript comparison utilities live in `chigyusubs/transcript_comparison.py`.
 - Translation uses Codex (OpenAI) interactively via `translate_vtt_codex.py`. Turn context from alignment provides anonymous speaker boundaries for pronoun tracking.

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Semantic chunk boundary selection for subtitle pipeline.
 
-Two-pass chunking: run faster-whisper to get a rough transcript, then select
+Two-pass chunking: run whisper to get a rough transcript, then select
 chunk boundaries at VAD silence gaps that coincide with sentence endings.
 
 Subcommands:
-  prepare         Run faster-whisper + Silero VAD, collect candidate gaps, write session
+  prepare         Run whisper + Silero VAD, collect candidate gaps, write session
   auto-review     Deterministic boundary selection using VAD gaps + sentence markers
   next-candidate  Emit the next candidate gap with transcript context (for Codex review)
   apply-candidate Record split/skip decision for the current candidate (for Codex review)
@@ -157,37 +157,36 @@ def _strip_consecutive_dupes(segments: list[dict], max_run: int = 2) -> list[dic
     return result
 
 
-def _run_whisper_prepass(video_path: str, model_name: str, compute_type: str) -> list[dict]:
-    """Run faster-whisper on the full audio and return segment-level results with word timestamps."""
-    apply_rocm_env()
-    from faster_whisper import WhisperModel
+def _run_whisper_prepass(video_path: str, model_name: str) -> list[dict]:
+    """Run openai-whisper on the full audio and return segment-level results.
 
-    print("  Loading faster-whisper model...", flush=True)
-    model = WhisperModel(model_name, device="cuda", compute_type=compute_type)
+    Uses openai-whisper instead of faster-whisper because faster-whisper silently
+    stops producing segments partway through long files (observed at ~588s on a
+    ~2760s video, regardless of condition_on_previous_text or vad_filter settings).
+    openai-whisper processes the full duration reliably.
+    """
+    apply_rocm_env()
+    import whisper
+
+    print("  Loading openai-whisper model...", flush=True)
+    model = whisper.load_model(model_name, device="cuda")
 
     print("  Transcribing full audio (pre-pass)...", flush=True)
-    segments, info = model.transcribe(
+    result = model.transcribe(
         video_path,
         language="ja",
         condition_on_previous_text=False,
-        vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=500),
         compression_ratio_threshold=2.4,
-        word_timestamps=True,
+        word_timestamps=False,
+        verbose=False,
     )
 
     results = []
-    for seg in segments:
-        words = []
-        if seg.words:
-            words = [{"start": round(w.start, 3), "end": round(w.end, 3),
-                       "word": w.word, "probability": round(w.probability, 4)}
-                      for w in seg.words]
+    for seg in result["segments"]:
         results.append({
-            "start": round(seg.start, 3),
-            "end": round(seg.end, 3),
-            "text": seg.text.strip(),
-            "words": words,
+            "start": round(seg["start"], 3),
+            "end": round(seg["end"], 3),
+            "text": seg["text"].strip(),
         })
     results = _strip_consecutive_dupes(results)
     print(f"  Pre-pass: {len(results)} segments", flush=True)
@@ -271,19 +270,15 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     candidates = _collect_candidate_gaps(vad_segments, duration, min_gap_s=args.min_gap_s)
     print(f"Candidates: {len(candidates)} gaps >= {args.min_gap_s}s", flush=True)
 
-    # Phase 3: faster-whisper pre-pass
-    print("\n=== Phase 3: faster-whisper pre-pass ===", flush=True)
+    # Phase 3: Whisper pre-pass
+    print("\n=== Phase 3: Whisper pre-pass ===", flush=True)
     transcript_path = output_path.parent / "whisper_prepass_transcript.json"
     transcript = None if args.rerun_whisper else _load_cached_transcript(transcript_path)
     if transcript is not None:
         print(f"  Reusing cached pre-pass transcript: {transcript_path}", flush=True)
     else:
-        print(
-            "  Running faster-whisper pre-pass"
-            f" (CT2_CUDA_ALLOCATOR={os.environ.get('CT2_CUDA_ALLOCATOR', 'cub_caching via helper')})...",
-            flush=True,
-        )
-        transcript = _run_whisper_prepass(str(video_path), args.model, args.compute_type)
+        print("  Running openai-whisper pre-pass...", flush=True)
+        transcript = _run_whisper_prepass(str(video_path), args.model)
     transcript_char_count = sum(len(seg["text"]) for seg in transcript)
     transcript_chars_per_s = transcript_char_count / duration if duration > 0 else 0.0
     resolved_max_chunk_s = args.max_chunk_s if args.max_chunk_s > 0 else args.target_chunk_s + 30.0
@@ -868,8 +863,7 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--episode-dir", default="", help="Episode root directory.")
     prepare.add_argument("--output", default="", help="Output vad_chunks.json path.")
     prepare.add_argument("--session", default="", help="Session JSON path.")
-    prepare.add_argument("--model", default="large-v3", help="faster-whisper model (default: large-v3).")
-    prepare.add_argument("--compute-type", default="float16", help="CTranslate2 compute type.")
+    prepare.add_argument("--model", default="large-v3", help="Whisper model (default: large-v3).")
     prepare.add_argument("--target-chunk-s", type=float, default=240.0, help="Target chunk duration in seconds.")
     prepare.add_argument(
         "--max-chunk-s",
@@ -887,7 +881,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Short-gap fallback before a forced split during finalize.",
     )
     prepare.add_argument("--context-window-s", type=float, default=30.0, help="Transcript context window around each candidate.")
-    prepare.add_argument("--rerun-whisper", action="store_true", help="Ignore cached whisper_prepass_transcript.json and rerun faster-whisper.")
+    prepare.add_argument("--rerun-whisper", action="store_true", help="Ignore cached whisper_prepass_transcript.json and rerun whisper.")
     prepare.add_argument("--force", action="store_true", help="Overwrite existing session.")
     prepare.set_defaults(func=cmd_prepare)
 
