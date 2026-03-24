@@ -419,6 +419,8 @@ def _classify_api_error(e: Exception) -> str:
     lower = msg.lower()
     if "429" in msg or "RESOURCE_EXHAUSTED" in upper:
         return "quota"
+    if "rate-limit errors" in lower or "rate limit" in lower:
+        return "quota"
     if "NO_PROGRESS_TIMEOUT" in upper:
         return "no_progress"
     if (
@@ -559,7 +561,7 @@ def _transcribe_single_chunk(
                 api_key=api_key,
                 vertex=vertex,
                 max_timeout_errors=1,
-                max_rate_limit_errors=1,
+                max_rate_limit_errors=3,
                 first_token_timeout_s=first_token_timeout_s,
             )
             elapsed = time.time() - t0
@@ -1092,8 +1094,6 @@ def run_video_transcription(
 
     # --- Assemble final JSON from chunk files ---
     all_chunks = _assemble_raw_json(chunks_dir, raw_json_path)
-    if Path(raw_json_path).parent.name == "transcription" and stop_after_chunks <= 0:
-        update_preferred_manifest(Path(raw_json_path).parent, gemini_raw=Path(raw_json_path).name)
 
     # --- Final summary ---
     success_chunks = [c for c in all_chunks if c.get("text") and not c.get("error")]
@@ -1158,8 +1158,6 @@ def run_video_transcription(
         },
     )
     write_metadata(raw_json_path, metadata)
-    if Path(raw_json_path).parent.name == "transcription" and stop_after_chunks <= 0:
-        update_preferred_manifest(Path(raw_json_path).parent, gemini_raw=Path(raw_json_path).name)
 
     log()
     log(f"Saved: {raw_json_path}")
@@ -1168,9 +1166,16 @@ def run_video_transcription(
     log(f"Chunks: {len(success_chunks)}/{len(chunk_bounds)} succeeded")
     if models_used:
         log(f"Models used: {models_used}")
+
     if error_chunks:
         log(f"Failed chunks: {[c['chunk'] for c in error_chunks]}")
-        log("Run again to retry, or repair/split failed chunks first.")
+        log("Run again to retry (failed chunks are resumable), or switch preset for a different model.")
+        return False  # incomplete
+
+    if Path(raw_json_path).parent.name == "transcription" and stop_after_chunks <= 0:
+        update_preferred_manifest(Path(raw_json_path).parent, gemini_raw=Path(raw_json_path).name)
+
+    return True  # all chunks succeeded
 
 
 def _run_concurrent_pass(
@@ -1216,7 +1221,7 @@ def _run_concurrent_pass(
     systemic_no_progress = threading.Event()
     consecutive_quota = [0]
     quota_lock = threading.Lock()
-    QUOTA_THRESHOLD = 3  # stop after 3 consecutive quota errors
+    QUOTA_THRESHOLD = 1  # stop immediately — inner retries already handle transient 429s
 
     with tempfile.TemporaryDirectory() as tmpdir:
         rate_limiter = _RateLimiter(rpm)
@@ -1690,7 +1695,7 @@ def main():
     if chosen_preset:
         print(f"Using preset: {chosen_preset}", flush=True)
 
-    run_video_transcription(
+    complete = run_video_transcription(
         video_path=args.video,
         output_path=args.output,
         model=resolved["model"],
@@ -1725,6 +1730,8 @@ def main():
         rpm=resolved["rpm"],
         first_token_timeout_s=resolved["first_token_timeout_s"],
     )
+    if not complete:
+        sys.exit(75)  # EX_TEMPFAIL — incomplete, resumable
 
 
 if __name__ == "__main__":

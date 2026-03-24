@@ -36,7 +36,7 @@ SCRIPT_DEFAULTS: dict[str, dict[str, Any]] = {
 PRESETS: dict[str, dict[str, Any]] = {
     "flash25_free_default": {
         "script": "transcribe_gemini_video",
-        "description": "Maintained free-tier transcript default for 2.5-Flash: video spoken-only high-res, concurrent, with 3-Flash fallback.",
+        "description": "Maintained free-tier transcript default for 2.5-Flash: video spoken-only high-res, concurrent.",
         "settings": {
             "model": "gemini-2.5-flash",
             "temperature": 0.0,
@@ -46,12 +46,11 @@ PRESETS: dict[str, dict[str, Any]] = {
             "thinking_level": "unspecified",
             "thinking_budget": None,
             "concurrency": 5,
-            "fallback_models": ["gemini-3-flash-preview"],
         },
     },
     "flash_free_default": {
         "script": "transcribe_gemini_video",
-        "description": "Maintained free-tier transcript default: 3-Flash video spoken-only low-thinking high-res, concurrent, with 2.5-Flash fallback.",
+        "description": "Maintained free-tier transcript default: 3-Flash video spoken-only low-thinking high-res, concurrent.",
         "settings": {
             "model": "gemini-3-flash-preview",
             "temperature": 0.0,
@@ -61,7 +60,6 @@ PRESETS: dict[str, dict[str, Any]] = {
             "thinking_level": "low",
             "thinking_budget": None,
             "concurrency": 5,
-            "fallback_models": ["gemini-2.5-flash"],
         },
     },
     "flash_visual_artifact": {

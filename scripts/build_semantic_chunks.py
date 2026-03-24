@@ -1,28 +1,25 @@
 #!/usr/bin/env python3
-"""Codex-interactive helper for semantic chunk boundary review.
+"""Semantic chunk boundary selection for subtitle pipeline.
 
-Two-pass chunking: run faster-whisper to get a rough transcript, then let Codex
-decide at each candidate VAD silence gap whether it falls between sentences
-(good split) or mid-sentence (skip).
+Two-pass chunking: run faster-whisper to get a rough transcript, then select
+chunk boundaries at VAD silence gaps that coincide with sentence endings.
 
 Subcommands:
-  prepare      Run faster-whisper on full audio, collect candidate gaps, write session
-  next-candidate  Emit the next candidate gap with surrounding transcript context
-  apply-candidate Record Codex's split/skip decision for the current candidate
-  status       Show current session progress
-  finalize     Produce vad_chunks.json from accepted splits
+  prepare         Run faster-whisper + Silero VAD, collect candidate gaps, write session
+  auto-review     Deterministic boundary selection using VAD gaps + sentence markers
+  next-candidate  Emit the next candidate gap with transcript context (for Codex review)
+  apply-candidate Record split/skip decision for the current candidate (for Codex review)
+  status          Show current session progress
+  finalize        Produce vad_chunks.json from accepted splits
 
-Usage:
-  # 1. Prepare session (runs faster-whisper + Silero VAD)
-  python scripts/build_semantic_chunks.py prepare \
-    --video samples/episodes/<slug>/source/video.mp4
+Usage (automatic):
+  python scripts/build_semantic_chunks.py prepare --video <video> --target-chunk-s 90
+  python scripts/build_semantic_chunks.py auto-review --session <session.json>
+  python scripts/build_semantic_chunks.py finalize --session <session.json>
 
-  # 2. Loop in Codex: next-candidate -> decision -> apply-candidate
-  python scripts/build_semantic_chunks.py next-candidate --session <session.json>
-  python scripts/build_semantic_chunks.py apply-candidate --session <session.json> \
-    --decision-json /tmp/decision.json
-
-  # 3. Finalize
+Usage (Codex-interactive):
+  python scripts/build_semantic_chunks.py prepare --video <video>
+  # Loop: next-candidate -> decision -> apply-candidate
   python scripts/build_semantic_chunks.py finalize --session <session.json>
 """
 
@@ -633,6 +630,230 @@ def cmd_finalize(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Deterministic auto-review using VAD gaps + whisper pre-pass sentence markers
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+# Sentence-final markers: punctuation and particles that signal a complete thought
+_SENTENCE_END_RE = _re.compile(
+    r"[。？！?!]$"  # sentence-final punctuation
+    r"|[よねかなさぞわ]$"  # sentence-final particles
+    r"|ます$|です$|ません$|ました$|でした$"  # polite verb endings
+    r"|った$|ない$|ある$|いる$|れる$"  # plain verb endings
+    r"|だ$|った$"  # copula / past
+)
+
+# Mid-sentence markers: particles and conjunctions that signal continuation
+_MID_SENTENCE_RE = _re.compile(
+    r"[はがをにでとへもの]$"  # case/topic particles
+    r"|けど$|から$|ので$|のに$|ても$|ながら$|たり$"  # conjunctions
+    r"|って$|[てで]$"  # te-form (continuation)
+    r"|[、,]$"  # listing comma
+)
+
+
+def _text_before_gap(transcript: list[dict], gap_start: float, window_s: float = 10.0) -> str:
+    """Get the last transcript text before a gap for boundary classification."""
+    best = None
+    for seg in transcript:
+        if seg["end"] <= gap_start and seg["start"] >= gap_start - window_s:
+            text = seg["text"].strip()
+            if text:
+                best = text
+    return best or ""
+
+
+def _score_boundary(text_before: str) -> tuple[int, str]:
+    """Score how good a sentence boundary the text before a gap represents.
+
+    Returns (score, reason):
+      2 = strong sentence boundary (punctuation or sentence-final particle)
+      1 = neutral (no clear signal either way)
+      0 = mid-sentence (continuation particle/conjunction)
+    """
+    if not text_before:
+        return 1, "no text"
+
+    # Strip trailing whitespace for pattern matching
+    text = text_before.rstrip()
+
+    if _SENTENCE_END_RE.search(text):
+        return 2, "sentence-final"
+
+    if _MID_SENTENCE_RE.search(text):
+        return 0, "mid-sentence"
+
+    return 1, "neutral"
+
+
+def _load_all_gaps(session: dict, min_gap_s: float = 0.0) -> list[dict]:
+    """Load all VAD silence gaps (any length) for use as split candidates."""
+    episode_dir = Path(session.get("episode_dir", ""))
+    vad_cache = episode_dir / "transcription" / "silero_vad_segments.json"
+    if not vad_cache.exists():
+        return []
+    try:
+        vad_segments = json.loads(vad_cache.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    raw_gaps = collect_vad_gaps(vad_segments, min_gap_s=min_gap_s)
+    return [
+        {
+            "gap_start": round(g["gap_start"], 3),
+            "gap_end": round(g["gap_end"], 3),
+            "gap_duration": round(g["duration"], 3),
+            "midpoint": round(g["time"], 3),
+        }
+        for g in raw_gaps
+    ]
+
+
+def cmd_auto_review(args: argparse.Namespace) -> int:
+    """Deterministic auto-review: find optimal chunk boundaries using VAD gaps + sentence markers."""
+    session_file = Path(args.session)
+    session = json.loads(session_file.read_text(encoding="utf-8"))
+
+    if session.get("status") in {"completed", "stopped"}:
+        print(f"Session is {session['status']}", file=sys.stderr)
+        return 1
+
+    transcript = json.loads(Path(session["transcript_path"]).read_text(encoding="utf-8"))["segments"]
+    candidates = session["candidates"]
+    all_gaps = _load_all_gaps(session)
+    target_s = session["target_chunk_s"]
+    max_s = session["max_chunk_s"]
+    min_chunk_s = max(10.0, target_s * 0.3)  # don't create tiny chunks
+
+    print(f"Deterministic auto-review (no LLM)")
+    print(f"Target: {target_s:.0f}s, max: {max_s:.0f}s, session candidates: {len(candidates)}, all VAD gaps: {len(all_gaps)}")
+
+    # Rebuild state from existing decisions
+    last_split_end = 0.0
+    for cid_str, d in session.get("decisions", {}).items():
+        if d["decision"] == "split":
+            cand = candidates[int(cid_str)]
+            if cand["gap_end"] > last_split_end:
+                last_split_end = cand["gap_end"]
+
+    split_count = sum(1 for d in session.get("decisions", {}).values() if d["decision"] == "split")
+    duration = session["duration_seconds"]
+    fallback_count = 0
+
+    while last_split_end < duration - min_chunk_s:
+        target_time = last_split_end + target_s
+        max_time = last_split_end + max_s
+
+        # If remaining duration fits in one chunk, stop
+        if duration - last_split_end <= max_s:
+            break
+
+        # Collect all gaps in the valid range
+        in_range = [
+            g for g in all_gaps
+            if g["midpoint"] > last_split_end + min_chunk_s and g["midpoint"] <= max_time
+        ]
+
+        if not in_range:
+            # No gaps at all — finalize will handle forced splits
+            break
+
+        # Score each gap: (boundary_score, -gap_duration, distance_from_target)
+        # Prefer: sentence boundaries > longer gaps > closer to target
+        scored = []
+        for gap in in_range:
+            text_before = _text_before_gap(transcript, gap["gap_start"])
+            boundary_score, reason = _score_boundary(text_before)
+            dist_from_target = abs(gap["midpoint"] - target_time)
+            scored.append((gap, boundary_score, reason, dist_from_target))
+
+        # Sort: highest boundary score first, then closest to target
+        scored.sort(key=lambda item: (-item[1], item[3]))
+        chosen_gap, chosen_score, chosen_reason, chosen_dist = scored[0]
+
+        # Check if chosen gap is a session candidate or a fallback (shorter gap)
+        is_session_candidate = any(
+            abs(c["midpoint"] - chosen_gap["midpoint"]) < 0.01
+            for c in candidates
+        )
+        time_since = chosen_gap["midpoint"] - last_split_end
+
+        label = chosen_reason
+        if not is_session_candidate:
+            label += ", short gap"
+            fallback_count += 1
+
+        print(
+            f"  split at {chosen_gap['midpoint']:7.1f}s "
+            f"(+{time_since:5.0f}s, gap {chosen_gap['gap_duration']:.1f}s, {label})"
+        )
+
+        # Record decisions for all session candidates up to and including this split
+        for c in candidates:
+            cid = str(c["candidate_id"])
+            if cid in session.get("decisions", {}):
+                continue
+            if c["midpoint"] <= last_split_end:
+                continue
+            if abs(c["midpoint"] - chosen_gap["midpoint"]) < 0.01:
+                # This session candidate is the chosen split
+                session.setdefault("decisions", {})[cid] = {
+                    "decision": "split",
+                    "notes": f"auto: {chosen_reason}",
+                }
+                session.setdefault("completed_candidates", [])
+                if c["candidate_id"] not in session["completed_candidates"]:
+                    session["completed_candidates"].append(c["candidate_id"])
+            elif c["midpoint"] < chosen_gap["midpoint"]:
+                session.setdefault("decisions", {})[cid] = {
+                    "decision": "skip",
+                    "notes": "auto: skipped",
+                }
+                session.setdefault("completed_candidates", [])
+                if c["candidate_id"] not in session["completed_candidates"]:
+                    session["completed_candidates"].append(c["candidate_id"])
+
+        # If chosen gap wasn't a session candidate, add it
+        if not is_session_candidate:
+            new_id = len(candidates)
+            new_candidate = {
+                "candidate_id": new_id,
+                **chosen_gap,
+            }
+            candidates.append(new_candidate)
+            session["candidates"] = candidates
+            session.setdefault("decisions", {})[str(new_id)] = {
+                "decision": "split",
+                "notes": f"auto: {chosen_reason} (short gap)",
+            }
+            session.setdefault("completed_candidates", [])
+            session["completed_candidates"].append(new_id)
+
+        split_count += 1
+        last_split_end = chosen_gap["gap_end"]
+
+    # Mark remaining candidates after last split as skip
+    for c in candidates:
+        cid = str(c["candidate_id"])
+        if cid not in session.get("decisions", {}):
+            session.setdefault("decisions", {})[cid] = {
+                "decision": "skip",
+                "notes": "auto: after last split",
+            }
+            session.setdefault("completed_candidates", [])
+            if c["candidate_id"] not in session["completed_candidates"]:
+                session["completed_candidates"].append(c["candidate_id"])
+
+    session["completed_candidates"] = sorted(set(session.get("completed_candidates", [])))
+    session["status"] = "review_complete"
+    write_json_atomic(session_file, session)
+
+    skip_count = sum(1 for d in session["decisions"].values() if d["decision"] == "skip")
+    print(f"\nDone: {split_count} splits ({fallback_count} from short gaps), {skip_count} skips")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -687,6 +908,10 @@ def build_parser() -> argparse.ArgumentParser:
     finalize = sub.add_parser("finalize", help="Produce vad_chunks.json from accepted splits.")
     finalize.add_argument("--session", required=True)
     finalize.set_defaults(func=cmd_finalize)
+
+    auto = sub.add_parser("auto-review", help="Deterministic auto-review using VAD gaps + sentence markers.")
+    auto.add_argument("--session", required=True)
+    auto.set_defaults(func=cmd_auto_review)
 
     return parser
 
