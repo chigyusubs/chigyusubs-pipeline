@@ -468,8 +468,15 @@ def validate_structured_output(data: dict) -> list[dict]:
         if not isinstance(item, dict):
             raise ValueError(f"Item at index {i} is not an object")
         cue_id = item.get("id")
-        if not isinstance(cue_id, (int, float)) or not (cue_id == int(cue_id)):
-            raise ValueError(f"Item at index {i} has invalid 'id'")
+        # Accept string IDs (e.g. "3") — some models return strings in JSON mode
+        if isinstance(cue_id, str):
+            try:
+                cue_id = int(cue_id)
+            except ValueError:
+                cue_id = None
+        # Fall back to positional ID (1-based) when id is missing or invalid
+        if cue_id is None or not isinstance(cue_id, (int, float)) or cue_id != int(cue_id):
+            cue_id = i + 1
         text = item.get("text")
         if text is None:
             text = ""
