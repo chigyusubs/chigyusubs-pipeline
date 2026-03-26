@@ -5,12 +5,12 @@ Japanese variety show subtitle pipeline. Scripts in `scripts/`, episode data in 
 ## Pipeline order
 
 ```
-whisper pre-pass → semantic chunking → gemini transcription → OCR → glossary
+whisper pre-pass → semantic chunking → gemini transcription → [audio augment] → OCR → glossary
 → CTC alignment → second opinion → reflow → [repair] → translation
 ```
 
 Key artifacts per episode:
-- `*_gemini_raw.json` → `*_ctc_words.json` → `*_reflow.vtt` → `*_en.vtt`
+- `*_gemini_raw.json` → (`*_augmented.json`) → `*_ctc_words.json` → `*_reflow.vtt` → `*_en.vtt`
 - Second opinion reports live in `transcription/diagnostics/`
 - Pre-pass transcript doubles as second-opinion source (no redundant whisper run)
 
@@ -30,4 +30,5 @@ Key artifacts per episode:
 - When filtering CTC segments per chunk, assign by **start time** (`seg.start >= chunk_start and seg.start < chunk_end`), not by overlap. Overlap-based filtering causes segment leak across chunk boundaries.
 - Whisper pre-pass uses openai-whisper (not faster-whisper — faster-whisper silently stops producing segments partway through long files). Uses `condition_on_previous_text=False` with a consecutive-dupe strip as safety net.
 - Shared transcript comparison utilities live in `chigyusubs/transcript_comparison.py`.
+- Audio augmentation (`correct_transcript_flash_lite.py` + `augment_transcript_codex.py`) is an optional step between Gemini transcription and CTC alignment. Flash Lite re-transcribes from audio to recover missing reactions/interjections, then Codex merges additions into the original transcript. Updates `preferred.json` so alignment picks up the augmented file.
 - Translation uses Codex (OpenAI) interactively via `translate_vtt_codex.py`. Turn context from alignment provides anonymous speaker boundaries for pronoun tracking.

@@ -30,9 +30,10 @@ Silero VAD -> full-coverage chunk boundaries guided by silence
 2. `build_vad_chunks.py` — reusable full-coverage chunk boundaries
 3. `transcribe_pipeline.py` — Gemini transcription + alignment + reflow
 4. `check_raw_chunk_sanity.py` — deterministic raw-chunk QA gate before alignment/reflow
-5. `pre_reflow_second_opinion.py` — faster-whisper second-opinion coverage check
-6. `repair_vtt_codex.py` — optional Codex-interactive cue-boundary repair on reflowed VTT
-7. `translate_vtt_api.py` or `translate_vtt_codex.py`
+5. `correct_transcript_flash_lite.py` + `augment_transcript_codex.py` — optional Flash Lite audio gap-fill + Codex merge
+6. `pre_reflow_second_opinion.py` — faster-whisper second-opinion coverage check
+7. `repair_vtt_codex.py` — optional Codex-interactive cue-boundary repair on reflowed VTT
+8. `translate_vtt_api.py` or `translate_vtt_codex.py`
 
 Optional OCR-like side artifacts can still be added when useful, but they are not the default front door.
 
@@ -209,6 +210,13 @@ Chunk coverage rule:
 | `compare_transcript_coverage.py` | Time-local coverage-gap comparison between primary and secondary transcripts, with optional VAD confirmation | Maintained |
 | `report_raw_chunk_omissions.py` | Classify omissions from `*_gemini_raw.json` as `visual_substituted_narration`, `missing_narration_high_confidence`, or `compressed_vs_missing_unclear` | Maintained |
 | `report_short_line_disagreements.py` | Flag short high-value raw lines where the Gemini-based transcript and the Whisper second opinion strongly disagree in the same local span | Maintained |
+| `correct_transcript_flash_lite.py` | Flash Lite audio re-transcription pass. Sends audio + existing Gemini transcript per chunk to `gemini-3.1-flash-lite-preview`, recovering missing reactions and interjections. Resumable, rate-limited, uses AI Studio API. | Maintained |
+
+### Transcript Augmentation
+
+| Script | Purpose | Status |
+|---|---|---|
+| `augment_transcript_codex.py` | Codex-interactive merge of Flash Lite audio additions into Gemini transcript. Diffs original vs corrected per chunk, presents additions for Codex review, builds augmented `gemini_raw` for CTC alignment. Subcommands: `prepare`, `next-chunk`, `apply-chunk`, `status`, `finalize`. Updates `preferred.json`. | Maintained |
 
 ### Alignment
 
@@ -445,6 +453,8 @@ python scripts/translate_vtt_codex.py prepare \
 
 # Auto-discovers a sibling CTC alignment diagnostics sidecar when present.
 # Use --alignment-diagnostics <path> to override discovery explicitly.
+# Auto-discovers sibling aligned words JSON for turn metadata, including
+# run-ID lineage names like <run_id>_ctc_words.json beside <run_id>_reflow.vtt.
 # Each target cue payload also includes source_text_hash.
 
 python scripts/translate_vtt_codex.py next-batch \

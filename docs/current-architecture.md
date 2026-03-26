@@ -21,6 +21,7 @@ source video
   -> full-coverage chunk boundaries guided by VAD silence gaps
   -> Gemini transcription
   -> raw transcript chunk QA
+  -> optional Flash Lite audio augment (recover missing reactions/interjections)
   -> optional chunkwise Flash Lite OCR sidecar
   -> CTC forced alignment
   -> faster-whisper second opinion

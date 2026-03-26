@@ -1,0 +1,4 @@
+interface:
+  display_name: "Transcript Augment"
+  short_description: "Merge Flash Lite audio additions into Gemini transcript to recover missing dialogue before alignment"
+  default_prompt: "Use $transcript-augment to review and merge Flash Lite audio additions into the Gemini transcript for this episode."

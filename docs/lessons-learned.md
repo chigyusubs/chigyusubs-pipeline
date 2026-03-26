@@ -1007,6 +1007,12 @@ Why:
 - but losing turn metadata entirely makes it harder to notice cues that merge multiple rapid speaker turns
 - the right compromise is cue-level awareness such as "this cue spans 2 source turns", not visible markup
 
+Follow-up bug fix:
+
+- `translate_vtt_codex.py prepare` must auto-discover sibling `*_ctc_words.json` when the input is a lineage-style `*_reflow.vtt`
+- short run-ID episodes such as `rba19229d_reflow.vtt` were previously missing turn context because discovery only probed `<stem>.json`-style names and skipped `rba19229d_ctc_words.json`
+- preserve turn metadata inline in the aligned words JSON, but make sure translation-session discovery actually finds the canonical alignment artifact before claiming turn-aware translation is available
+
 ## Episode-Specific Findings
 
 ### `great_escape1`
@@ -1513,6 +1519,18 @@ Use video-only Gemini as a real baseline:
 - strip `[画面: ...]` before alignment
 - CTC forced alignment
 - line-level reflow (`--line-level`)
+
+### For audio augmentation
+
+Flash Lite audio re-transcription can recover missing reactions/interjections:
+
+- `gemini-3.1-flash-lite-preview` with audio + existing transcript as reference
+- good at recovering short back-channel responses (`うん`, `えー`, `おお`) and overlapping dialogue
+- cannot preserve original line boundaries — it re-transcribes, not surgically inserts
+- drops `[画面: ...]` visual annotations (audio-only, no video context)
+- drops lines derived from on-screen text that aren't spoken aloud
+- merge must be done externally (Codex skill `transcript-augment`), not by prompting Flash Lite to preserve lines
+- runs between Gemini transcription and CTC alignment; fuller transcript → better alignment
 
 ### For OCR-assisted experiments
 

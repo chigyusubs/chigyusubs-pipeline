@@ -350,6 +350,7 @@ the pipeline should skip completed phases by checking for existing artifacts:
 This repo has tracked Codex-interactive skills under:
 
 - `codex/skills/chunk-review`
+- `codex/skills/transcript-augment`
 - `codex/skills/subtitle-reflow`
 - `codex/skills/glossary-context`
 - `codex/skills/speaker-diarization`
@@ -443,11 +444,12 @@ Preferred end-to-end handoff is:
 
 1. `chunk-review` (semantic chunking, 90 s target)
 2. Gemini transcription + OCR sidecar + sanity gate (automated)
-3. `glossary-context` (needs raw transcript)
-4. CTC alignment + reflow (automated)
-5. `subtitle-reflow` (review, optional repair)
-6. Speaker clustering (automated) + `speaker-diarization` (interactive)
-7. `subtitle-translation` (batch loop, auto-discovers named speaker map)
-8. `publish_vtt.py` (automated)
+3. Flash Lite audio pass (automated) + `transcript-augment` (optional, recover missing dialogue)
+4. `glossary-context` (needs raw transcript)
+5. CTC alignment + reflow (automated)
+6. `subtitle-reflow` (review, optional repair)
+7. Speaker clustering (automated) + `speaker-diarization` (interactive)
+8. `subtitle-translation` (batch loop, auto-discovers named speaker map)
+9. `publish_vtt.py` (automated)
 
 See "End-to-End Episode Pipeline" above for full commands and defaults.
