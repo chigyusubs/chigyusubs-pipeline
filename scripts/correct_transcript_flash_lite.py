@@ -45,12 +45,31 @@ def extract_chunk_audio(video_path: str, start_s: float, end_s: float, dest: str
     return result.returncode == 0
 
 
+def _build_thinking_config(thinking_level: str):
+    """Build a ThinkingConfig from a level string, or None if unspecified."""
+    from google.genai import types
+
+    thinking_level = thinking_level.lower()
+    if thinking_level == "unspecified":
+        return None
+    level_map = {
+        "minimal": types.ThinkingLevel.MINIMAL,
+        "low": types.ThinkingLevel.LOW,
+        "medium": types.ThinkingLevel.MEDIUM,
+        "high": types.ThinkingLevel.HIGH,
+    }
+    if thinking_level not in level_map:
+        raise ValueError(f"Unsupported thinking_level: {thinking_level}")
+    return types.ThinkingConfig(thinking_level=level_map[thinking_level])
+
+
 def correct_chunk(
     client,
     model: str,
     audio_path: str,
     transcript_text: str,
     temperature: float = 0.1,
+    thinking_level: str = "unspecified",
 ) -> str:
     """Send audio + transcript to Flash Lite and return corrected transcript."""
     from google.genai import types
@@ -73,6 +92,11 @@ Output ONLY the transcript. Do not add commentary or explanations.
 REFERENCE TRANSCRIPT:
 {transcript_text}"""
 
+    config_kwargs: dict = {"temperature": temperature}
+    thinking_config = _build_thinking_config(thinking_level)
+    if thinking_config is not None:
+        config_kwargs["thinking_config"] = thinking_config
+
     response = client.models.generate_content(
         model=model,
         contents=[
@@ -81,7 +105,7 @@ REFERENCE TRANSCRIPT:
                 types.Part.from_text(text=prompt),
             ])
         ],
-        config=types.GenerateContentConfig(temperature=temperature),
+        config=types.GenerateContentConfig(**config_kwargs),
     )
     return response.text or ""
 
@@ -95,6 +119,9 @@ def main():
     parser.add_argument("--start-chunk", type=int, default=0, help="Start from this chunk index")
     parser.add_argument("--chunks", default="", help="Comma-separated chunk indices to process (default: all)")
     parser.add_argument("--temperature", type=float, default=0.1, help="LLM temperature")
+    parser.add_argument("--thinking-level", default="unspecified",
+                        choices=["unspecified", "minimal", "low", "medium", "high"],
+                        help="Gemini thinking level (default: unspecified)")
     parser.add_argument("--rpm-limit", type=int, default=10, help="Max requests per minute (default: 10)")
     args = parser.parse_args()
 
@@ -199,7 +226,7 @@ def main():
             # Call Flash Lite
             try:
                 request_times.append(time.time())
-                result = correct_chunk(client, args.model, audio_path, text, args.temperature)
+                result = correct_chunk(client, args.model, audio_path, text, args.temperature, args.thinking_level)
                 print(f"  Corrected: {len(result)} chars (was {len(text)})", flush=True)
 
                 # Store result
