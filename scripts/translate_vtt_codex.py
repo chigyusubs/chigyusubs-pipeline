@@ -477,6 +477,12 @@ def _session_diagnostics(session: dict, cues: list[Cue]) -> dict:
         "batch_summary": {
             "review_counts": batch_review_counts,
             "warning_batches": warning_batches,
+            "cps_only_yellow_batches": sum(
+                1 for batch in batch_diags if batch.get("yellow_class") == "cps_only"
+            ),
+            "structural_yellow_batches": sum(
+                1 for batch in batch_diags if batch.get("yellow_class") == "structural"
+            ),
             "structural_red_batches": structural_red_batches,
             "alignment_warning_batches": alignment_warning_batches,
             "alignment_warning_cues_total": alignment_warning_cues_total,
@@ -506,16 +512,40 @@ def _review_rank(review: str) -> int:
     return {"green": 0, "yellow": 1, "red": 2}[review]
 
 
-def _merge_review(user_review: str, *, hard_cps_violations: int, line_violations: int, structural_error: bool) -> tuple[str, str]:
+def _merge_review(
+    user_review: str,
+    *,
+    hard_cps_violations: int,
+    line_violations: int,
+    structural_error: bool,
+) -> tuple[str, str, str | None, list[str]]:
+    """Merge user review with objective constraint checks.
+
+    Returns (review, auto_reason, yellow_class, yellow_reasons).
+
+    yellow_class is one of:
+      - "cps_only"    — only hard CPS violations, no line/structural issues (no tier downgrade)
+      - "structural"  — line-count violations, possibly with CPS too (triggers tier downgrade)
+      - None          — not yellow
+    """
     if structural_error:
-        return "red", "structural validation failed"
-    objective = "green"
-    if hard_cps_violations or line_violations:
-        objective = "yellow"
+        return "red", "structural validation failed", None, []
+
+    yellow_reasons: list[str] = []
+    if hard_cps_violations:
+        yellow_reasons.append("hard_cps")
+    if line_violations:
+        yellow_reasons.append("line_count")
+
+    objective = "yellow" if yellow_reasons else "green"
     final = user_review if _review_rank(user_review) >= _review_rank(objective) else objective
-    if final == "yellow" and objective == "yellow":
-        return "yellow", "objective subtitle constraints exceeded"
-    return final, ""
+
+    if final != "yellow":
+        return final, "", None, []
+
+    yellow_class = "structural" if line_violations else "cps_only"
+    auto_reason = "objective subtitle constraints exceeded" if objective == "yellow" else ""
+    return final, auto_reason, yellow_class, yellow_reasons
 
 
 def cmd_prepare(args) -> int:
@@ -711,7 +741,7 @@ def cmd_apply_batch(args) -> int:
         translated_batch.append(translated)
         translations[cue_id] = text
 
-    final_review, auto_reason = _merge_review(
+    final_review, auto_reason, yellow_class, yellow_reasons = _merge_review(
         user_review,
         hard_cps_violations=hard_cps_violations,
         line_violations=line_violations,
@@ -733,6 +763,8 @@ def cmd_apply_batch(args) -> int:
         "review": final_review,
         "user_review": user_review,
         "auto_reason": auto_reason,
+        "yellow_class": yellow_class,
+        "yellow_reasons": yellow_reasons,
         "notes": notes,
         "hard_cps_violations": hard_cps_violations,
         "line_violations": line_violations,
@@ -746,7 +778,7 @@ def cmd_apply_batch(args) -> int:
         "cues": cue_diags,
     }
 
-    if final_review == "yellow":
+    if final_review == "yellow" and yellow_class != "cps_only":
         tiers = session["batch_tiers"]
         current = int(session["current_batch_tier"])
         for tier in tiers:
@@ -764,9 +796,10 @@ def cmd_apply_batch(args) -> int:
     _save_session(session_path, session)
     _render_partial(session, cues)
     _write_diagnostics(session, cues)
+    yellow_tag = f" ({yellow_class})" if yellow_class else ""
     print(
         f"Applied batch {batch_index}: cues {expected_ids[0]}-{expected_ids[-1]}, "
-        f"review={final_review}, next_tier={session['current_batch_tier']}, status={session['status']}"
+        f"review={final_review}{yellow_tag}, next_tier={session['current_batch_tier']}, status={session['status']}"
     )
     return 0
 

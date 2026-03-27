@@ -1242,6 +1242,14 @@ Follow-up correction:
   - real structural blockers
   - obsolete history from a superseded session
 
+Yellow review classification (implemented):
+
+- batch diagnostics now include `yellow_class` (`"cps_only"` or `"structural"`) and `yellow_reasons` (list of `"hard_cps"`, `"line_count"`)
+- `cps_only` yellow does NOT trigger batch-tier downgrade — short-cue CPS pressure alone is not a structural risk
+- `structural` yellow (line-count violations, with or without CPS) still triggers tier downgrade
+- session diagnostics aggregate `cps_only_yellow_batches` and `structural_yellow_batches` separately
+- the top-level `review` field stays `green`/`yellow`/`red` for backward compatibility
+
 ### 9. Codex-interactive reflow repair should be the default skill fallback, not local LLM repair
 
 After running the Codex repair path on weak reflowed VTTs:

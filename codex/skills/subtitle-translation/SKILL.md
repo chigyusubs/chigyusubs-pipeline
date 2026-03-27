@@ -81,7 +81,9 @@ Repeat this cycle:
 3. Write the translations JSON and run `apply-batch`.
 4. Check the apply output: if status is `completed` or `stopped`, exit the loop. Otherwise, go back to step 1 immediately.
 
-Do NOT stop after a single batch. Do NOT wait for user confirmation between batches unless the review is `red`. A `yellow` review means continue with the next batch (the tier auto-downgrades). A `green` review means continue normally.
+Do NOT stop after a single batch. Do NOT wait for user confirmation between batches unless the review is `red`. A `yellow` review means continue with the next batch. A `green` review means continue normally.
+
+Yellow reviews are classified: `cps_only` yellow (short-cue CPS pressure only) does NOT downgrade the batch tier. Only `structural` yellow (line-count violations) triggers a tier downgrade.
 
 Batch settings:
 
@@ -176,7 +178,7 @@ After translation:
 
 Important:
 
-- hard CPS diagnostics are useful, but in this repo they are still noisy on short cues
+- hard CPS diagnostics are useful, but in this repo they are still noisy on short cues — `cps_only` yellow does not trigger tier downgrades
 - do not stop a whole Codex-interactive run on CPS or ordinary warning-level issues when the actual subtitle quality is still acceptable
 
 ## When To Use The Script Instead
