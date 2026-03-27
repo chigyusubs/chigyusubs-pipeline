@@ -526,29 +526,35 @@ def _merge_review(
     yellow_class is one of:
       - "cps_only"    — only hard CPS violations, no line/structural issues (no tier downgrade)
       - "structural"  — line-count violations, possibly with CPS too (triggers tier downgrade)
-      - "user"        — user explicitly marked yellow without objective constraints (triggers tier downgrade)
+      - "user"        — user explicitly marked yellow, with or without cps-only objective warnings
+                          (triggers tier downgrade)
       - None          — not yellow
     """
     if structural_error:
         return "red", "structural validation failed", None, []
 
-    yellow_reasons: list[str] = []
+    objective_yellow_reasons: list[str] = []
     if hard_cps_violations:
-        yellow_reasons.append("hard_cps")
+        objective_yellow_reasons.append("hard_cps")
     if line_violations:
-        yellow_reasons.append("line_count")
+        objective_yellow_reasons.append("line_count")
 
-    objective = "yellow" if yellow_reasons else "green"
+    objective = "yellow" if objective_yellow_reasons else "green"
     final = user_review if _review_rank(user_review) >= _review_rank(objective) else objective
 
     if final != "yellow":
         return final, "", None, []
 
+    yellow_reasons = list(objective_yellow_reasons)
+    if user_review == "yellow":
+        yellow_reasons.append("user_review")
+
     # Classify the yellow source
     if line_violations:
         yellow_class = "structural"
-    elif objective == "green":
-        # User forced yellow with no objective constraint violations
+    elif user_review == "yellow":
+        # User forced yellow should keep its operator intent even if CPS-only
+        # objective warnings are also present.
         yellow_class = "user"
     else:
         # Objective yellow from CPS only
