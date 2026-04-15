@@ -1,0 +1,138 @@
+{
+  "episode": "killah_kuts_s01e01",
+  "video": "samples/episodes/killah_kuts_s01e01/source/KILLAH.KUTS.S01E01.1080p.AMZN.WEB-DL.DDP2.0.H.264-Emmid.mkv",
+  "ctc_file": "/home/npk/code/chigyusubs/pipeline/samples/episodes/killah_kuts_s01e01/transcription/killah_kuts_s01e01_video_only_v1_ctc_words.json",
+  "window_dur": 8.0,
+  "fps": 1.0,
+  "n_segments": 8,
+  "segments": [
+    {
+      "name": "seg01_424s",
+      "seg_start": 424.708,
+      "seg_end": 428.648,
+      "window_start": 422.678,
+      "window_dur": 8.0,
+      "text": "しんいちがスイッチを繰り返す。そして、みなみかわ、",
+      "kata": [
+        "スイッチ"
+      ],
+      "names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "wav_rel": "killah_kuts_s01e01_cache/seg01_424s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_cache/seg01_424s_frames"
+    },
+    {
+      "name": "seg02_343s",
+      "seg_start": 343.544,
+      "seg_end": 346.044,
+      "window_start": 340.794,
+      "window_dur": 8.0,
+      "text": "タックルのような低い、低い姿勢をキープしている、しんいち。",
+      "kata": [
+        "キープ",
+        "タックル"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "wav_rel": "killah_kuts_s01e01_cache/seg02_343s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_cache/seg02_343s_frames"
+    },
+    {
+      "name": "seg03_183s",
+      "seg_start": 183.675,
+      "seg_end": 186.556,
+      "window_start": 181.1155,
+      "window_dur": 8.0,
+      "text": "今回はみなみかわとしんいちの対戦ということになりますが。",
+      "kata": [],
+      "names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "wav_rel": "killah_kuts_s01e01_cache/seg03_183s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_cache/seg03_183s_frames"
+    },
+    {
+      "name": "seg04_135s",
+      "seg_start": 135.451,
+      "seg_end": 138.792,
+      "window_start": 133.1215,
+      "window_dur": 8.0,
+      "text": "みなみかわ対お見送り芸人しんいち。",
+      "kata": [],
+      "names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "wav_rel": "killah_kuts_s01e01_cache/seg04_135s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_cache/seg04_135s_frames"
+    },
+    {
+      "name": "seg05_2389s",
+      "seg_start": 2389.71,
+      "seg_end": 2391.27,
+      "window_start": 2386.49,
+      "window_dur": 8.0,
+      "text": "これ、ノーガードになりました、大崎。",
+      "kata": [
+        "ノーガード"
+      ],
+      "names": [
+        "大崎"
+      ],
+      "wav_rel": "killah_kuts_s01e01_cache/seg05_2389s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_cache/seg05_2389s_frames"
+    },
+    {
+      "name": "seg06_2319s",
+      "seg_start": 2319.242,
+      "seg_end": 2323.182,
+      "window_start": 2317.212,
+      "window_dur": 8.0,
+      "text": "ただ、元々はキャッチャー、野球のキャッチャーをやっていたという大崎。",
+      "kata": [
+        "キャッチャー"
+      ],
+      "names": [
+        "大崎"
+      ],
+      "wav_rel": "killah_kuts_s01e01_cache/seg06_2319s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_cache/seg06_2319s_frames"
+    },
+    {
+      "name": "seg07_1866s",
+      "seg_start": 1866.286,
+      "seg_end": 1869.406,
+      "window_start": 1863.846,
+      "window_dur": 8.0,
+      "text": "しんいちはチームにしようって言ってますけど。",
+      "kata": [
+        "チーム"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "wav_rel": "killah_kuts_s01e01_cache/seg07_1866s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_cache/seg07_1866s_frames"
+    },
+    {
+      "name": "seg08_497s",
+      "seg_start": 497.427,
+      "seg_end": 499.227,
+      "window_start": 494.327,
+      "window_dur": 8.0,
+      "text": "みなみかわがここでノーガードになったんですね。",
+      "kata": [
+        "ノーガード"
+      ],
+      "names": [
+        "みなみかわ"
+      ],
+      "wav_rel": "killah_kuts_s01e01_cache/seg08_497s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_cache/seg08_497s_frames"
+    }
+  ]
+}

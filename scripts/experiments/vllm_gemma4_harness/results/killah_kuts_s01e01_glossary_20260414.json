@@ -1,0 +1,187 @@
+{
+  "episode": "killah_kuts_s01e01",
+  "model": "google/gemma-4-E4B-it",
+  "source_ocr": "/home/npk/code/chigyusubs/pipeline/scripts/experiments/vllm_gemma4_harness/results/killah_kuts_s01e01_ocr_sweep_fps05_20260414.json",
+  "n_input_lines": 183,
+  "wall": 18.13,
+  "prompt_tokens": 1973,
+  "completion_tokens": 1291,
+  "glossary": {
+    "show_title": {
+      "canonical": "スポーツスタンガン",
+      "variants": [
+        "スポーツスタングン",
+        "スポーツスタンガン"
+      ]
+    },
+    "entities": [
+      {
+        "type": "fighter",
+        "name": "みなみかわ",
+        "variants": [
+          "みなみかわず",
+          "みなみかわ(42)",
+          "みなみかわ(42)",
+          "みなみかわウ(42)",
+          "みなみかわつ(42)"
+        ],
+        "team": null
+      },
+      {
+        "type": "fighter",
+        "name": "お見送り辰人しん",
+        "variants": [
+          "お見送り辰人しん(39)",
+          "お見送り辰人さん(39)",
+          "お見送り摂人しんむ(39)",
+          "お見送り摂人しんむら(39)"
+        ],
+        "team": "お見送り芸人"
+      },
+      {
+        "type": "fighter",
+        "name": "台拓哉",
+        "variants": [
+          "パンプキンポットフライ台拓哉(32)",
+          "ハンピオンボテファイ台指哉(32)"
+        ],
+        "team": "null"
+      },
+      {
+        "type": "fighter",
+        "name": "みちお",
+        "variants": [
+          "トム・ブラウンみちお(39)",
+          "トプラーウンみちお(39)",
+          "トップランウンみちお(39)",
+          "トップブラウンみちお(39)",
+          "ハンプシンボテフライ台指(32)"
+        ],
+        "team": "トム・ブラウン"
+      },
+      {
+        "type": "fighter",
+        "name": "山根良顕",
+        "variants": [
+          "アンガールズ山根良顕(48)",
+          "アンガールズ山根良闘(48)"
+        ],
+        "team": "アンガールズ"
+      },
+      {
+        "type": "fighter",
+        "name": "東京ホテイソンショー",
+        "variants": [
+          "東京ホテイソンショー(30)"
+        ],
+        "team": "null"
+      },
+      {
+        "type": "fighter",
+        "name": "日本一おもしろい大崎",
+        "variants": [
+          "日本一おもしろい大崎(34)",
+          "ちゅんぴあおす日本おもしろい大崎(34)"
+        ],
+        "team": "ちゃんぴおんず"
+      },
+      {
+        "type": "fighter",
+        "name": "津田篤宏",
+        "variants": [
+          "ダイアン津田篤宏(48)",
+          "ちなぴんおむち丸 欠崎34)",
+          "ダイアン津田顕宏48)",
+          "ダイアン津田篤宏48"
+        ],
+        "team": "ダイアン"
+      },
+      {
+        "type": "fighter",
+        "name": "渡辺凱帆いち",
+        "variants": [
+          "渡辺凱帆いち",
+          "渡辺凱凡い冬"
+        ],
+        "team": null
+      },
+      {
+        "type": "fighter",
+        "name": "谷口拓哉",
+        "variants": [
+          "谷口拓哉"
+        ],
+        "team": null
+      },
+      {
+        "type": "fighter",
+        "name": "シモヨシオ",
+        "variants": [
+          "シモヨシオ",
+          "シモミオイ",
+          "シモヨウ"
+        ],
+        "team": null
+      },
+      {
+        "type": "fighter",
+        "name": "山根良順",
+        "variants": [
+          "山根良輔 (トム・ブラウン) お見送り芸人しんいち",
+          "アンガールズ山根良順(48)"
+        ],
+        "team": "アンガールズ"
+      },
+      {
+        "type": "fighter",
+        "name": "日枝野晃大将",
+        "variants": [
+          "日枝野晃大将"
+        ],
+        "team": null
+      },
+      {
+        "type": "fighter",
+        "name": "津田照宏",
+        "variants": [
+          "津田照宏"
+        ],
+        "team": null
+      },
+      {
+        "type": "fighter",
+        "name": "KILLAN KUTS",
+        "variants": [
+          "KILLAN KUTS",
+          "KILLAN",
+          "KILLAN'S KUTS"
+        ],
+        "team": null
+      },
+      {
+        "type": "referee",
+        "name": "極木良則",
+        "variants": [
+          "極木良則"
+        ],
+        "team": null
+      }
+    ],
+    "terms": [
+      {
+        "canonical": "ルール",
+        "variants": [
+          "ルール",
+          "ルール"
+        ]
+      },
+      {
+        "canonical": "優勝者",
+        "variants": [
+          "WINNER",
+          "winner"
+        ]
+      }
+    ]
+  }
+}

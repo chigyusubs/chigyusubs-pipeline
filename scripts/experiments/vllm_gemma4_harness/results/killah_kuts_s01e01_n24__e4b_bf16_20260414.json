@@ -1,0 +1,2278 @@
+{
+  "spec": "/home/npk/code/chigyusubs/pipeline/scripts/experiments/vllm_gemma4_harness/eval_specs/killah_kuts_s01e01_n24.json",
+  "model": "google/gemma-4-E4B-it",
+  "base_url": "http://127.0.0.1:8000/v1/chat/completions",
+  "configs": [
+    "D_audio_sysrole_primed",
+    "H_audio_sysrole_oracle_names",
+    "I_vision_sysrole_oracle_names_1fps280",
+    "J_video_sysrole_primed",
+    "K_video_sysrole_oracle_names",
+    "N_vision_sysrole_oracle_names_1fps560"
+  ],
+  "summary": [
+    {
+      "config": "D_audio_sysrole_primed",
+      "kata_num": 24,
+      "kata_den": 34,
+      "kata_pct": 70.6,
+      "name_num": 8,
+      "name_den": 16,
+      "name_pct": 50.0,
+      "mean_lcs": 0.432,
+      "n_segments": 24
+    },
+    {
+      "config": "H_audio_sysrole_oracle_names",
+      "kata_num": 21,
+      "kata_den": 34,
+      "kata_pct": 61.8,
+      "name_num": 14,
+      "name_den": 16,
+      "name_pct": 87.5,
+      "mean_lcs": 0.418,
+      "n_segments": 24
+    },
+    {
+      "config": "I_vision_sysrole_oracle_names_1fps280",
+      "kata_num": 23,
+      "kata_den": 34,
+      "kata_pct": 67.6,
+      "name_num": 13,
+      "name_den": 16,
+      "name_pct": 81.2,
+      "mean_lcs": 0.443,
+      "n_segments": 24
+    },
+    {
+      "config": "J_video_sysrole_primed",
+      "kata_num": 24,
+      "kata_den": 34,
+      "kata_pct": 70.6,
+      "name_num": 7,
+      "name_den": 16,
+      "name_pct": 43.8,
+      "mean_lcs": 0.427,
+      "n_segments": 24
+    },
+    {
+      "config": "K_video_sysrole_oracle_names",
+      "kata_num": 24,
+      "kata_den": 34,
+      "kata_pct": 70.6,
+      "name_num": 14,
+      "name_den": 16,
+      "name_pct": 87.5,
+      "mean_lcs": 0.445,
+      "n_segments": 24
+    },
+    {
+      "config": "N_vision_sysrole_oracle_names_1fps560",
+      "kata_num": 23,
+      "kata_den": 34,
+      "kata_pct": 67.6,
+      "name_num": 13,
+      "name_den": 16,
+      "name_pct": 81.2,
+      "mean_lcs": 0.433,
+      "n_segments": 24
+    }
+  ],
+  "results": [
+    {
+      "seg": "seg01_424s",
+      "target": "しんいちがスイッチを繰り返す。そして、みなみかわ、",
+      "kata": [
+        "スイッチ"
+      ],
+      "names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "D_audio_sysrole_primed": {
+        "text": "にスイッチを繰り返します。ゴーゴーゴー。C1がスイッチを繰り返す。そしてみなみかわ、今度マイクを投下して来ました。",
+        "wall": 0.546,
+        "prompt_tokens": 445,
+        "completion_tokens": 35,
+        "kata_recall": "1/1",
+        "name_recall": "1/2",
+        "kata_hits": [
+          "スイッチ"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.512
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "にスイッチを繰り返します。ゴーゴーゴー。しんいちがスイッチを繰り返す。そしてみなみかわ、今度マイクを投下して来ました。",
+        "wall": 0.523,
+        "prompt_tokens": 438,
+        "completion_tokens": 36,
+        "kata_recall": "1/1",
+        "name_recall": "2/2",
+        "kata_hits": [
+          "スイッチ"
+        ],
+        "name_hits": [
+          "しんいち",
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.571
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "にスイッチを繰り返します。ゴーゴーゴー。しんいちがスイッチを繰り返す。そしてみなみかわ、今度はマイクを落としてきました。",
+        "wall": 1.383,
+        "prompt_tokens": 2566,
+        "completion_tokens": 35,
+        "kata_recall": "1/1",
+        "name_recall": "2/2",
+        "kata_hits": [
+          "スイッチ"
+        ],
+        "name_hits": [
+          "しんいち",
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.565
+      },
+      "J_video_sysrole_primed": {
+        "text": "にスイッチを繰り返します。ゴーゴーゴー。C1がスイッチを繰り返す。そしてみなみかわ、今度は前蹴りを出してきました。",
+        "wall": 1.614,
+        "prompt_tokens": 2844,
+        "completion_tokens": 32,
+        "kata_recall": "1/1",
+        "name_recall": "1/2",
+        "kata_hits": [
+          "スイッチ"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.512
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "にスイッチを繰り返します。ゴーゴーゴー。しんいちがスイッチを繰り返す。そしてみなみかわ、今度は前に出してきました。",
+        "wall": 0.927,
+        "prompt_tokens": 2837,
+        "completion_tokens": 31,
+        "kata_recall": "1/1",
+        "name_recall": "2/2",
+        "kata_hits": [
+          "スイッチ"
+        ],
+        "name_hits": [
+          "しんいち",
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.585
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "にスイッチを繰り返します。ゴーゴーゴー。しんいちがスイッチを繰り返す。そしてみなみかわ、今度はマイクを落としてきました。",
+        "wall": 2.396,
+        "prompt_tokens": 4670,
+        "completion_tokens": 35,
+        "kata_recall": "1/1",
+        "name_recall": "2/2",
+        "kata_hits": [
+          "スイッチ"
+        ],
+        "name_hits": [
+          "しんいち",
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.565
+      }
+    },
+    {
+      "seg": "seg02_343s",
+      "target": "タックルのような低い、低い姿勢をキープしている、しんいち。",
+      "kata": [
+        "キープ",
+        "タックル"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "D_audio_sysrole_primed": {
+        "text": "タックルのような姿勢をキープしてるし、前がね",
+        "wall": 0.254,
+        "prompt_tokens": 445,
+        "completion_tokens": 14,
+        "kata_recall": "2/2",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "キープ",
+          "タックル"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.706
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "だいぶ 低い 姿勢 です 。 タックル の よう な 低い 姿勢 を キープ し てる しんいち 。 回 が 。",
+        "wall": 0.457,
+        "prompt_tokens": 433,
+        "completion_tokens": 31,
+        "kata_recall": "2/2",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キープ",
+          "タックル"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.565
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "だいぶ低い姿勢です。タックルのような低い姿勢をキープしてるしんいち。まがいが",
+        "wall": 1.208,
+        "prompt_tokens": 2561,
+        "completion_tokens": 23,
+        "kata_recall": "2/2",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キープ",
+          "タックル"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.716
+      },
+      "J_video_sysrole_primed": {
+        "text": "だいぶ低い姿勢です。タックルのような低い姿勢をキープしてる。まいが",
+        "wall": 1.437,
+        "prompt_tokens": 2844,
+        "completion_tokens": 19,
+        "kata_recall": "2/2",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "キープ",
+          "タックル"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.613
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "だいぶ低い姿勢です。タックルのような低い姿勢をキープしてるしんいち。まいが",
+        "wall": 0.81,
+        "prompt_tokens": 2832,
+        "completion_tokens": 22,
+        "kata_recall": "2/2",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キープ",
+          "タックル"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.727
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "低い姿勢です。タックルのような低い姿勢をキープしてるしんいち。まがいが",
+        "wall": 2.196,
+        "prompt_tokens": 4665,
+        "completion_tokens": 21,
+        "kata_recall": "2/2",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キープ",
+          "タックル"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.75
+      }
+    },
+    {
+      "seg": "seg03_183s",
+      "target": "今回はみなみかわとしんいちの対戦ということになりますが。",
+      "kata": [],
+      "names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "D_audio_sysrole_primed": {
+        "text": "1 回 戦 の 第 1 試合 を 迎え ます 。 はい 。 今回 は 南川 と 新一 の 対戦 と いう こと に なり まし た が 、 リーカード です ね 、 1 回 戦 目 から ね 。",
+        "wall": 0.71,
+        "prompt_tokens": 445,
+        "completion_tokens": 49,
+        "kata_recall": "0/0",
+        "name_recall": "0/2",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.288
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "1 回 戦 の 第 1 試合 を 迎え ます 。 今回 は 南川 と しんいち の 対戦 と いう こと に なり まし た が 、 リー カード です ね 、 1 回 戦 目 から ね 。",
+        "wall": 0.677,
+        "prompt_tokens": 438,
+        "completion_tokens": 48,
+        "kata_recall": "0/0",
+        "name_recall": "1/2",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.358
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "1 回 戦 の 第 1 試合 を 迎え ます 。 今回 は 南川 と しんいち の 対戦 と いう こと に なり まし た が 、 カード です ね 、 1 回 戦 目 から ね 。",
+        "wall": 1.557,
+        "prompt_tokens": 2566,
+        "completion_tokens": 47,
+        "kata_recall": "0/0",
+        "name_recall": "1/2",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.367
+      },
+      "J_video_sysrole_primed": {
+        "text": "1 回 戦 の 第 1 試合 を 迎え ます 。 今回 は 南川 と 新一 の 対戦 と いう こと に なり まし た が 、 カード です ね 、 1 回 戦 目 から ね 。",
+        "wall": 1.816,
+        "prompt_tokens": 2844,
+        "completion_tokens": 46,
+        "kata_recall": "0/0",
+        "name_recall": "0/2",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.305
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "1 回 戦 の 第 1 試合 を 迎え ます 。 今回 は 南川 と しんいち の 対戦 と いう こと に なり まし た が 、 カード です ね 、 1 回 戦 目 から ね 。",
+        "wall": 1.15,
+        "prompt_tokens": 2837,
+        "completion_tokens": 47,
+        "kata_recall": "0/0",
+        "name_recall": "1/2",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.367
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "いよいよ 第 1 試合 を 迎え ます 。 今回 は 南川 と 新一 の 対戦 と いう こと に なり まし た が 、 カード です ね 、 1 回 戦 目 から ね 。",
+        "wall": 2.546,
+        "prompt_tokens": 4670,
+        "completion_tokens": 44,
+        "kata_recall": "0/0",
+        "name_recall": "0/2",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.313
+      }
+    },
+    {
+      "seg": "seg04_135s",
+      "target": "みなみかわ対お見送り芸人しんいち。",
+      "kata": [],
+      "names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "D_audio_sysrole_primed": {
+        "text": "みなみかわ対お見送り芸人しんいち、ケックボク",
+        "wall": 0.306,
+        "prompt_tokens": 445,
+        "completion_tokens": 18,
+        "kata_recall": "0/0",
+        "name_recall": "2/2",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち",
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.821
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "みなみかわ 対 お見送り 芸人 しんいち キックボクシング",
+        "wall": 0.3,
+        "prompt_tokens": 438,
+        "completion_tokens": 19,
+        "kata_recall": "0/0",
+        "name_recall": "2/2",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち",
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.696
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "みなみかわ対お見送り芸人新一キックボクシング",
+        "wall": 1.149,
+        "prompt_tokens": 2566,
+        "completion_tokens": 17,
+        "kata_recall": "0/0",
+        "name_recall": "1/2",
+        "kata_hits": [],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.615
+      },
+      "J_video_sysrole_primed": {
+        "text": "みなみかわ対お見送り芸人新一キックボクシング",
+        "wall": 1.417,
+        "prompt_tokens": 2844,
+        "completion_tokens": 17,
+        "kata_recall": "0/0",
+        "name_recall": "1/2",
+        "kata_hits": [],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.615
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "みなみかわ 対 おみ送り 景人 しんいち キックボクシング",
+        "wall": 0.774,
+        "prompt_tokens": 2837,
+        "completion_tokens": 19,
+        "kata_recall": "0/0",
+        "name_recall": "2/2",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち",
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.609
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "キックボクシング\nみなみかわ対お見送り芸人新一\nキックボク",
+        "wall": 2.254,
+        "prompt_tokens": 4670,
+        "completion_tokens": 23,
+        "kata_recall": "0/0",
+        "name_recall": "1/2",
+        "kata_hits": [],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.522
+      }
+    },
+    {
+      "seg": "seg05_2389s",
+      "target": "これ、ノーガードになりました、大崎。",
+      "kata": [
+        "ノーガード"
+      ],
+      "names": [
+        "大崎"
+      ],
+      "D_audio_sysrole_primed": {
+        "text": "とりっきーな作戦 これ ノーガード に なり まし た 大崎 あ 、 凄かっ た 。 バック ハンド で",
+        "wall": 0.424,
+        "prompt_tokens": 445,
+        "completion_tokens": 27,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.457
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "鳥ッキーな作戦 。 これ ノー ガード に なり まし た 大崎 。 あ 、 凄かっ た 。 バック ハンド で 。",
+        "wall": 0.431,
+        "prompt_tokens": 432,
+        "completion_tokens": 29,
+        "kata_recall": "0/1",
+        "name_recall": "1/1",
+        "kata_hits": [],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.421
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "投げたや 。 トリッキー な 作戦 。 これ ノー ガード に なり まし た 大崎 。 あ 、 すら か がい た 。 バック ハンド で 。",
+        "wall": 1.405,
+        "prompt_tokens": 2560,
+        "completion_tokens": 35,
+        "kata_recall": "0/1",
+        "name_recall": "1/1",
+        "kata_hits": [],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.356
+      },
+      "J_video_sysrole_primed": {
+        "text": "やばいっ た 。 トリッキー な 作戦 。 これ ノー ガード に なり まし た 、 大崎 。 あ 、 サークリング 。 バック ハンド で 。",
+        "wall": 1.667,
+        "prompt_tokens": 2844,
+        "completion_tokens": 35,
+        "kata_recall": "0/1",
+        "name_recall": "1/1",
+        "kata_hits": [],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.374
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "トリッキー な 作戦 。 これ ノー ガード に なり まし た 大崎 。 あ 、 すら か がい た 。 バック ハンド で 。",
+        "wall": 0.94,
+        "prompt_tokens": 2831,
+        "completion_tokens": 31,
+        "kata_recall": "0/1",
+        "name_recall": "1/1",
+        "kata_hits": [],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.386
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "トリッキーな作戦。これノーガードになりました大崎。あ、すれ違がいた。バックハンドで",
+        "wall": 2.273,
+        "prompt_tokens": 4664,
+        "completion_tokens": 25,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.542
+      }
+    },
+    {
+      "seg": "seg06_2319s",
+      "target": "ただ、元々はキャッチャー、野球のキャッチャーをやっていたという大崎。",
+      "kata": [
+        "キャッチャー"
+      ],
+      "names": [
+        "大崎"
+      ],
+      "D_audio_sysrole_primed": {
+        "text": "わしのワンセグが 元々はキャッチャー 野球のキャッチャーをやっていたという大崎 大体して興味が尽きんがります。",
+        "wall": 0.529,
+        "prompt_tokens": 445,
+        "completion_tokens": 35,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キャッチャー"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.674
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "おお 、 ましの 和 が 。 で 、 これ 元々 は キャッチャー 、 野球 の キャッチャー を やっ て い た と いう 大崎 。 闘い し て の に は 自信 が あり ます 。",
+        "wall": 0.682,
+        "prompt_tokens": 432,
+        "completion_tokens": 48,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キャッチャー"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.5
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "わし の ワン セグ が 元々 は キャッチャー 野球 の キャッチャー を やっ て い た と いう 大崎 闘態 し て の に は 自信 が あり ます 。",
+        "wall": 1.521,
+        "prompt_tokens": 2560,
+        "completion_tokens": 43,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キャッチャー"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.522
+      },
+      "J_video_sysrole_primed": {
+        "text": "わし の ワン セグ が 元々 は キャッチャー 、 野球 の キャッチャー を やっ て い た と いう 大崎 。 東西 し て に は 自信 が あり ます 。",
+        "wall": 1.783,
+        "prompt_tokens": 2844,
+        "completion_tokens": 43,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キャッチャー"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.53
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "わし の ワン セグ が 元々 は キャッチャー 、 野球 の キャッチャー を やっ て い た と いう 大崎 。 闘態 し て の に は 自信 が あり ます 。",
+        "wall": 1.131,
+        "prompt_tokens": 2831,
+        "completion_tokens": 45,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キャッチャー"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.521
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "わし の 和 が 元々 は キャッチャー 野球 の キャッチャー を やっ て い た と いう 大崎 闘態 し て の に は 自信 が あり ます 。",
+        "wall": 2.518,
+        "prompt_tokens": 4664,
+        "completion_tokens": 41,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キャッチャー"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.541
+      }
+    },
+    {
+      "seg": "seg07_1866s",
+      "target": "しんいちはチームにしようって言ってますけど。",
+      "kata": [
+        "チーム"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "D_audio_sysrole_primed": {
+        "text": "ちゃんと読めばいいでしょ。チームやって。チームにしようって言ってますけど。",
+        "wall": 0.334,
+        "prompt_tokens": 445,
+        "completion_tokens": 20,
+        "kata_recall": "1/1",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "チーム"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.61
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "ちゃんと 読め ば いい でしょう か 。 チーム は チーム に し ようっ て 言っ て ます けど 。",
+        "wall": 0.381,
+        "prompt_tokens": 433,
+        "completion_tokens": 25,
+        "kata_recall": "1/1",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "チーム"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.474
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "スタンドと読めばいいでしょうか。 ゲームやって。 チームは チームにしようって言ってますけど。",
+        "wall": 1.276,
+        "prompt_tokens": 2561,
+        "completion_tokens": 25,
+        "kata_recall": "1/1",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "チーム"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.551
+      },
+      "J_video_sysrole_primed": {
+        "text": "スタンドと読めばいいでしょうか。チームやって。チームにはしようって言いますけど。",
+        "wall": 1.477,
+        "prompt_tokens": 2844,
+        "completion_tokens": 21,
+        "kata_recall": "1/1",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "チーム"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.516
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "スタンドと読めばいいでしょうか。 チームやって。 チームはチームにしようって言ってますけど。",
+        "wall": 0.851,
+        "prompt_tokens": 2832,
+        "completion_tokens": 25,
+        "kata_recall": "1/1",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "チーム"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.559
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "スタンドと読めばいいでしょうか チームやって しんいち は チームにしようって言ってますけど",
+        "wall": 2.276,
+        "prompt_tokens": 4665,
+        "completion_tokens": 24,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "チーム"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.618
+      }
+    },
+    {
+      "seg": "seg08_497s",
+      "target": "みなみかわがここでノーガードになったんですね。",
+      "kata": [
+        "ノーガード"
+      ],
+      "names": [
+        "みなみかわ"
+      ],
+      "D_audio_sysrole_primed": {
+        "text": "みなみかわがここでノーガードになったんですね。 ねえ、そうですね、ノーガード。はい。ちょっといかないぞ。",
+        "wall": 0.416,
+        "prompt_tokens": 445,
+        "completion_tokens": 26,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.613
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "みなみかわ が ここ で ノー ガード に なっ た ん です ね 。 ねえ 、 そう です ね 、 ノー ガード 。 はい 。 ちょっと いか ない ぞ 。",
+        "wall": 0.513,
+        "prompt_tokens": 434,
+        "completion_tokens": 35,
+        "kata_recall": "0/1",
+        "name_recall": "1/1",
+        "kata_hits": [],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.451
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "みなみかわがここでノーガードになったんですね。 ねえ、そうですね。ノーガード。はい。ちょっといかないぞ。",
+        "wall": 1.309,
+        "prompt_tokens": 2562,
+        "completion_tokens": 27,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.613
+      },
+      "J_video_sysrole_primed": {
+        "text": "みなみかわがここでノーガードになったんですね。 ねえ、そうですね。ノーガード。はい。ちょっといかないぞ。",
+        "wall": 1.55,
+        "prompt_tokens": 2844,
+        "completion_tokens": 26,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.613
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "みなみかわがここでノーガードになったんですね。 ねえ、そうですね。ノーガード。はい。ちょっといかないぞ。",
+        "wall": 0.868,
+        "prompt_tokens": 2833,
+        "completion_tokens": 26,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.613
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "みなみかわがここでノーガードになったんですね。 ねえ、そうですね。ノーガード。はい。ちょっといかないぞ。",
+        "wall": 2.311,
+        "prompt_tokens": 4666,
+        "completion_tokens": 27,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.613
+      }
+    },
+    {
+      "seg": "seg09_434s",
+      "target": "これフットワークは完全にしんいちの方が",
+      "kata": [
+        "フットワーク"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "D_audio_sysrole_primed": {
+        "text": "あ 、 もう 上下 で 。 これ フットワーク は 完全 に しんいち の 方 が 。 ま 、 そう です ね 。 格乱 し て ます 。 ね 。",
+        "wall": 0.55,
+        "prompt_tokens": 445,
+        "completion_tokens": 36,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "フットワーク"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.413
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "あ 、 もう 上下 で 。 これ フットワーク は 完全 に しんいち の 方 が 。 ま 、 そう です ね 。 格段 に し て ます 。 ね 。",
+        "wall": 0.551,
+        "prompt_tokens": 433,
+        "completion_tokens": 38,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "フットワーク"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.404
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "あ 、 もう 上下 で 。 これ は フットワーク は 完全 に しんいち の 方 が 、 ま 、 そう です ね 、 確然 し て ます 。 ね 。",
+        "wall": 1.526,
+        "prompt_tokens": 2561,
+        "completion_tokens": 38,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "フットワーク"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.404
+      },
+      "J_video_sysrole_primed": {
+        "text": "あ 、 もう 上下 で 。 これ フットワーク は 完全 に しんいち の 方 が 、 ま 、 そう です ね 。 確ラン し て ます 。 ね 。",
+        "wall": 1.712,
+        "prompt_tokens": 2844,
+        "completion_tokens": 37,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "フットワーク"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.409
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "あ 、 もう 上下 で 。 これ フットワーク は 完全 に しんいち の 方 が 、 ま 、 そう です ね 。 確然 し て ます 。 ね 。",
+        "wall": 1.023,
+        "prompt_tokens": 2832,
+        "completion_tokens": 37,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "フットワーク"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.413
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "あ 、 もう 上下 で これ は フットワーク は 完全 に しんいち の 方 が 、 ま 、 そう です ね 、 確然 し て ます 。 ね 。",
+        "wall": 2.56,
+        "prompt_tokens": 4665,
+        "completion_tokens": 37,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "フットワーク"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.413
+      }
+    },
+    {
+      "seg": "seg10_415s",
+      "target": "未だに100mは6秒台で走れるというしんいちのフットワーク。",
+      "kata": [
+        "フットワーク"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "D_audio_sysrole_primed": {
+        "text": "長い持ちのやつやね 。 相性 すぎる 。 未だ に 10m は 6 秒 台 で 走り とる よ しんいち の 速 さ 。 ああ 、 持ち帰っ て ます ね 。",
+        "wall": 0.739,
+        "prompt_tokens": 445,
+        "completion_tokens": 50,
+        "kata_recall": "0/1",
+        "name_recall": "1/1",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.349
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "動画 で もちる やつ や ね 。 大丈夫 すぎる 。 未だ に 10m は 6 秒 台 で 走り とる よ 、 しんいち の 。 ああ 、 持ち帰っ て ます ね 。",
+        "wall": 0.71,
+        "prompt_tokens": 433,
+        "completion_tokens": 50,
+        "kata_recall": "0/1",
+        "name_recall": "1/1",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.333
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "動画でも知られてるやつやね。サイズすぎる。未だに100mは6秒台で走りというしんいちの僕枠。ああ、持ち帰ってますね。",
+        "wall": 1.554,
+        "prompt_tokens": 2561,
+        "completion_tokens": 41,
+        "kata_recall": "0/1",
+        "name_recall": "1/1",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.5
+      },
+      "J_video_sysrole_primed": {
+        "text": "動画でも知られてるやつやね 。 サイズ すぎる 。 未だ に 100m は 6 秒 台 で 走り とる よ 。 新 一 の 突破 か 。 ああ 、 持ち帰っ て ます ね 。 はい 。",
+        "wall": 1.967,
+        "prompt_tokens": 2844,
+        "completion_tokens": 54,
+        "kata_recall": "0/1",
+        "name_recall": "0/1",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.262
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "動画でも知られてるやつやね 。 サイズ すぎる 。 未だ に 100m は 6 秒 台 で 走り とる よ しんいち の こと は 。 ああ 、 持ち帰っ て ます ね 。 はい 。",
+        "wall": 1.255,
+        "prompt_tokens": 2832,
+        "completion_tokens": 53,
+        "kata_recall": "0/1",
+        "name_recall": "1/1",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.331
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "動画 で もちる やつ や ね 。 サイズ すぎる 。 未だ に 100m は 6 秒 台 で 走り とる よ 、 しんいち の こと は 。 ああ 、 持ち帰っ て ます ね 。",
+        "wall": 2.785,
+        "prompt_tokens": 4665,
+        "completion_tokens": 52,
+        "kata_recall": "0/1",
+        "name_recall": "1/1",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.333
+      }
+    },
+    {
+      "seg": "seg11_332s",
+      "target": "ケージを背にした、しんいち。",
+      "kata": [
+        "ケージ"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "D_audio_sysrole_primed": {
+        "text": "またプレッシャー距離が少し縮まってきた。 慶城を背にしてるし。 ああ、ダメ。後ろ見せたらやばい。",
+        "wall": 0.548,
+        "prompt_tokens": 445,
+        "completion_tokens": 34,
+        "kata_recall": "0/1",
+        "name_recall": "0/1",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.258
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "またプレッシャー 距離 が 少し 縮まっ て き た 。 慶場 を 背 に し て いる しんいち 。 ああ 、 だ 。 後ろ 見せ たら やばい 。",
+        "wall": 0.619,
+        "prompt_tokens": 433,
+        "completion_tokens": 43,
+        "kata_recall": "0/1",
+        "name_recall": "1/1",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.225
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "またプレッシャー距離が少し縮まってきた。 ケージを背にしてるしんいち。 ああ、後ろ見せたらやばい。",
+        "wall": 1.471,
+        "prompt_tokens": 2561,
+        "completion_tokens": 33,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ケージ"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.381
+      },
+      "J_video_sysrole_primed": {
+        "text": "またプレッシャー 距離 が 少し 縮まっ て き た 。 ケージ を 背 に し て いる し 。 ああ 、 で 。 後ろ 見せ たら やばい 。",
+        "wall": 1.77,
+        "prompt_tokens": 2844,
+        "completion_tokens": 40,
+        "kata_recall": "1/1",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "ケージ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.23
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "またプレッシャー 距離 が 少し 縮まっ て き た 。 ケージ を 背 に し て いる しんいち 。 ああ 、 で 。 後ろ 見せ たら やばい 。",
+        "wall": 1.103,
+        "prompt_tokens": 2832,
+        "completion_tokens": 42,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ケージ"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.267
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "またプレッシャー距離が少し縮まってきた。 ゲージを背にしてるしんいち。 ああ、後ろ見せたらやばい。",
+        "wall": 2.511,
+        "prompt_tokens": 4665,
+        "completion_tokens": 33,
+        "kata_recall": "0/1",
+        "name_recall": "1/1",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.349
+      }
+    },
+    {
+      "seg": "seg12_300s",
+      "target": "フェイントを入れた、しんいち。",
+      "kata": [
+        "フェイント"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "D_audio_sysrole_primed": {
+        "text": "してプレッシャーをかける いけるける ゴー フェイント入ったしいち わこれはすごい いい試合や",
+        "wall": 0.403,
+        "prompt_tokens": 445,
+        "completion_tokens": 24,
+        "kata_recall": "1/1",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "フェイント"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.323
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "してプレッシャーをかける。 いけるける。 ゴー! フェイント入ったしんいち。 わ、これはすごい。いい試合や。",
+        "wall": 0.472,
+        "prompt_tokens": 433,
+        "completion_tokens": 32,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "フェイント"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.348
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "そしてプレッシャーをかける いけるいける フェイント入れたしんいち わ、これはすごい いい試合や",
+        "wall": 1.348,
+        "prompt_tokens": 2561,
+        "completion_tokens": 25,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "フェイント"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.381
+      },
+      "J_video_sysrole_primed": {
+        "text": "としてプレッシャーをかける いけるいける 。 フェイント 入れ た 。 うわ 、 これ は すごい 。 いい 試合 や 。",
+        "wall": 1.63,
+        "prompt_tokens": 2844,
+        "completion_tokens": 30,
+        "kata_recall": "1/1",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "フェイント"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.289
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "して プレッシャー を かける 。 いける いける 。 フェイント を 入れ た しんいち 。 わ 、 これ は すごい 。 いい 試合 や 。",
+        "wall": 1.016,
+        "prompt_tokens": 2832,
+        "completion_tokens": 36,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "フェイント"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.322
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "してプレッシャーをかける いけるける フェイント入ったしんいち わこれはすごい いい試合や",
+        "wall": 2.378,
+        "prompt_tokens": 4665,
+        "completion_tokens": 23,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "フェイント"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.367
+      }
+    },
+    {
+      "seg": "seg13_284s",
+      "target": "しんいちがサークリング、足を使います。",
+      "kata": [
+        "サークリング"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "D_audio_sysrole_primed": {
+        "text": "あ 、 飛ば かけ て 。 助けれ ん わ 、 これ 。 うわ 、 し が サークリング 。 どこ 足 を 使い ます 。 はい 、 はい 。 これ どこ 足 と か を パッ 。",
+        "wall": 0.732,
+        "prompt_tokens": 445,
+        "completion_tokens": 48,
+        "kata_recall": "1/1",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "サークリング"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.275
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "しんいち が サークリング 。 足 を 使い ます 。 はい はい 。 どこ を 足 と か を パッ",
+        "wall": 0.395,
+        "prompt_tokens": 433,
+        "completion_tokens": 26,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "サークリング"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.514
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "が あと を かけ て 。 すくれん は な これ 。 しんいち が サークリング 。 どこ 足 を 使い ます 。 はい はい 。 どこ を 足 と か を パッ",
+        "wall": 1.612,
+        "prompt_tokens": 2561,
+        "completion_tokens": 43,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "サークリング"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.356
+      },
+      "J_video_sysrole_primed": {
+        "text": "が圧をかけて、スクリーンはなこれ。しんいちがサークリング。足を使います。はいはい。で、どこを足とかをパット",
+        "wall": 1.689,
+        "prompt_tokens": 2844,
+        "completion_tokens": 35,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "サークリング"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.5
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "が圧をかけて、スクリーンはなこれ。 しんいちがサークリング。足を使います。はいはい。どこを足とかをパット",
+        "wall": 0.972,
+        "prompt_tokens": 2832,
+        "completion_tokens": 33,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "サークリング"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.507
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "が ああ と かけ て 。 すくれん は な これ 。 しんいち が サークリング 。 どこ 足 を 使い ます 。 はい はい 。 どこ を 足 と か を パッ",
+        "wall": 2.67,
+        "prompt_tokens": 4665,
+        "completion_tokens": 43,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "サークリング"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.356
+      }
+    },
+    {
+      "seg": "seg14_2555s",
+      "target": "これでもさ、現役アスリートのフェンシングの人来たら強いんじゃない。",
+      "kata": [
+        "アスリート",
+        "フェンシング"
+      ],
+      "names": [],
+      "D_audio_sysrole_primed": {
+        "text": "え 、 なん も かけ ない 。 これ どう も さ 、 元気 アスリート の フェンシング の 人 来 たら 強い ん だ よ ね 。 ああ 、 強い か も 。 ちょっと 長く 。",
+        "wall": 0.69,
+        "prompt_tokens": 445,
+        "completion_tokens": 46,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "アスリート",
+          "フェンシング"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.432
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "え 、 何 も かけ ない 。 これ どう も さ 、 元気 アスリート の フェンシング の 人 来 たら 強い ん だ よ ね 。 ああ 、 強い か も 。 ちょっと 長く",
+        "wall": 0.646,
+        "prompt_tokens": 432,
+        "completion_tokens": 45,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "アスリート",
+          "フェンシング"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.443
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "え 、 何 も かけ ない 。 これ どう も さ 、 元気 アスリート の フェンシング の 人 来 たら 強い ん だ よ ね 。 あ 、 強い か も 。 ちょっと 長く",
+        "wall": 1.609,
+        "prompt_tokens": 2560,
+        "completion_tokens": 44,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "アスリート",
+          "フェンシング"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.446
+      },
+      "J_video_sysrole_primed": {
+        "text": "何もかけない。これどうもさ、元気アスリートのフェンシングの人来たら強いんじゃないの?ああ、強いかも。ちょっと長く",
+        "wall": 1.651,
+        "prompt_tokens": 2844,
+        "completion_tokens": 32,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "アスリート",
+          "フェンシング"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.674
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "何もかけない。 これどうもさ、元気アスリートのフェンシングの人来たら強いんじゃない？ ああ、強いかも。ちょっと長く",
+        "wall": 0.954,
+        "prompt_tokens": 2831,
+        "completion_tokens": 32,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "アスリート",
+          "フェンシング"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.667
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "え 、 なん も かけ ない 。 これ どう も さ 、 元気 アスリート の フェンシング の 人 来 たら 強い ん だ よ ね 。 あ 、 強い か も 。 ちょっと 長く",
+        "wall": 2.692,
+        "prompt_tokens": 4664,
+        "completion_tokens": 44,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "アスリート",
+          "フェンシング"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.443
+      }
+    },
+    {
+      "seg": "seg15_1982s",
+      "target": "山根さん、僕、ラジオほんま聞いて、山根さんのラジオマジでおもろい。",
+      "kata": [
+        "ラジオ",
+        "ラジオマジ"
+      ],
+      "names": [],
+      "D_audio_sysrole_primed": {
+        "text": "あ 、 今 の は やばい ん じゃ ない ? たに 。 やばれ た 僕 。 ラジオ 本間 聞い た 。 山田 さん の ラジオ マジ で 面白い 。 どんな どんな ん す か ? めっちゃ ど ない 。",
+        "wall": 0.806,
+        "prompt_tokens": 445,
+        "completion_tokens": 55,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ラジオ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.279
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "あ 、 今 の は やばい ん じゃ ない ? たに 。 やばれ た 僕 。 ラジオ 本間 聞い た 。 山田 さん の ラジオ マジ で 面白い 。 どんな 、 どんな ん す か ? めっちゃ どな 。",
+        "wall": 0.786,
+        "prompt_tokens": 432,
+        "completion_tokens": 56,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ラジオ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.279
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "あ 、 今 の は やばい ん じゃ ない ? たに 。 やばれ た 僕 。 ラジオ 本間 聞い た 。 山田 さん の ラジオ マジ で 面白い 。 どんな 、 どんな ん す か ? めっちゃ ど ない 。",
+        "wall": 1.763,
+        "prompt_tokens": 2560,
+        "completion_tokens": 56,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ラジオ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.275
+      },
+      "J_video_sysrole_primed": {
+        "text": "あ 、 今 の は やばい ん じゃ ない ? たに 。 やばれ た 僕 。 ラジオ 本間 聞い た 。 山田 さん の ラジオ マジ で 面白い 。 どんな 、 どんな ん す か ? めっちゃ ど ない 。",
+        "wall": 1.988,
+        "prompt_tokens": 2844,
+        "completion_tokens": 56,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ラジオ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.275
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "あ 、 今 の は やばい ん じゃ ない ? たに 。 やばれ た 僕 。 ラジオ 本間 聞い た 。 山田 さん の ラジオ マジ で 面白い 。 どんな どんな ん す か ? めっちゃ どな",
+        "wall": 1.265,
+        "prompt_tokens": 2831,
+        "completion_tokens": 54,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ラジオ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.288
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "あ 、 今 の は やばい ん じゃ ない ? たに 。 やばれ た 僕 。 ラジオ 本間 聞い た 。 山田 さん の ラジオ マジ で 面白い 。 どんな 、 どんな ん す か ? めっちゃ ど ない 。",
+        "wall": 2.857,
+        "prompt_tokens": 4664,
+        "completion_tokens": 56,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ラジオ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.275
+      }
+    },
+    {
+      "seg": "seg16_1719s",
+      "target": "はい、いや、ルール上はオッケーなんすもんね、だって別に。",
+      "kata": [
+        "オッケー",
+        "ルール"
+      ],
+      "names": [],
+      "D_audio_sysrole_primed": {
+        "text": "けど 一瞬 の 好き を 見逃さ なかっ た です ね 。 はい 、 い るる 上 オッケー な ん です も ね 、 だっ て 別 に 。 今 レフェリー が 止め て ない の で 言っ て も 大丈夫 だっ た と いう 。",
+        "wall": 0.837,
+        "prompt_tokens": 445,
+        "completion_tokens": 57,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "オッケー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.294
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "けど 一瞬 の 好き を 見逃さ なかっ た です ね 。 はい 、 いる いる 上 オッケー な ん です も ね 、 だっ て 別 に 。 今 レフェリー が 止め て ない の で 言っ て も 大丈夫 だっ た と いう 。",
+        "wall": 0.79,
+        "prompt_tokens": 432,
+        "completion_tokens": 56,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "オッケー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.292
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "けど、一瞬の隙を見逃さなかったですね。はい、いるいる上オッケーなんすもんねだって別に。今レフェリーが止めてないので行っても大丈夫だったってこと。",
+        "wall": 1.624,
+        "prompt_tokens": 2560,
+        "completion_tokens": 44,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "オッケー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.42
+      },
+      "J_video_sysrole_primed": {
+        "text": "けど 一瞬 の 隙 を 見逃さ なかっ た です ね 。 はい 、 あ 、 いる いる 上 オッケー な ん です も ね 、 だっ て 別 に 。 今 レフェリー が 止め て ない の で 言っ て も 大丈夫 だっ た と いう 。",
+        "wall": 2.014,
+        "prompt_tokens": 2844,
+        "completion_tokens": 58,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "オッケー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.286
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "けど 一瞬 の 隙 を 見逃さ なかっ た です ね 。 はい 、 あ 、 ルール 上 オッケー な ん です もん ね 、 だっ て 別 に 。 今 レフェリー が 止め て ない の で 言っ て も 大丈夫 だっ た と いう 。",
+        "wall": 1.332,
+        "prompt_tokens": 2831,
+        "completion_tokens": 59,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "オッケー",
+          "ルール"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.342
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "けど 一瞬 の 隙 を 見逃さ なかっ た です ね 。 はい 、 いる いる 上 オッケー な ん です も ね 、 だっ て 別 に 。 今 レフェリー が 止め て ない の で 言っ て も 大丈夫 だっ た と いう 。",
+        "wall": 2.858,
+        "prompt_tokens": 4664,
+        "completion_tokens": 56,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "オッケー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.294
+      }
+    },
+    {
+      "seg": "seg17_1675s",
+      "target": "レフェリーがストップをかけてる状態ではなかったですね。",
+      "kata": [
+        "ストップ",
+        "レフェリー"
+      ],
+      "names": [],
+      "D_audio_sysrole_primed": {
+        "text": "かね これ は あり です ね 。 レフェリー が ストップ を かけ てる 状態 で は なかっ た です よ ね 。 じゃあ 電流 チャック 。",
+        "wall": 0.547,
+        "prompt_tokens": 445,
+        "completion_tokens": 35,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ストップ",
+          "レフェリー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.535
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "これ は あり です ね 。 レフェリー が ストップ を かけ てる 状態 で は なかっ た です よ ね 。 じゃ 、 電流 チャック 。",
+        "wall": 0.5,
+        "prompt_tokens": 432,
+        "completion_tokens": 34,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ストップ",
+          "レフェリー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.545
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "これ は あり です ね 。 レフェリー が ストップ を かけ てる 状態 で は なかっ た です よ ね 。 じゃあ 電流 チャック",
+        "wall": 1.457,
+        "prompt_tokens": 2560,
+        "completion_tokens": 33,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ストップ",
+          "レフェリー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.562
+      },
+      "J_video_sysrole_primed": {
+        "text": "これ は あり です ね 。 レフェリー が ストップ を かけ てる 状態 で は なかっ た です よ ね 。 じゃ 、 電流 チャック 。",
+        "wall": 1.678,
+        "prompt_tokens": 2844,
+        "completion_tokens": 34,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ストップ",
+          "レフェリー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.545
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "これ は あり です ね 。 レフェリー が ストップ を かけ てる 状態 で は なかっ た です よ ね 。 じゃ 、 電流 チャック 。",
+        "wall": 0.98,
+        "prompt_tokens": 2831,
+        "completion_tokens": 34,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ストップ",
+          "レフェリー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.545
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "これ は あり です ね 。 レフェリー が ストップ を かけ てる 状態 で は なかっ た です よ ね 。 じゃあ 電流 チャック",
+        "wall": 2.528,
+        "prompt_tokens": 4664,
+        "completion_tokens": 33,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ストップ",
+          "レフェリー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.562
+      }
+    },
+    {
+      "seg": "seg18_1606s",
+      "target": "アンガールズさんってもう出ないすか、でも、事務所のライブは。",
+      "kata": [
+        "アンガールズ",
+        "ライブ"
+      ],
+      "names": [],
+      "D_audio_sysrole_primed": {
+        "text": "出ますよ 事務所のライブで出ますよ 喋 あがるすなんてもう出ないんですか でも事務所のライブは出すよ あ いや 僕らね 若手ね",
+        "wall": 0.593,
+        "prompt_tokens": 445,
+        "completion_tokens": 38,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ライブ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.409
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "出 ます よ 。 事務所 の ライブ 出 ます よ 。 あがる なんて もう 出 ない ん です か ? で も 事務所 の ライブ は や す よ 。 あ 、 いや 、 僕 ら ね 、 若手 ね 。",
+        "wall": 0.696,
+        "prompt_tokens": 432,
+        "completion_tokens": 49,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ライブ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.169
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "出ますよ 。 事務所 の ライブ 出 ます よ 。 食べ 。 アガルス なんて もう 出 ない ん です か ? で も 事務所 の ライブ は 出 ます よ 。 あ 、 いや 、 僕 ら ね 、 若手 ね 。",
+        "wall": 1.746,
+        "prompt_tokens": 2560,
+        "completion_tokens": 53,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ライブ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.163
+      },
+      "J_video_sysrole_primed": {
+        "text": "出 ます よ 。 事務所 の ライブ 出 ます よ 。 あがる なんて もう 出 ない ん です か ? で も 事務所 の ライブ は や ます よ 。 あ 、 いや 、 僕 ら ね 、 若手 ね 。",
+        "wall": 1.895,
+        "prompt_tokens": 2844,
+        "completion_tokens": 49,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ライブ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.168
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "出 ます よ 。 事務所 の ライブ 出 ます よ 。 あがる なんて もう 出 ない です か ? で も 事務所 の ライブ は や ます よ 。 あ 、 いや 、 僕 ら ね 、 若手 ね 。",
+        "wall": 1.18,
+        "prompt_tokens": 2831,
+        "completion_tokens": 48,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ライブ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.171
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "出ますよ 。 事務所 の ライブ 出 ます よ 。 喋 。 アガルス なんて もう 出 ない ん す か ? で も 事務所 の ライブ は 出 す よ 。 あ 、 いや 、 僕 ら ね 、 若手 ね 。",
+        "wall": 2.823,
+        "prompt_tokens": 4664,
+        "completion_tokens": 53,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ライブ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.167
+      }
+    },
+    {
+      "seg": "seg19_1600s",
+      "target": "え、アリスさん最近どうすか、ライブは。",
+      "kata": [
+        "アリス",
+        "ライブ"
+      ],
+      "names": [],
+      "D_audio_sysrole_primed": {
+        "text": "あ 、 あれ です か 。 最近 どう し か ライブ は ? あ 、 喋っ てる 。 いら に 喋っ てる 。 出 ます よ 。 事務所 の ライブ 出 ます 。",
+        "wall": 0.654,
+        "prompt_tokens": 445,
+        "completion_tokens": 42,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ライブ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.218
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "あれすか最近どうすかライブはあ、サベッてる。いや、サベッてる。出ますよ。事務所のライブ出ます。",
+        "wall": 0.503,
+        "prompt_tokens": 432,
+        "completion_tokens": 34,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ライブ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.333
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "おっす 。 うっす 。 え 、 あれっ す か ? 最近 どう し た ? ライブ は ? あ 、 喋っ てる 。 やべっ てる 。 出 ます よ 。 事務所 の ライブ 出 ます 。",
+        "wall": 1.685,
+        "prompt_tokens": 2560,
+        "completion_tokens": 49,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ライブ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.198
+      },
+      "J_video_sysrole_primed": {
+        "text": "あ 、 あれ です か ? 最近 どう し た か ライブ は ? あ 、 喋っ てる 。 いら に 喋っ てる 。 出 ます よ 。 事務所 の ライブ 出 ます 。",
+        "wall": 1.804,
+        "prompt_tokens": 2844,
+        "completion_tokens": 43,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ライブ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.214
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "あ 、 あれ です か ? 最近 どう し た ? ライブ は ? あ 、 喋っ てる 。 いら に 喋っ てる 。 出 ます よ 。 ジム ショ の ライブ 出 ます 。",
+        "wall": 1.123,
+        "prompt_tokens": 2831,
+        "completion_tokens": 44,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ライブ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.19
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "おっす 。 うっす 。 え 、 あれっ す か ? 最近 どう し た ? ライブ は ? あ 、 寂別 てる 。 いら に 寂別 てる 。 出 ます よ 。 事務所 の ライブ 出 ます 。",
+        "wall": 2.802,
+        "prompt_tokens": 4664,
+        "completion_tokens": 52,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ライブ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.191
+      }
+    },
+    {
+      "seg": "seg20_1264s",
+      "target": "フェンシングの経験があります、ダイアン津田。",
+      "kata": [
+        "ダイアン",
+        "フェンシング"
+      ],
+      "names": [],
+      "D_audio_sysrole_primed": {
+        "text": "こういうのってこういうのって戦士の経験があります。ダイアンスタ。菅君はこれ早く勝負決め。",
+        "wall": 0.449,
+        "prompt_tokens": 445,
+        "completion_tokens": 26,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ダイアン"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.394
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "こういうやつはせ、戦士の経験があります。ダイアンスタ。菅原これ早く勝負決め。",
+        "wall": 0.368,
+        "prompt_tokens": 432,
+        "completion_tokens": 24,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ダイアン"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.433
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "こいやせこいやせ 戦シングの経験があります。ダイアンスタ。菅久はこれ早く勝負決め",
+        "wall": 1.347,
+        "prompt_tokens": 2560,
+        "completion_tokens": 25,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ダイアン"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.516
+      },
+      "J_video_sysrole_primed": {
+        "text": "こいやせこいやせ 戦シングの経験があります。ダイアンスタ。菅谷はこれ早く勝負決め",
+        "wall": 1.554,
+        "prompt_tokens": 2844,
+        "completion_tokens": 25,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ダイアン"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.516
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "こいやせこいやせ 戦シングの経験があります。ダイアンスタ。菅谷はこれ早く勝負決め",
+        "wall": 0.858,
+        "prompt_tokens": 2831,
+        "completion_tokens": 25,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ダイアン"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.516
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "こいやしてこいやして。前シングの経験があります。ダイアン来た。須学はこれ早く勝負決め",
+        "wall": 2.43,
+        "prompt_tokens": 4664,
+        "completion_tokens": 26,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "ダイアン"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.5
+      }
+    },
+    {
+      "seg": "seg21_1116s",
+      "target": "ショーゴ、スタンガンでここで食らってしまいました。",
+      "kata": [
+        "ショーゴ",
+        "スタンガン"
+      ],
+      "names": [],
+      "D_audio_sysrole_primed": {
+        "text": "丸腰相撲対は相撲対でくらってしまいますあほや",
+        "wall": 0.309,
+        "prompt_tokens": 445,
+        "completion_tokens": 17,
+        "kata_recall": "0/2",
+        "name_recall": "0/0",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.34
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "まるごしょう体は勝負でくらってしまいます。アホや。",
+        "wall": 0.289,
+        "prompt_tokens": 432,
+        "completion_tokens": 18,
+        "kata_recall": "0/2",
+        "name_recall": "0/0",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.36
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "丸腰状態は勝負でくらってしまいました。あほや。",
+        "wall": 1.224,
+        "prompt_tokens": 2560,
+        "completion_tokens": 16,
+        "kata_recall": "0/2",
+        "name_recall": "0/0",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.458
+      },
+      "J_video_sysrole_primed": {
+        "text": "丸腰状態は勝負でくらってしまいました。あほや。",
+        "wall": 1.442,
+        "prompt_tokens": 2844,
+        "completion_tokens": 16,
+        "kata_recall": "0/2",
+        "name_recall": "0/0",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.458
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "丸腰状態は勝負でくらってしまいました。あほや。",
+        "wall": 0.738,
+        "prompt_tokens": 2831,
+        "completion_tokens": 16,
+        "kata_recall": "0/2",
+        "name_recall": "0/0",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.458
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "丸腰状態は勝負でくらってしまいます。アホや。",
+        "wall": 2.28,
+        "prompt_tokens": 4664,
+        "completion_tokens": 16,
+        "kata_recall": "0/2",
+        "name_recall": "0/0",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.383
+      }
+    },
+    {
+      "seg": "seg22_1040s",
+      "target": "そうですね、このあたりはスタンガンの扱い方もポイントになりそうです。",
+      "kata": [
+        "スタンガン",
+        "ポイント"
+      ],
+      "names": [],
+      "D_audio_sysrole_primed": {
+        "text": "こういだね 。 いや 、 入れ ないっ す よ 、 これ 勝負 。 そう です ね 。 この 辺り は スタンガン の 扱い 方 が ポイント に なり そう です 。 動かっ た 。 なん か 動き が 止まっ た 。",
+        "wall": 0.816,
+        "prompt_tokens": 445,
+        "completion_tokens": 55,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "スタンガン",
+          "ポイント"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.417
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "すごいだね 。 いや 、 入れ ないっ す よ 、 これ 勝負 。 そう です ね 。 この 辺り は スタンガン の 扱い 方 が ポイント に なり そう です 。 動かっ た 。 動き が 止まっ た 。",
+        "wall": 0.739,
+        "prompt_tokens": 432,
+        "completion_tokens": 52,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "スタンガン",
+          "ポイント"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.432
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "多いだね 。 いや 、 入れ ないっ す よ 、 これ 勝負 。 そう です ね 。 この 辺り は スタンガン の 扱い 方 が ポイント に なり そう です 。 動かっ た 。 なん か 動き が 止まっ た 。",
+        "wall": 1.758,
+        "prompt_tokens": 2560,
+        "completion_tokens": 54,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "スタンガン",
+          "ポイント"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.42
+      },
+      "J_video_sysrole_primed": {
+        "text": "多い だ ね 。 いや 、 入れ ない し 、 これ 勝負 。 そう です ね 。 この 辺り は スタンガン の 扱い 方 が ポイント に なり そう です 。 動い た 。 動き が 止まっ た 。",
+        "wall": 1.899,
+        "prompt_tokens": 2844,
+        "completion_tokens": 50,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "スタンガン",
+          "ポイント"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.441
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "多いだね 。 いや 、 入れ ない し 、 これ 勝負 。 そう です ね 。 この 辺り は スタンガン の 扱い 方 が ポイント に なり そう です 。 動かっ た 。 動き が 止まっ た 。",
+        "wall": 1.198,
+        "prompt_tokens": 2831,
+        "completion_tokens": 50,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "スタンガン",
+          "ポイント"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.444
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "多いだね 。 いや 、 入れ ないっ す よ 、 これ 、 翔吾 。 そう です ね 。 この 辺り は スタンガン の 扱い 方 が ポイント に なり そう です 。 止まっ た 。 動き が 止まっ た 。",
+        "wall": 2.847,
+        "prompt_tokens": 4664,
+        "completion_tokens": 55,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "スタンガン",
+          "ポイント"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.429
+      }
+    },
+    {
+      "seg": "seg23_1024s",
+      "target": "おお、ショーゴ、プレッシャーをかける。",
+      "kata": [
+        "ショーゴ",
+        "プレッシャー"
+      ],
+      "names": [],
+      "D_audio_sysrole_primed": {
+        "text": "今 の フック めっちゃ 効い て ます 。 お 、 尚 も プレッシャー かける 。 あれ 避けれ ない か な ? これ 無理 か 。",
+        "wall": 0.59,
+        "prompt_tokens": 445,
+        "completion_tokens": 38,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "プレッシャー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.273
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "今のフックめっちゃ効いてる。おお、勝負、プレッシャーかける。あれよけるないから、これ無理か。",
+        "wall": 0.435,
+        "prompt_tokens": 432,
+        "completion_tokens": 29,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "プレッシャー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.431
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "ごめん 今 の フック めっちゃ 効い て ます 。 おお 、 尚 も プレッシャー かける 。 あれ 避けれ ない か な ? これ も 無理 か 。",
+        "wall": 1.579,
+        "prompt_tokens": 2560,
+        "completion_tokens": 42,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "プレッシャー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.274
+      },
+      "J_video_sysrole_primed": {
+        "text": "今のフックめっちゃ効いてる。おお、勝負、プレッシャーかける。あれ避けれないからこれも無理か。",
+        "wall": 1.591,
+        "prompt_tokens": 2844,
+        "completion_tokens": 27,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "プレッシャー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.431
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "今のフックめっちゃ効いてる。おお、勝負、プレッシャーかける。あれ避けれないから、これも無理か。",
+        "wall": 0.905,
+        "prompt_tokens": 2831,
+        "completion_tokens": 28,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "プレッシャー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.424
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "ごめん 。 今 の フック めっちゃ 効い て ます 。 おお 。 しょう も プレッシャー かける 。 あれ 避けれ ない か な ? これ も 無理 か 。",
+        "wall": 2.674,
+        "prompt_tokens": 4664,
+        "completion_tokens": 43,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "プレッシャー"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.242
+      }
+    },
+    {
+      "seg": "seg24_943s",
+      "target": "やはりこの長いリーチをうまく生かしたい、アンガールズ山根です。",
+      "kata": [
+        "アンガールズ",
+        "リーチ"
+      ],
+      "names": [],
+      "D_audio_sysrole_primed": {
+        "text": "リーチ も 相当 違います よ これ 。 いや 、 そう です ね 。 やはり この 長い リーチ を うまく 生かし たい アンガールズ 山根 です 。 お 、 翔吾 が あ 、 で も 動き",
+        "wall": 0.762,
+        "prompt_tokens": 445,
+        "completion_tokens": 50,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "アンガールズ",
+          "リーチ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.469
+      },
+      "H_audio_sysrole_oracle_names": {
+        "text": "リーチ も 相当 違い ます よ 、 これ 。 いや 、 そう です ね 。 やはり この 長い リーチ を うまく 生かし たい アンガーズ 山根 です 。 お 、 翔吾 が あ 、 で も 動き",
+        "wall": 0.726,
+        "prompt_tokens": 432,
+        "completion_tokens": 51,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "リーチ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.446
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "text": "リーチも相当違いますね、これは。いや、そうですね。やはりこの長いリーチをうまく活かしたいアンガーズ山根です。おお、勝吾が、あ、でも動き",
+        "wall": 1.579,
+        "prompt_tokens": 2560,
+        "completion_tokens": 41,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "リーチ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.571
+      },
+      "J_video_sysrole_primed": {
+        "text": "リーチ も 相当 違います よ これ 。 いや 、 そう です ね 。 やはり この 長い リーチ を うまく 生かし たい アンガールズ 山根 です 。 お 、 勝合 が あ 、 で も 動き",
+        "wall": 1.9,
+        "prompt_tokens": 2844,
+        "completion_tokens": 49,
+        "kata_recall": "2/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "アンガールズ",
+          "リーチ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.469
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "リーチ も 相当 違い ます よ 、 これ は 。 いや 、 そう です ね 。 やはり この 長い リーチ を うまく 生かし たい アンガーズ 山根 です 。 お 、 勝合 が あ 、 で も 動き",
+        "wall": 1.234,
+        "prompt_tokens": 2831,
+        "completion_tokens": 51,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "リーチ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.439
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "リーチも相当違いますね、これ。いや、そうですね。やはりこの長いリーチをうまく活かしたいアンガーズ山根です。おお、勝吾が",
+        "wall": 2.576,
+        "prompt_tokens": 4664,
+        "completion_tokens": 36,
+        "kata_recall": "1/2",
+        "name_recall": "0/0",
+        "kata_hits": [
+          "リーチ"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.622
+      }
+    }
+  ]
+}

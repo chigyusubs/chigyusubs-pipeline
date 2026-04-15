@@ -1,0 +1,311 @@
+{
+  "spec": "/home/npk/code/chigyusubs/pipeline/scripts/experiments/vllm_gemma4_harness/eval_specs/killah_kuts_s01e01.json",
+  "model": "leon-se/gemma-4-E4B-it-FP8-Dynamic",
+  "base_url": "http://127.0.0.1:8000/v1/chat/completions",
+  "configs": [
+    "A_audio_base",
+    "D_audio_sysrole_primed",
+    "E_vision_sysrole_primed_1fps280",
+    "H_audio_sysrole_oracle_names",
+    "I_vision_sysrole_oracle_names_1fps280"
+  ],
+  "summary": [
+    {
+      "config": "A_audio_base",
+      "kata_num": 0,
+      "kata_den": 0,
+      "kata_pct": 0.0,
+      "name_num": 0,
+      "name_den": 0,
+      "name_pct": 0.0,
+      "mean_lcs": 0.0,
+      "n_segments": 0
+    },
+    {
+      "config": "D_audio_sysrole_primed",
+      "kata_num": 0,
+      "kata_den": 0,
+      "kata_pct": 0.0,
+      "name_num": 0,
+      "name_den": 0,
+      "name_pct": 0.0,
+      "mean_lcs": 0.0,
+      "n_segments": 0
+    },
+    {
+      "config": "E_vision_sysrole_primed_1fps280",
+      "kata_num": 0,
+      "kata_den": 0,
+      "kata_pct": 0.0,
+      "name_num": 0,
+      "name_den": 0,
+      "name_pct": 0.0,
+      "mean_lcs": 0.0,
+      "n_segments": 0
+    },
+    {
+      "config": "H_audio_sysrole_oracle_names",
+      "kata_num": 0,
+      "kata_den": 0,
+      "kata_pct": 0.0,
+      "name_num": 0,
+      "name_den": 0,
+      "name_pct": 0.0,
+      "mean_lcs": 0.0,
+      "n_segments": 0
+    },
+    {
+      "config": "I_vision_sysrole_oracle_names_1fps280",
+      "kata_num": 0,
+      "kata_den": 0,
+      "kata_pct": 0.0,
+      "name_num": 0,
+      "name_den": 0,
+      "name_pct": 0.0,
+      "mean_lcs": 0.0,
+      "n_segments": 0
+    }
+  ],
+  "results": [
+    {
+      "seg": "seg01_424s",
+      "target": "しんいちがスイッチを繰り返す。そして、みなみかわ、",
+      "kata": [
+        "スイッチ"
+      ],
+      "names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "A_audio_base": {
+        "error": "HTTP 400",
+        "wall": 0.023002649999398272
+      },
+      "D_audio_sysrole_primed": {
+        "error": "HTTP 400",
+        "wall": 0.011354958998708753
+      },
+      "E_vision_sysrole_primed_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.04888986200057843
+      },
+      "H_audio_sysrole_oracle_names": {
+        "error": "HTTP 400",
+        "wall": 0.008776218001003144
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.03307849399971019
+      }
+    },
+    {
+      "seg": "seg02_343s",
+      "target": "タックルのような低い、低い姿勢をキープしている、しんいち。",
+      "kata": [
+        "キープ",
+        "タックル"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "A_audio_base": {
+        "error": "HTTP 400",
+        "wall": 0.009048150001035538
+      },
+      "D_audio_sysrole_primed": {
+        "error": "HTTP 400",
+        "wall": 0.010654615998646477
+      },
+      "E_vision_sysrole_primed_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.03650882800138788
+      },
+      "H_audio_sysrole_oracle_names": {
+        "error": "HTTP 400",
+        "wall": 0.008358576000318862
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.03468338099992252
+      }
+    },
+    {
+      "seg": "seg03_183s",
+      "target": "今回はみなみかわとしんいちの対戦ということになりますが。",
+      "kata": [],
+      "names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "A_audio_base": {
+        "error": "HTTP 400",
+        "wall": 0.007858894001401495
+      },
+      "D_audio_sysrole_primed": {
+        "error": "HTTP 400",
+        "wall": 0.007794324001224595
+      },
+      "E_vision_sysrole_primed_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.03296617300111393
+      },
+      "H_audio_sysrole_oracle_names": {
+        "error": "HTTP 400",
+        "wall": 0.008658617998662521
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.03702634099863644
+      }
+    },
+    {
+      "seg": "seg04_135s",
+      "target": "みなみかわ対お見送り芸人しんいち。",
+      "kata": [],
+      "names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "A_audio_base": {
+        "error": "HTTP 400",
+        "wall": 0.012692734999291133
+      },
+      "D_audio_sysrole_primed": {
+        "error": "HTTP 400",
+        "wall": 0.007564092999018612
+      },
+      "E_vision_sysrole_primed_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.03560596500028623
+      },
+      "H_audio_sysrole_oracle_names": {
+        "error": "HTTP 400",
+        "wall": 0.008723337999981595
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.03590321600131574
+      }
+    },
+    {
+      "seg": "seg05_2389s",
+      "target": "これ、ノーガードになりました、大崎。",
+      "kata": [
+        "ノーガード"
+      ],
+      "names": [
+        "大崎"
+      ],
+      "A_audio_base": {
+        "error": "HTTP 400",
+        "wall": 0.00804772500123363
+      },
+      "D_audio_sysrole_primed": {
+        "error": "HTTP 400",
+        "wall": 0.007683843001359492
+      },
+      "E_vision_sysrole_primed_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.033031723000021884
+      },
+      "H_audio_sysrole_oracle_names": {
+        "error": "HTTP 400",
+        "wall": 0.008382515999983298
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.033124163001048146
+      }
+    },
+    {
+      "seg": "seg06_2319s",
+      "target": "ただ、元々はキャッチャー、野球のキャッチャーをやっていたという大崎。",
+      "kata": [
+        "キャッチャー"
+      ],
+      "names": [
+        "大崎"
+      ],
+      "A_audio_base": {
+        "error": "HTTP 400",
+        "wall": 0.012461574999178993
+      },
+      "D_audio_sysrole_primed": {
+        "error": "HTTP 400",
+        "wall": 0.007454111999322777
+      },
+      "E_vision_sysrole_primed_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.03347784499965201
+      },
+      "H_audio_sysrole_oracle_names": {
+        "error": "HTTP 400",
+        "wall": 0.008354205998330144
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.03326689500136126
+      }
+    },
+    {
+      "seg": "seg07_1866s",
+      "target": "しんいちはチームにしようって言ってますけど。",
+      "kata": [
+        "チーム"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "A_audio_base": {
+        "error": "HTTP 400",
+        "wall": 0.008209875999455107
+      },
+      "D_audio_sysrole_primed": {
+        "error": "HTTP 400",
+        "wall": 0.007490872998459963
+      },
+      "E_vision_sysrole_primed_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.03346694499850855
+      },
+      "H_audio_sysrole_oracle_names": {
+        "error": "HTTP 400",
+        "wall": 0.00846860599995125
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.03702237099969352
+      }
+    },
+    {
+      "seg": "seg08_497s",
+      "target": "みなみかわがここでノーガードになったんですね。",
+      "kata": [
+        "ノーガード"
+      ],
+      "names": [
+        "みなみかわ"
+      ],
+      "A_audio_base": {
+        "error": "HTTP 400",
+        "wall": 0.00808684500043455
+      },
+      "D_audio_sysrole_primed": {
+        "error": "HTTP 400",
+        "wall": 0.007670823999433196
+      },
+      "E_vision_sysrole_primed_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.0333992150008271
+      },
+      "H_audio_sysrole_oracle_names": {
+        "error": "HTTP 400",
+        "wall": 0.008328946998517495
+      },
+      "I_vision_sysrole_oracle_names_1fps280": {
+        "error": "HTTP 400",
+        "wall": 0.03318497500004014
+      }
+    }
+  ]
+}

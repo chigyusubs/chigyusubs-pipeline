@@ -1,0 +1,4 @@
+# Binary caches — regenerable from source video + build_eval_spec.py / ocr_sweep.py
+eval_specs/*_cache/
+results/*_ocr_frames_*/
+__pycache__/

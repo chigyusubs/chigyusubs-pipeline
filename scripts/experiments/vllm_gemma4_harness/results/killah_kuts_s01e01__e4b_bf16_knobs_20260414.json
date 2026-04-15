@@ -1,0 +1,833 @@
+{
+  "spec": "/home/npk/code/chigyusubs/pipeline/scripts/experiments/vllm_gemma4_harness/eval_specs/killah_kuts_s01e01.json",
+  "model": "google/gemma-4-E4B-it",
+  "base_url": "http://127.0.0.1:8000/v1/chat/completions",
+  "configs": [
+    "J_video_sysrole_primed",
+    "K_video_sysrole_oracle_names",
+    "L_vision_sysrole_primed_1fps560",
+    "M_vision_sysrole_primed_1fps1120",
+    "N_vision_sysrole_oracle_names_1fps560",
+    "O_vision_sysrole_oracle_names_1fps1120"
+  ],
+  "summary": [
+    {
+      "config": "J_video_sysrole_primed",
+      "kata_num": 6,
+      "kata_den": 7,
+      "kata_pct": 85.7,
+      "name_num": 5,
+      "name_den": 11,
+      "name_pct": 45.5,
+      "mean_lcs": 0.512,
+      "n_segments": 8
+    },
+    {
+      "config": "K_video_sysrole_oracle_names",
+      "kata_num": 7,
+      "kata_den": 7,
+      "kata_pct": 100.0,
+      "name_num": 8,
+      "name_den": 11,
+      "name_pct": 72.7,
+      "mean_lcs": 0.56,
+      "n_segments": 8
+    },
+    {
+      "config": "L_vision_sysrole_primed_1fps560",
+      "kata_num": 5,
+      "kata_den": 7,
+      "kata_pct": 71.4,
+      "name_num": 5,
+      "name_den": 11,
+      "name_pct": 45.5,
+      "mean_lcs": 0.477,
+      "n_segments": 8
+    },
+    {
+      "config": "M_vision_sysrole_primed_1fps1120",
+      "kata_num": 7,
+      "kata_den": 7,
+      "kata_pct": 100.0,
+      "name_num": 5,
+      "name_den": 11,
+      "name_pct": 45.5,
+      "mean_lcs": 0.502,
+      "n_segments": 8
+    },
+    {
+      "config": "N_vision_sysrole_oracle_names_1fps560",
+      "kata_num": 7,
+      "kata_den": 7,
+      "kata_pct": 100.0,
+      "name_num": 8,
+      "name_den": 11,
+      "name_pct": 72.7,
+      "mean_lcs": 0.558,
+      "n_segments": 8
+    },
+    {
+      "config": "O_vision_sysrole_oracle_names_1fps1120",
+      "kata_num": 7,
+      "kata_den": 7,
+      "kata_pct": 100.0,
+      "name_num": 6,
+      "name_den": 11,
+      "name_pct": 54.5,
+      "mean_lcs": 0.559,
+      "n_segments": 8
+    }
+  ],
+  "results": [
+    {
+      "seg": "seg01_424s",
+      "target": "しんいちがスイッチを繰り返す。そして、みなみかわ、",
+      "kata": [
+        "スイッチ"
+      ],
+      "names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "J_video_sysrole_primed": {
+        "text": "にスイッチを繰り返します。ゴーゴーゴー。C1がスイッチを繰り返す。そしてみなみかわ、今度は前蹴りを出してきました。",
+        "wall": 1.666,
+        "prompt_tokens": 2844,
+        "completion_tokens": 32,
+        "kata_recall": "1/1",
+        "name_recall": "1/2",
+        "kata_hits": [
+          "スイッチ"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.512
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "にスイッチを繰り返します。ゴーゴーゴー。しんいちがスイッチを繰り返す。そしてみなみかわ、今度は前に出してきました。",
+        "wall": 0.941,
+        "prompt_tokens": 2837,
+        "completion_tokens": 31,
+        "kata_recall": "1/1",
+        "name_recall": "2/2",
+        "kata_hits": [
+          "スイッチ"
+        ],
+        "name_hits": [
+          "しんいち",
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.585
+      },
+      "L_vision_sysrole_primed_1fps560": {
+        "text": "にスイッチを繰り返します。ゴーゴーゴー。しいちがスイッチを繰り返す。そしてみなみかわ、今度はマイクを投下して来ました。",
+        "wall": 2.492,
+        "prompt_tokens": 4677,
+        "completion_tokens": 35,
+        "kata_recall": "1/1",
+        "name_recall": "1/2",
+        "kata_hits": [
+          "スイッチ"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.548
+      },
+      "M_vision_sysrole_primed_1fps1120": {
+        "text": "にスイッチを繰り返します。ゴーゴーゴー。C1がスイッチを繰り返す。そしてみなみかわ、今度はマイクを投下して来ました。",
+        "wall": 5.757,
+        "prompt_tokens": 9261,
+        "completion_tokens": 35,
+        "kata_recall": "1/1",
+        "name_recall": "1/2",
+        "kata_hits": [
+          "スイッチ"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.506
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "にスイッチを繰り返します。ゴーゴーゴー。しんいちがスイッチを繰り返す。そしてみなみかわ、今度はマイクを落としてきました。",
+        "wall": 2.413,
+        "prompt_tokens": 4670,
+        "completion_tokens": 35,
+        "kata_recall": "1/1",
+        "name_recall": "2/2",
+        "kata_hits": [
+          "スイッチ"
+        ],
+        "name_hits": [
+          "しんいち",
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.565
+      },
+      "O_vision_sysrole_oracle_names_1fps1120": {
+        "text": "にスイッチを繰り返します。ゴーゴーゴー。しいちがスイッチを繰り返す。そしてみなみかわ、今度はマイクを投下して来ました。",
+        "wall": 5.591,
+        "prompt_tokens": 9254,
+        "completion_tokens": 35,
+        "kata_recall": "1/1",
+        "name_recall": "1/2",
+        "kata_hits": [
+          "スイッチ"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.548
+      }
+    },
+    {
+      "seg": "seg02_343s",
+      "target": "タックルのような低い、低い姿勢をキープしている、しんいち。",
+      "kata": [
+        "キープ",
+        "タックル"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "J_video_sysrole_primed": {
+        "text": "低い姿勢です。タックルのような低い姿勢をキープしてる。まいが",
+        "wall": 1.431,
+        "prompt_tokens": 2844,
+        "completion_tokens": 17,
+        "kata_recall": "2/2",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "キープ",
+          "タックル"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.644
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "だいぶ低い姿勢です。タックルのような低い姿勢をキープしてるし。前がもう",
+        "wall": 0.803,
+        "prompt_tokens": 2832,
+        "completion_tokens": 21,
+        "kata_recall": "2/2",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "キープ",
+          "タックル"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.656
+      },
+      "L_vision_sysrole_primed_1fps560": {
+        "text": "大野 低い姿勢です。タックルのような低い姿勢をキープしてる。前合いが",
+        "wall": 2.31,
+        "prompt_tokens": 4677,
+        "completion_tokens": 21,
+        "kata_recall": "2/2",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "キープ",
+          "タックル"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.603
+      },
+      "M_vision_sysrole_primed_1fps1120": {
+        "text": "だいぶ低い姿勢です。タックルのような低い姿勢をキープしてる人。前がもう",
+        "wall": 5.574,
+        "prompt_tokens": 9261,
+        "completion_tokens": 21,
+        "kata_recall": "2/2",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "キープ",
+          "タックル"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.625
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "低い姿勢です。タックルのような低い姿勢をキープしてるしんいち。まがいが",
+        "wall": 2.207,
+        "prompt_tokens": 4665,
+        "completion_tokens": 21,
+        "kata_recall": "2/2",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キープ",
+          "タックル"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.75
+      },
+      "O_vision_sysrole_oracle_names_1fps1120": {
+        "text": "低い姿勢です タックルのような低い姿勢をキープしてるし いがいが",
+        "wall": 5.351,
+        "prompt_tokens": 9249,
+        "completion_tokens": 18,
+        "kata_recall": "2/2",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "キープ",
+          "タックル"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.656
+      }
+    },
+    {
+      "seg": "seg03_183s",
+      "target": "今回はみなみかわとしんいちの対戦ということになりますが。",
+      "kata": [],
+      "names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "J_video_sysrole_primed": {
+        "text": "1 回 戦 の 第 1 試合 を 迎え ます 。 今回 は 南川 と 新一 の 対戦 と いう こと に なり まし た が 、 カード です ね 、 1 回 戦 目 から ね 。",
+        "wall": 1.828,
+        "prompt_tokens": 2844,
+        "completion_tokens": 46,
+        "kata_recall": "0/0",
+        "name_recall": "0/2",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.305
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "1 回 戦 の 第 1 試合 を 迎え ます 。 今回 は 南川 と しんいち の 対戦 と いう こと に なり まし た が 、 カード です ね 、 1 回 戦 目 から ね 。",
+        "wall": 1.159,
+        "prompt_tokens": 2837,
+        "completion_tokens": 47,
+        "kata_recall": "0/0",
+        "name_recall": "1/2",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.367
+      },
+      "L_vision_sysrole_primed_1fps560": {
+        "text": "いよいよ 第 1 試合 を 迎え ます 。 今回 は 南川 と 新 一 の 対戦 と いう こと に なり まし た が 、 カード です ね 、 1 回 戦 目 から ね 。",
+        "wall": 2.663,
+        "prompt_tokens": 4677,
+        "completion_tokens": 44,
+        "kata_recall": "0/0",
+        "name_recall": "0/2",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.31
+      },
+      "M_vision_sysrole_primed_1fps1120": {
+        "text": "いよいよ 第 1 試合 を 迎え ます 。 今回 は 南川 と 新人 の 対戦 と いう こと に なり まし た が 、 カード です ね 、 1 回 戦 目 から ね 。",
+        "wall": 5.96,
+        "prompt_tokens": 9261,
+        "completion_tokens": 44,
+        "kata_recall": "0/0",
+        "name_recall": "0/2",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.313
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "いよいよ 第 1 試合 を 迎え ます 。 今回 は 南川 と 新一 の 対戦 と いう こと に なり まし た が 、 カード です ね 、 1 回 戦 目 から ね 。",
+        "wall": 2.571,
+        "prompt_tokens": 4670,
+        "completion_tokens": 44,
+        "kata_recall": "0/0",
+        "name_recall": "0/2",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.313
+      },
+      "O_vision_sysrole_oracle_names_1fps1120": {
+        "text": "いよいよ 第 1 試合 を 迎え ます 。 今回 は 南川 と 新一 の 対戦 と いう こと に なり まし た が 、 カード です ね 、 1 回 戦 目 から ね 。",
+        "wall": 5.794,
+        "prompt_tokens": 9254,
+        "completion_tokens": 44,
+        "kata_recall": "0/0",
+        "name_recall": "0/2",
+        "kata_hits": [],
+        "name_hits": [],
+        "lcs_ratio": 0.313
+      }
+    },
+    {
+      "seg": "seg04_135s",
+      "target": "みなみかわ対お見送り芸人しんいち。",
+      "kata": [],
+      "names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "J_video_sysrole_primed": {
+        "text": "みなみかわ対お見送り芸人新一キックボクシング",
+        "wall": 1.438,
+        "prompt_tokens": 2844,
+        "completion_tokens": 17,
+        "kata_recall": "0/0",
+        "name_recall": "1/2",
+        "kata_hits": [],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.615
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "みなみかわ 対 おみ送り 景人 しんいち キックボクシング",
+        "wall": 0.781,
+        "prompt_tokens": 2837,
+        "completion_tokens": 19,
+        "kata_recall": "0/0",
+        "name_recall": "2/2",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち",
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.609
+      },
+      "L_vision_sysrole_primed_1fps560": {
+        "text": "キックボクシング\nみなみかわ対お見送り芸人新一\nキックボクシング",
+        "wall": 2.373,
+        "prompt_tokens": 4677,
+        "completion_tokens": 24,
+        "kata_recall": "0/0",
+        "name_recall": "1/2",
+        "kata_hits": [],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.49
+      },
+      "M_vision_sysrole_primed_1fps1120": {
+        "text": "キックボクシング\n南川泰一、お見送り芸人しんいち",
+        "wall": 5.61,
+        "prompt_tokens": 9261,
+        "completion_tokens": 20,
+        "kata_recall": "0/0",
+        "name_recall": "1/2",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.488
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "キックボクシング\nみなみかわ対お見送り芸人新一\nキックボク",
+        "wall": 2.273,
+        "prompt_tokens": 4670,
+        "completion_tokens": 23,
+        "kata_recall": "0/0",
+        "name_recall": "1/2",
+        "kata_hits": [],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.522
+      },
+      "O_vision_sysrole_oracle_names_1fps1120": {
+        "text": "キックボクシング\nみなみかわ対お見送り芸人しんいち",
+        "wall": 5.42,
+        "prompt_tokens": 9254,
+        "completion_tokens": 19,
+        "kata_recall": "0/0",
+        "name_recall": "2/2",
+        "kata_hits": [],
+        "name_hits": [
+          "しんいち",
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.762
+      }
+    },
+    {
+      "seg": "seg05_2389s",
+      "target": "これ、ノーガードになりました、大崎。",
+      "kata": [
+        "ノーガード"
+      ],
+      "names": [
+        "大崎"
+      ],
+      "J_video_sysrole_primed": {
+        "text": "投げ て や 。 トリッキー な 作戦 。 これ ノー ガード に なり まし た 大崎 。 あ 、 サークリング 。 バック ハンド で 。",
+        "wall": 1.643,
+        "prompt_tokens": 2844,
+        "completion_tokens": 32,
+        "kata_recall": "0/1",
+        "name_recall": "1/1",
+        "kata_hits": [],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.36
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "トリッキーな作戦。これノーガードになりました、大崎。あ、すれ違がいた。バックハンドで。",
+        "wall": 0.89,
+        "prompt_tokens": 2831,
+        "completion_tokens": 27,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.557
+      },
+      "L_vision_sysrole_primed_1fps560": {
+        "text": "やばいっ た 。 トリッキー な 作戦 。 これ ノー ガード に なり まし た 、 大崎 。 あ 、 設楽 が い た 。 バック ハンド で 。",
+        "wall": 2.581,
+        "prompt_tokens": 4677,
+        "completion_tokens": 38,
+        "kata_recall": "0/1",
+        "name_recall": "1/1",
+        "kata_hits": [],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.366
+      },
+      "M_vision_sysrole_primed_1fps1120": {
+        "text": "やばいってよ トリッキーな作戦 これ ノーガード に なり まし た 大崎 あ 、 すら か がい た バック ハンド で",
+        "wall": 5.792,
+        "prompt_tokens": 9261,
+        "completion_tokens": 31,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.38
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "トリッキーな作戦。これノーガードになりました大崎。あ、すれ違がいた。バックハンドで",
+        "wall": 2.308,
+        "prompt_tokens": 4664,
+        "completion_tokens": 25,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.542
+      },
+      "O_vision_sysrole_oracle_names_1fps1120": {
+        "text": "とりっキーな作戦。これノーガードになりました、大崎。あ、すれ違がいた。バックハンドで。",
+        "wall": 5.585,
+        "prompt_tokens": 9248,
+        "completion_tokens": 29,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.557
+      }
+    },
+    {
+      "seg": "seg06_2319s",
+      "target": "ただ、元々はキャッチャー、野球のキャッチャーをやっていたという大崎。",
+      "kata": [
+        "キャッチャー"
+      ],
+      "names": [
+        "大崎"
+      ],
+      "J_video_sysrole_primed": {
+        "text": "わし の ワン セグ が 元々 は キャッチャー 、 野球 の キャッチャー を やっ て い た と いう 大崎 。 闘態 し て の に は 自信 が あり ます 。",
+        "wall": 1.833,
+        "prompt_tokens": 2844,
+        "completion_tokens": 45,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キャッチャー"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.521
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "わし の ワン セグ が 元々 は キャッチャー 、 野球 の キャッチャー を やっ て い た と いう 大崎 。 闘態 し て の に は 自信 が あり ます 。",
+        "wall": 1.149,
+        "prompt_tokens": 2831,
+        "completion_tokens": 45,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キャッチャー"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.521
+      },
+      "L_vision_sysrole_primed_1fps560": {
+        "text": "わしの和責が元々はキャッチャー、野球のキャッチャーをやっていたという大崎。東西してに味自信があります。",
+        "wall": 2.495,
+        "prompt_tokens": 4677,
+        "completion_tokens": 31,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キャッチャー"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.729
+      },
+      "M_vision_sysrole_primed_1fps1120": {
+        "text": "わしの和責が 元々はキャッチャー 野球のキャッチャーをやっていたという大崎 大体してに自信があります",
+        "wall": 5.782,
+        "prompt_tokens": 9261,
+        "completion_tokens": 29,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キャッチャー"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.69
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "わし の 和 が 元々 は キャッチャー 野球 の キャッチャー を やっ て い た と いう 大崎 闘態 し て の に は 自信 が あり ます 。",
+        "wall": 2.514,
+        "prompt_tokens": 4664,
+        "completion_tokens": 41,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キャッチャー"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.541
+      },
+      "O_vision_sysrole_oracle_names_1fps1120": {
+        "text": "わし の 和 が これ 元々 は キャッチャー 野球 の キャッチャー を やっ て い た と いう 大崎 闘態 し て の に は 自信 が あり ます 。",
+        "wall": 5.804,
+        "prompt_tokens": 9248,
+        "completion_tokens": 42,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "キャッチャー"
+        ],
+        "name_hits": [
+          "大崎"
+        ],
+        "lcs_ratio": 0.526
+      }
+    },
+    {
+      "seg": "seg07_1866s",
+      "target": "しんいちはチームにしようって言ってますけど。",
+      "kata": [
+        "チーム"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "J_video_sysrole_primed": {
+        "text": "スタンドと読めばいいでしょうか。ゲームやって。チームはチームにしようって言いますけど。",
+        "wall": 1.516,
+        "prompt_tokens": 2844,
+        "completion_tokens": 23,
+        "kata_recall": "1/1",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "チーム"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.523
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "スタンドと読めばいいでしょうか。ゲームやって。チームはチームにしようって言ってますけど。",
+        "wall": 0.839,
+        "prompt_tokens": 2832,
+        "completion_tokens": 23,
+        "kata_recall": "1/1",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "チーム"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.576
+      },
+      "L_vision_sysrole_primed_1fps560": {
+        "text": "スタンドと読めばいいでしょ ゲームやって 試合中は チームにしようって言いますけど はい スタップ スタップ スタップ スタップ",
+        "wall": 2.478,
+        "prompt_tokens": 4677,
+        "completion_tokens": 31,
+        "kata_recall": "1/1",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "チーム"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.372
+      },
+      "M_vision_sysrole_primed_1fps1120": {
+        "text": "スタンドと読めばいいでしょ\nゲームやって\n試合中はチームにしようって言いますけど\nはい\nストップストップストップストップ",
+        "wall": 5.828,
+        "prompt_tokens": 9261,
+        "completion_tokens": 33,
+        "kata_recall": "1/1",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "チーム"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.39
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "スタンドと読めばいいでしょうか チームやって しんいち は チームにしようって言ってますけど",
+        "wall": 2.297,
+        "prompt_tokens": 4665,
+        "completion_tokens": 24,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "チーム"
+        ],
+        "name_hits": [
+          "しんいち"
+        ],
+        "lcs_ratio": 0.618
+      },
+      "O_vision_sysrole_oracle_names_1fps1120": {
+        "text": "スタンドと読めばいいでしょうか。ゲームやって。試合中はチームにしようって言いますけど。はい。",
+        "wall": 5.549,
+        "prompt_tokens": 9249,
+        "completion_tokens": 25,
+        "kata_recall": "1/1",
+        "name_recall": "0/1",
+        "kata_hits": [
+          "チーム"
+        ],
+        "name_hits": [],
+        "lcs_ratio": 0.5
+      }
+    },
+    {
+      "seg": "seg08_497s",
+      "target": "みなみかわがここでノーガードになったんですね。",
+      "kata": [
+        "ノーガード"
+      ],
+      "names": [
+        "みなみかわ"
+      ],
+      "J_video_sysrole_primed": {
+        "text": "みなみかわがここでノーガードになったんですね。 ねえ、そうですね。ノーガード。はい。ちょっといかないぞ。",
+        "wall": 1.565,
+        "prompt_tokens": 2844,
+        "completion_tokens": 26,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.613
+      },
+      "K_video_sysrole_oracle_names": {
+        "text": "みなみかわがここでノーガードになったんですね。 ねえ、そうですね。ノーガード。はい。ちょっといかないぞ。",
+        "wall": 0.88,
+        "prompt_tokens": 2833,
+        "completion_tokens": 26,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.613
+      },
+      "L_vision_sysrole_primed_1fps560": {
+        "text": "え 、 どう なっ た ? みなみかわ が ここ で ノー ガード に なっ た ん です ね 。 ねえ 、 そう です ね 。 ノー ガード 。 はい 。 ちょっと いか ない ぞ 。",
+        "wall": 2.659,
+        "prompt_tokens": 4677,
+        "completion_tokens": 42,
+        "kata_recall": "0/1",
+        "name_recall": "1/1",
+        "kata_hits": [],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.397
+      },
+      "M_vision_sysrole_primed_1fps1120": {
+        "text": "みなみかわがここでノーガードになったんですね。ねえ、そうですね。ノーガード。はい。ちょっといかないぞ。",
+        "wall": 5.746,
+        "prompt_tokens": 9261,
+        "completion_tokens": 28,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.622
+      },
+      "N_vision_sysrole_oracle_names_1fps560": {
+        "text": "みなみかわがここでノーガードになったんですね。 ねえ、そうですね。ノーガード。はい。ちょっといかないぞ。",
+        "wall": 2.333,
+        "prompt_tokens": 4666,
+        "completion_tokens": 27,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.613
+      },
+      "O_vision_sysrole_oracle_names_1fps1120": {
+        "text": "みなみかわがここでノーガードになったんですね。 ねえ、そうですね。ノーガード。はい。ちょっといかないぞ。",
+        "wall": 5.561,
+        "prompt_tokens": 9250,
+        "completion_tokens": 26,
+        "kata_recall": "1/1",
+        "name_recall": "1/1",
+        "kata_hits": [
+          "ノーガード"
+        ],
+        "name_hits": [
+          "みなみかわ"
+        ],
+        "lcs_ratio": 0.613
+      }
+    }
+  ]
+}

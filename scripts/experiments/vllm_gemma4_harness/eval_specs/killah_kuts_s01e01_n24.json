@@ -1,0 +1,383 @@
+{
+  "episode": "killah_kuts_s01e01",
+  "video": "samples/episodes/killah_kuts_s01e01/source/KILLAH.KUTS.S01E01.1080p.AMZN.WEB-DL.DDP2.0.H.264-Emmid.mkv",
+  "ctc_file": "/home/npk/code/chigyusubs/pipeline/samples/episodes/killah_kuts_s01e01/transcription/killah_kuts_s01e01_video_only_v1_ctc_words.json",
+  "window_dur": 8.0,
+  "fps": 1.0,
+  "n_segments": 24,
+  "segments": [
+    {
+      "name": "seg01_424s",
+      "seg_start": 424.708,
+      "seg_end": 428.648,
+      "window_start": 422.678,
+      "window_dur": 8.0,
+      "text": "しんいちがスイッチを繰り返す。そして、みなみかわ、",
+      "kata": [
+        "スイッチ"
+      ],
+      "names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg01_424s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg01_424s_frames"
+    },
+    {
+      "name": "seg02_343s",
+      "seg_start": 343.544,
+      "seg_end": 346.044,
+      "window_start": 340.794,
+      "window_dur": 8.0,
+      "text": "タックルのような低い、低い姿勢をキープしている、しんいち。",
+      "kata": [
+        "キープ",
+        "タックル"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg02_343s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg02_343s_frames"
+    },
+    {
+      "name": "seg03_183s",
+      "seg_start": 183.675,
+      "seg_end": 186.556,
+      "window_start": 181.1155,
+      "window_dur": 8.0,
+      "text": "今回はみなみかわとしんいちの対戦ということになりますが。",
+      "kata": [],
+      "names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg03_183s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg03_183s_frames"
+    },
+    {
+      "name": "seg04_135s",
+      "seg_start": 135.451,
+      "seg_end": 138.792,
+      "window_start": 133.1215,
+      "window_dur": 8.0,
+      "text": "みなみかわ対お見送り芸人しんいち。",
+      "kata": [],
+      "names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg04_135s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg04_135s_frames"
+    },
+    {
+      "name": "seg05_2389s",
+      "seg_start": 2389.71,
+      "seg_end": 2391.27,
+      "window_start": 2386.49,
+      "window_dur": 8.0,
+      "text": "これ、ノーガードになりました、大崎。",
+      "kata": [
+        "ノーガード"
+      ],
+      "names": [
+        "大崎"
+      ],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg05_2389s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg05_2389s_frames"
+    },
+    {
+      "name": "seg06_2319s",
+      "seg_start": 2319.242,
+      "seg_end": 2323.182,
+      "window_start": 2317.212,
+      "window_dur": 8.0,
+      "text": "ただ、元々はキャッチャー、野球のキャッチャーをやっていたという大崎。",
+      "kata": [
+        "キャッチャー"
+      ],
+      "names": [
+        "大崎"
+      ],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg06_2319s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg06_2319s_frames"
+    },
+    {
+      "name": "seg07_1866s",
+      "seg_start": 1866.286,
+      "seg_end": 1869.406,
+      "window_start": 1863.846,
+      "window_dur": 8.0,
+      "text": "しんいちはチームにしようって言ってますけど。",
+      "kata": [
+        "チーム"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg07_1866s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg07_1866s_frames"
+    },
+    {
+      "name": "seg08_497s",
+      "seg_start": 497.427,
+      "seg_end": 499.227,
+      "window_start": 494.327,
+      "window_dur": 8.0,
+      "text": "みなみかわがここでノーガードになったんですね。",
+      "kata": [
+        "ノーガード"
+      ],
+      "names": [
+        "みなみかわ"
+      ],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg08_497s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg08_497s_frames"
+    },
+    {
+      "name": "seg09_434s",
+      "seg_start": 434.868,
+      "seg_end": 437.268,
+      "window_start": 432.068,
+      "window_dur": 8.0,
+      "text": "これフットワークは完全にしんいちの方が",
+      "kata": [
+        "フットワーク"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg09_434s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg09_434s_frames"
+    },
+    {
+      "name": "seg10_415s",
+      "seg_start": 415.887,
+      "seg_end": 419.248,
+      "window_start": 413.5675,
+      "window_dur": 8.0,
+      "text": "未だに100mは6秒台で走れるというしんいちのフットワーク。",
+      "kata": [
+        "フットワーク"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg10_415s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg10_415s_frames"
+    },
+    {
+      "name": "seg11_332s",
+      "seg_start": 332.364,
+      "seg_end": 334.544,
+      "window_start": 329.45399999999995,
+      "window_dur": 8.0,
+      "text": "ケージを背にした、しんいち。",
+      "kata": [
+        "ケージ"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg11_332s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg11_332s_frames"
+    },
+    {
+      "name": "seg12_300s",
+      "seg_start": 300.323,
+      "seg_end": 301.723,
+      "window_start": 297.023,
+      "window_dur": 8.0,
+      "text": "フェイントを入れた、しんいち。",
+      "kata": [
+        "フェイント"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg12_300s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg12_300s_frames"
+    },
+    {
+      "name": "seg13_284s",
+      "seg_start": 284.302,
+      "seg_end": 287.462,
+      "window_start": 281.882,
+      "window_dur": 8.0,
+      "text": "しんいちがサークリング、足を使います。",
+      "kata": [
+        "サークリング"
+      ],
+      "names": [
+        "しんいち"
+      ],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg13_284s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg13_284s_frames"
+    },
+    {
+      "name": "seg14_2555s",
+      "seg_start": 2555.781,
+      "seg_end": 2559.101,
+      "window_start": 2553.441,
+      "window_dur": 8.0,
+      "text": "これでもさ、現役アスリートのフェンシングの人来たら強いんじゃない。",
+      "kata": [
+        "アスリート",
+        "フェンシング"
+      ],
+      "names": [],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg14_2555s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg14_2555s_frames"
+    },
+    {
+      "name": "seg15_1982s",
+      "seg_start": 1982.811,
+      "seg_end": 1986.692,
+      "window_start": 1980.7514999999999,
+      "window_dur": 8.0,
+      "text": "山根さん、僕、ラジオほんま聞いて、山根さんのラジオマジでおもろい。",
+      "kata": [
+        "ラジオ",
+        "ラジオマジ"
+      ],
+      "names": [],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg15_1982s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg15_1982s_frames"
+    },
+    {
+      "name": "seg16_1719s",
+      "seg_start": 1719.804,
+      "seg_end": 1721.804,
+      "window_start": 1716.804,
+      "window_dur": 8.0,
+      "text": "はい、いや、ルール上はオッケーなんすもんね、だって別に。",
+      "kata": [
+        "オッケー",
+        "ルール"
+      ],
+      "names": [],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg16_1719s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg16_1719s_frames"
+    },
+    {
+      "name": "seg17_1675s",
+      "seg_start": 1675.742,
+      "seg_end": 1678.222,
+      "window_start": 1672.982,
+      "window_dur": 8.0,
+      "text": "レフェリーがストップをかけてる状態ではなかったですね。",
+      "kata": [
+        "ストップ",
+        "レフェリー"
+      ],
+      "names": [],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg17_1675s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg17_1675s_frames"
+    },
+    {
+      "name": "seg18_1606s",
+      "seg_start": 1606.22,
+      "seg_end": 1608.62,
+      "window_start": 1603.42,
+      "window_dur": 8.0,
+      "text": "アンガールズさんってもう出ないすか、でも、事務所のライブは。",
+      "kata": [
+        "アンガールズ",
+        "ライブ"
+      ],
+      "names": [],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg18_1606s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg18_1606s_frames"
+    },
+    {
+      "name": "seg19_1600s",
+      "seg_start": 1600.759,
+      "seg_end": 1601.999,
+      "window_start": 1597.379,
+      "window_dur": 8.0,
+      "text": "え、アリスさん最近どうすか、ライブは。",
+      "kata": [
+        "アリス",
+        "ライブ"
+      ],
+      "names": [],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg19_1600s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg19_1600s_frames"
+    },
+    {
+      "name": "seg20_1264s",
+      "seg_start": 1264.612,
+      "seg_end": 1268.312,
+      "window_start": 1262.462,
+      "window_dur": 8.0,
+      "text": "フェンシングの経験があります、ダイアン津田。",
+      "kata": [
+        "ダイアン",
+        "フェンシング"
+      ],
+      "names": [],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg20_1264s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg20_1264s_frames"
+    },
+    {
+      "name": "seg21_1116s",
+      "seg_start": 1116.249,
+      "seg_end": 1119.669,
+      "window_start": 1113.959,
+      "window_dur": 8.0,
+      "text": "ショーゴ、スタンガンでここで食らってしまいました。",
+      "kata": [
+        "ショーゴ",
+        "スタンガン"
+      ],
+      "names": [],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg21_1116s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg21_1116s_frames"
+    },
+    {
+      "name": "seg22_1040s",
+      "seg_start": 1040.305,
+      "seg_end": 1043.425,
+      "window_start": 1037.865,
+      "window_dur": 8.0,
+      "text": "そうですね、このあたりはスタンガンの扱い方もポイントになりそうです。",
+      "kata": [
+        "スタンガン",
+        "ポイント"
+      ],
+      "names": [],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg22_1040s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg22_1040s_frames"
+    },
+    {
+      "name": "seg23_1024s",
+      "seg_start": 1024.944,
+      "seg_end": 1026.744,
+      "window_start": 1021.844,
+      "window_dur": 8.0,
+      "text": "おお、ショーゴ、プレッシャーをかける。",
+      "kata": [
+        "ショーゴ",
+        "プレッシャー"
+      ],
+      "names": [],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg23_1024s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg23_1024s_frames"
+    },
+    {
+      "name": "seg24_943s",
+      "seg_start": 943.749,
+      "seg_end": 946.63,
+      "window_start": 941.1895,
+      "window_dur": 8.0,
+      "text": "やはりこの長いリーチをうまく生かしたい、アンガールズ山根です。",
+      "kata": [
+        "アンガールズ",
+        "リーチ"
+      ],
+      "names": [],
+      "wav_rel": "killah_kuts_s01e01_n24_cache/seg24_943s.wav",
+      "frames_dir_rel": "killah_kuts_s01e01_n24_cache/seg24_943s_frames"
+    }
+  ]
+}

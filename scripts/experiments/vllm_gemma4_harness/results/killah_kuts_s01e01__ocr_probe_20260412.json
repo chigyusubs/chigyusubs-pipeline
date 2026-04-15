@@ -1,0 +1,312 @@
+{
+  "spec": "/home/npk/code/chigyusubs/pipeline/scripts/experiments/vllm_gemma4_harness/eval_specs/killah_kuts_s01e01.json",
+  "model": "/mnt/models/huggingface/gemma-4-E4B-it-FP8-Dynamic-local",
+  "mst_levels": [
+    70,
+    280,
+    560
+  ],
+  "frame_stride": 2,
+  "results": [
+    {
+      "seg": "seg01_424s",
+      "gold_names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "n_frames": 4,
+      "mst_results": {
+        "70": {
+          "text": "スポーツスタングン\nみなみかわ(42)\n152cm 70kg\nお見送り残人しんしん(39)\n176cm 67kg\nスポーツスタングン\nみなみかわ(42)\n152cm 70kg\nお見送り残人しんしん(39)\n176cm 67kg\nスポーツスタングン\nみなみかわ(42)\n152cm 70kg\nお見送り残人しんしん(39)\n176cm 67kg",
+          "wall": 2.786,
+          "prompt_tokens": 338,
+          "name_hits": {
+            "しんいち": false,
+            "みなみかわ": true
+          },
+          "name_recall": "1/2"
+        },
+        "280": {
+          "text": "スポーツスタングン\nみなみかわ(42)\n182cm 79kg\nお見送り芸人しんいち(39)\n176cm 67kg\nスポーツスタングン\nみなみかわ(42)\n182cm 79kg\nお見送り芸人しんいち(39)\n176cm 67kg\nスポーツスタングン\nみなみかわ(42)\n182cm 79kg\nお見送り芸人しんいち(39)\n176cm 67kg",
+          "wall": 2.908,
+          "prompt_tokens": 1130,
+          "name_hits": {
+            "しんいち": true,
+            "みなみかわ": true
+          },
+          "name_recall": "2/2"
+        },
+        "560": {
+          "text": "スポーツスタングン\nみなみかわ(42)\n182cm 79kg\nお見送り芸人しんいち(39)\n176cm 67kg\nスポーツスタングン\nみなみかわ(42)\n182cm 79kg\nお見送り芸人しんいち(39)\n176cm 67kg\nスポーツスタングン\nみなみかわ(42)\n182cm 79kg\nお見送り芸人しんいち(39)\n176cm 67kg",
+          "wall": 4.185,
+          "prompt_tokens": 2182,
+          "name_hits": {
+            "しんいち": true,
+            "みなみかわ": true
+          },
+          "name_recall": "2/2"
+        }
+      }
+    },
+    {
+      "seg": "seg02_343s",
+      "gold_names": [
+        "しんいち"
+      ],
+      "n_frames": 4,
+      "mst_results": {
+        "70": {
+          "text": "スポーツスタング\nみなみかわ(42)\n152cm・75kg\nお見送り辰人しんしん(39)\n176cm・67kg\nスポーツスタング\nみなみかわ(42)\n152cm・75kg\nお見送り辰人しんしん(39)\n176cm・67kg\nスポーツスタング\nみなみかわ(42)\n152cm・75kg\nお見送り辰人しんしん(39)",
+          "wall": 2.55,
+          "prompt_tokens": 338,
+          "name_hits": {
+            "しんいち": false
+          },
+          "name_recall": "0/1"
+        },
+        "280": {
+          "text": "スポーツスタング\nみなみかわ(42)\n182cm 79kg\nお見送り芸人しんいち(39)\n176cm 67kg\nスポーツスタング\nみなみかわ(42)\n182cm 79kg\nお見送り芸人しんいち(39)\n176cm 67kg\nスポーツスタング\nみなみかわ(42)\n182cm 79kg\nお見送り芸人しんいち(39)\n176cm 67kg",
+          "wall": 2.844,
+          "prompt_tokens": 1130,
+          "name_hits": {
+            "しんいち": true
+          },
+          "name_recall": "1/1"
+        },
+        "560": {
+          "text": "スポーツスタング\nみなみかわ(42)\n182cm 79kg\nお見送り芸人しんいち(39)\n176cm 67kg\nスポーツスタング\nみなみかわ(42)\n182cm 79kg\nお見送り芸人しんいち(39)\n176cm 67kg\nみなみかわ(42)\n182cm 79kg\nお見送り芸人しんいち(39)\n176cm 67kg",
+          "wall": 3.222,
+          "prompt_tokens": 2182,
+          "name_hits": {
+            "しんいち": true
+          },
+          "name_recall": "1/1"
+        }
+      }
+    },
+    {
+      "seg": "seg03_183s",
+      "gold_names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "n_frames": 4,
+      "mst_results": {
+        "70": {
+          "text": "スポーツスタングン\nKUT\n栗沢\n清野茂樹\nスポーツスタングン\nスポーツスタングン",
+          "wall": 0.628,
+          "prompt_tokens": 338,
+          "name_hits": {
+            "しんいち": false,
+            "みなみかわ": false
+          },
+          "name_recall": "0/2"
+        },
+        "280": {
+          "text": "スポーツスタング\nKUT\n実況\n清野茂樹\nスポーツスタング",
+          "wall": 0.659,
+          "prompt_tokens": 1130,
+          "name_hits": {
+            "しんいち": false,
+            "みなみかわ": false
+          },
+          "name_recall": "0/2"
+        },
+        "560": {
+          "text": "スポーツスタングン\nALL KUTS\n実況\n清野茂樹\nスポーツスタングン",
+          "wall": 1.09,
+          "prompt_tokens": 2182,
+          "name_hits": {
+            "しんいち": false,
+            "みなみかわ": false
+          },
+          "name_recall": "0/2"
+        }
+      }
+    },
+    {
+      "seg": "seg04_135s",
+      "gold_names": [
+        "しんいち",
+        "みなみかわ"
+      ],
+      "n_frames": 4,
+      "mst_results": {
+        "70": {
+          "text": "スポーツスタングン\nみなみかわ(42)\n182cm 79kg\nお見送り浅人しんいち(39)\n176cm 67kg\n1回戦\n第1試合\nみなみかわ(42)\nお見送り浅人しんいち(39)\nスポーツスタングン\nみなみかわ(42)\n182cm 79kg\nお見送り浅人しんいち(39)",
+          "wall": 2.243,
+          "prompt_tokens": 338,
+          "name_hits": {
+            "しんいち": true,
+            "みなみかわ": true
+          },
+          "name_recall": "2/2"
+        },
+        "280": {
+          "text": "スポーツスタングン\nみなみかわ\nお見送り芸人しんいち\n谷拓哉\nみちお\n東原ホイジン\nショウゴ\n山根良順\n日本武仙大将\n津田篤宏\n1回戦\n第1試合\nみなみかわ(42)\n182cm 79kg\nお見送り芸人しんいち(39)\n176cm 67kg",
+          "wall": 2.245,
+          "prompt_tokens": 1130,
+          "name_hits": {
+            "しんいち": true,
+            "みなみかわ": true
+          },
+          "name_recall": "2/2"
+        },
+        "560": {
+          "text": "スポーツスタングン\n1回戦\n第1試合\nみなみかわ\nお見送り芸人しんいち\nみなみかわ(42)\n182cm 79kg\nお見送り芸人しんいち(39)\n176cm 67kg\nスポーツスタングン\n1回戦\n第1試合\nみなみかわ(42)\n182cm 79kg\nお見送り芸人しんいち(39)\n176cm 67kg",
+          "wall": 3.057,
+          "prompt_tokens": 2182,
+          "name_hits": {
+            "しんいち": true,
+            "みなみかわ": true
+          },
+          "name_recall": "2/2"
+        }
+      }
+    },
+    {
+      "seg": "seg05_2389s",
+      "gold_names": [
+        "大崎"
+      ],
+      "n_frames": 4,
+      "mst_results": {
+        "70": {
+          "text": "スポーツスタングン\nみなみかわ(42)\n152cm 78kg\n5人2人制バトルおもしろい 次崎(34)\n170cm 85kg\nスポーツスタングン\nみなみかわ(42)\n152cm 78kg\n5人2人制バトルおもしろい 次崎(34)\n170cm 85kg\nKILLA KUT\nみなみかわ(42)\n152cm 78kg\n5人2人制バトルおもしろい 次崎(34)\n170cm 85kg",
+          "wall": 2.951,
+          "prompt_tokens": 338,
+          "name_hits": {
+            "大崎": false
+          },
+          "name_recall": "0/1"
+        },
+        "280": {
+          "text": "スポーツスタングン\nみなかわ(42)\n182cm 79kg\nちゃんぴんおむちん丸 大崎(34)\n170cm 65kg\nスポーツスタングン\nみなかわ(42)\n182cm 79kg\nちゃんぴんおむちん丸 大崎(34)\n170cm 65kg\nKILLAKUT\nみなかわ(42)\n182cm 79kg\nちゃんぴんおむちん丸 大崎(34)\n170cm 65kg",
+          "wall": 3.005,
+          "prompt_tokens": 1130,
+          "name_hits": {
+            "大崎": true
+          },
+          "name_recall": "1/1"
+        },
+        "560": {
+          "text": "スポーツスタングン\nみなみかわ(42)\n182cm 79kg\nちゃんぴおんす日本一おもしろい大崎(34)\n170cm 65kg\nスポーツスタングン\nみなみかわ(42)\n182cm 79kg\nちゃんぴおんす日本一おもしろい大崎(34)\n170cm 65kg\nスポーツスタングン\nみなみかわ(42)\n182cm 79kg\nちゃんぴおんす日本一おもしろい大崎(34)\n170cm 65kg\nKILLAKUT\nみなみかわ(42)\n182cm 79kg\nちゃんぴおんす日本一おもしろい大崎(34)\n170cm 65kg",
+          "wall": 4.671,
+          "prompt_tokens": 2182,
+          "name_hits": {
+            "大崎": true
+          },
+          "name_recall": "1/1"
+        }
+      }
+    },
+    {
+      "seg": "seg06_2319s",
+      "gold_names": [
+        "大崎"
+      ],
+      "n_frames": 4,
+      "mst_results": {
+        "70": {
+          "text": "スポーツスタングン\nみなみかわ(42)\n152cm 78kg\n5人JAZZMAN『日トーおしし』久大(34)\n170cm 85kg\nスポーツスタングン\nみなみかわ(42)\n152cm 78kg\n5人JAZZMAN『日トーおしし』久大(34)\n170cm 85kg\nスポーツスタングン\nみなみかわ(42)\n152cm 78kg\n5人JAZZMAN『日トーおしし』久大(34)\n170cm 85kg",
+          "wall": 3.189,
+          "prompt_tokens": 338,
+          "name_hits": {
+            "大崎": false
+          },
+          "name_recall": "0/1"
+        },
+        "280": {
+          "text": "スポーツスタングン\nみなみかわ(42)\n182cm 79kg\nちゃんぴんおんぎ日本一おもしろ大崎(34)\n170cm 65kg\nスポーツスタングン\nみなみかわ(42)\n182cm 79kg\nちゃんぴんおんぎ日本一おもしろ大崎(34)\n170cm 65kg\nスポーツスタングン\nみなみかわ(42)\n182cm 79kg\nちゃんぴんおんぎ日本一おもしろ大崎(34)\n170cm 65kg",
+          "wall": 3.2,
+          "prompt_tokens": 1130,
+          "name_hits": {
+            "大崎": true
+          },
+          "name_recall": "1/1"
+        },
+        "560": {
+          "text": "スポーツスタングン\nみなみかわ(42)\n182cm 79kg\nちゃんぴおんず日本一おもしろい大崎(34)\n170cm 65kg\nスポーツスタングン\nみなみかわ(42)\n182cm 79kg\nちゃんぴおんず日本一おもしろい大崎(34)\n170cm 65kg\nスポーツスタングン\nみなみかわ(42)\n182cm 79kg\nちゃんぴおんず日本一おもしろい大崎(34)\n170cm 65kg",
+          "wall": 3.686,
+          "prompt_tokens": 2182,
+          "name_hits": {
+            "大崎": true
+          },
+          "name_recall": "1/1"
+        }
+      }
+    },
+    {
+      "seg": "seg07_1866s",
+      "gold_names": [
+        "しんいち"
+      ],
+      "n_frames": 4,
+      "mst_results": {
+        "70": {
+          "text": "スポーツスタングン\n選手権人丸谷\n合拾哉\nショーゴ\n津田陽宏\n山根良順\nみちお\nスポーツスタングン\n選手権人丸谷\n合拾哉\nショーゴ\n津田陽宏\n山根良順\nみちお",
+          "wall": 1.34,
+          "prompt_tokens": 338,
+          "name_hits": {
+            "しんいち": false
+          },
+          "name_recall": "0/1"
+        },
+        "280": {
+          "text": "スポーツスタングン\nお送り人けんいち\n谷拓哉\nショーゴ\n津田篤宏\n山根良頭\nみちお\nスポーツスタングン\nお送り人けんいち\n谷拓哉\nショーゴ\n津田篤宏\n山根良頭\nみちお\nスポーツスタングン\nお送り人けんいち\n谷拓哉\nショーゴ\n津田篤宏\n山根良頭\nみちお",
+          "wall": 2.188,
+          "prompt_tokens": 1130,
+          "name_hits": {
+            "しんいち": false
+          },
+          "name_recall": "0/1"
+        },
+        "560": {
+          "text": "スポーツスタンガン\nお送り芸人けんじ\n谷拓哉\nショーゴ\n津田篤宏\n山根良顕\nみちお\nスポーツスタンガン\nお送り芸人けんじ\n谷拓哉\nショーゴ\n津田篤宏\n山根良顕\nみちお\nスポーツスタンガン\nお送り芸人けんじ\n谷拓哉\nショーゴ\n津田篤宏\n山根良顕\nみちお",
+          "wall": 2.624,
+          "prompt_tokens": 2182,
+          "name_hits": {
+            "しんいち": false
+          },
+          "name_recall": "0/1"
+        }
+      }
+    },
+    {
+      "seg": "seg08_497s",
+      "gold_names": [
+        "みなみかわ"
+      ],
+      "n_frames": 4,
+      "mst_results": {
+        "70": {
+          "text": "スポーツスタングン\nWINNER\nみなみかわ\nスポーツスタングン\nKentaro Fujii's\nKILLAH KUTS\nスポーツスタングン\nREPLAY\nREPLAY",
+          "wall": 0.902,
+          "prompt_tokens": 338,
+          "name_hits": {
+            "みなみかわ": true
+          },
+          "name_recall": "1/1"
+        },
+        "280": {
+          "text": "スポーツスタングン\nWINNER\nみなみかわ\nスポーツスタングン\nKentaro Fujii's\nKILLAH KUTS\nスポーツスタングン\nREPLAY\nスポーツスタングン\nREPLAY",
+          "wall": 1.173,
+          "prompt_tokens": 1130,
+          "name_hits": {
+            "みなみかわ": true
+          },
+          "name_recall": "1/1"
+        },
+        "560": {
+          "text": "スポーツスタンガン\nWINNER\nみなみかわ\nスポーツスタンガン\nKentaro Fujii's\nスポーツスタンガン\nREPLAY\nスポーツスタンガン\nREPLAY",
+          "wall": 1.383,
+          "prompt_tokens": 2182,
+          "name_hits": {
+            "みなみかわ": true
+          },
+          "name_recall": "1/1"
+        }
+      }
+    }
+  ]
+}
