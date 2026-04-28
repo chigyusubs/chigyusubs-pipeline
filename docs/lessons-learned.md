@@ -221,6 +221,42 @@ This is the practical compromise validated by the session:
 - the maintained answer is Gemini base + Whisper second opinion + explicit
   disagreement diagnostics
 
+Killah Kuts S01E01-S01E04 added a related ASR-harness lesson:
+
+- before tuning show-specific prompts, establish a no-show-prime baseline and
+  compare it to `faster-whisper large-v3` on the same media windows
+- on the 2026-04-28 E4B/Gemma harness run, unprimed visual E4B improved over
+  unprimed audio-only E4B, but Whisper still won mean LCS on all four n24
+  hard-window episode specs
+- macro means across those four specs were: best no-prime E4B family
+  `S_vision_base_1fps560` at 66.2% katakana / 31.9% names / 0.438 LCS, versus
+  Whisper large-v3 at 78.0% katakana / 40.0% names / 0.516 LCS
+- this makes Whisper the no-prime speech-truth floor for Gemma/E4B ASR
+  experiments; prime/oracle wins only count if they are reported against that
+  baseline, not just against unprimed E4B audio
+- details live in `docs/vllm-gemma4-harness-findings.md`
+
+Local Gemma 26B OCR is useful evidence for repair, but only after filtering.
+
+- on `Killah Kuts S01E02-S01E04`, local `gemma-4-26B-A4B-it-IQ4_XS`
+  frame-batch OCR recovered many high-value visible facts: suspect names,
+  rule cards, route/map overlays, contestant names, ages, experience counts,
+  and round labels
+- the same raw artifacts also contain repeated headers, credits, small map
+  labels, subtitle-like dialogue captions, and occasional noisy reads
+- therefore the right transcript-repair shape is a constrained LLM correction
+  pass, not a free rewrite: preserve line/timing structure, use time-local
+  filtered OCR as evidence, and only correct visible names/terms and obvious
+  homophones
+- do not inject the full raw OCR sweep into ASR correction or translation;
+  first build a small chunk-local candidate list
+- operationally, the 26B llama.cpp multimodal server needed `-np 1`; default
+  auto parallelism crashed on E02 with `failed to find a memory slot for batch
+  of size 264`
+- `scripts/experiments/vllm_gemma4_harness/ocr_sweep.py` now writes after
+  each batch and can resume completed batches, which is required for long
+  local OCR jobs
+
 ### 5. Reflow must not use text-only word-timestamp lookup for repeated lines
 
 Another real failure on `great_escape_s01e06` came from line-level reflow, not alignment:
@@ -1640,6 +1676,193 @@ Operational takeaway:
 - keep fallback subsplits ready, but treat them as fallback, not default
 - preserving the original chunk boundaries in the repair transcript makes the final raw lineage easier to inspect against the failed production run
 - this is especially useful when Flash timed out for runtime reasons rather than producing obviously broken text
+
+### `MiniCPM-o-4.5` raw HF/Transformers inference is not currently viable on the 16 GB ROCm box
+
+Validated on `2026-04-11` against `killah_kuts_s01e01`.
+
+What happened:
+
+- a new local experiment runner (`scripts/experiments/transcribe_minicpm_o_audio.py`) was added to test `openbmb/MiniCPM-o-4_5` on the same `20s target / 30s max` VAD-guided chunks used by the local ASR comparison
+- the model did not load cleanly in the shared Python stack:
+  - current shared `transformers 5.5.3` was incompatible with the model's remote code
+  - the remote code also required extra runtime packages (`minicpmo`, `onnx`, `diffusers`, and their speech-stack dependencies)
+- an isolated `/tmp` virtualenv with `transformers==4.51.0` got past the loader/API mismatch and reached actual checkpoint load
+- even with `init_vision=False` and `init_tts=False`, the model still OOMed on the RX `9070 XT` (`16 GB`) when moving the loaded model to `cuda:0`
+
+Operational takeaway:
+
+- treat `MiniCPM-o-4.5` as a platform integration, not a drop-in HF checkpoint
+- the unquantized HF path is not worth pushing further on the current `16 GB` ROCm machine
+- if MiniCPM remains interesting, the next realistic path is its `GGUF` or other quantized deployment route, not raw BF16 transformers loading
+- keep this separate from the shared subtitle environment; use an isolated env when probing MiniCPM again because its dependency stack conflicts with other local transcription tooling
+
+### AWQ on ROCm does work in the current vLLM Triton docker, at least for `MiniCPM-o-4_5-awq`
+
+Validated on `2026-04-11` on the RX `9070 XT` (`16 GB`).
+
+What happened:
+
+- the existing `vllm-rocm-gemma4:nightly` image (`vllm 0.19.1rc1.dev203+g0f3ce4c74`, `transformers 5.5.3`) successfully loaded `openbmb/MiniCPM-o-4_5-awq`
+- startup required:
+  - `VLLM_USE_TRITON_AWQ=1`
+  - `--quantization awq`
+  - `--dtype float16`
+  - `--attention-backend TRITON_ATTN`
+- `--dtype auto` failed because vLLM tried `bfloat16` first and rejected it for `awq`
+- after startup, the model sat at roughly `10.9 GiB` VRAM and the OpenAI endpoint served normally on `/v1/models`
+
+What this means:
+
+- do not assume old ROCm AWQ limitations still apply to the current Triton-backed vLLM image on this machine
+- the question is now model quality and model-family compatibility, not whether AWQ can boot at all on this ROCm stack
+- `MiniCPM-o-4_5-awq` itself still looked poor on the first `Killah Kuts S01E01` smoke benchmark, so this validates the runtime path, not the model choice
+- if future HF AWQ checkpoints look interesting, this docker path is now worth trying before dismissing them outright
+
+### Intel `AutoRound` int4 checkpoints are a different quantization path from AWQ and are rejected on ROCm by the current vLLM image
+
+Validated on `2026-04-11` against `Intel/Qwen2.5-Omni-7B-int4-AutoRound`.
+
+What happened:
+
+- the existing `vllm-rocm-gemma4:nightly` image did recognize the model architecture as `Qwen2_5OmniModel`
+- startup got far enough to resolve the remote code and model family, so this was not a generic `Qwen2.5-Omni` support failure
+- vLLM then aborted before model load with:
+  `inc quantization is currently not supported in rocm`
+
+Operational takeaway:
+
+- do not treat Intel `AutoRound` int4 checkpoints as interchangeable with AWQ/GPTQ checkpoints when evaluating ROCm compatibility
+- for the current Triton-backed ROCm vLLM path, AWQ is worth probing; `inc`/`AutoRound` is not
+- if a model card recommends a custom `vllm-omni` fork for `AutoRound`, assume the stock/local vLLM image will likely reject it until proven otherwise
+
+### `FunAGI/Qwen2.5-Omni-7B-GPTQ-4bit` gets past GPTQ startup on ROCm but fails in processor/tokenizer initialization
+
+Validated on `2026-04-11`.
+
+What happened:
+
+- the existing `vllm-rocm-gemma4:nightly` image accepted:
+  - `--quantization gptq`
+  - `--dtype float16`
+  - `Qwen2_5OmniModel` architecture resolution
+- this means the failure was not a blanket "GPTQ unsupported on ROCm" rejection in the same way Intel `AutoRound` was rejected
+- startup then failed during multimodal processor construction with:
+  `AttributeError: Qwen2Tokenizer has no attribute image_token`
+
+Operational takeaway:
+
+- for this checkpoint, the current blocker looks like checkpoint packaging / tokenizer-processor compatibility, not the base ROCm GPTQ path itself
+- plain `gptq` also emitted a warning that `gptq_gemm` is buggy and `gptq_marlin` is preferred, but startup failed before that mattered
+- if revisiting this model family, prefer a `Qwen2.5-Omni` GPTQ checkpoint known to load with vLLM's expected processor/tokenizer classes, or try an AWQ variant first
+
+### CrispASR GGUF ASR is promising for comparisons, but Gemma4-E2B is not usable in the current runtime
+
+Validated on `2026-04-28` against `Killah Kuts S01E01` chunk `chunk_0000_6s.wav`.
+
+What worked:
+
+- the HIP build ran cached `whisper-base` and `qwen3-asr-0.6b-q4_k` GGUFs successfully
+- the Vulkan build completed and `qwen3-asr-0.6b-q4_k` also ran successfully on the `7900 XTX` via RADV
+- this makes CrispASR a realistic GGUF harness for apples-to-apples ASR backend probes, especially if larger Whisper/Qwen models are added
+
+What did not work:
+
+- `gemma4-e2b-it-q4_k.gguf` loaded and ran the audio encoder, but the LLM decoder aborted with `GGML_ASSERT(ggml_can_mul_mat(a, b)) failed` inside `g4e_run_llm_kv`
+- the same assertion reproduced on HIP, Vulkan, and CPU, so this is not a ROCm-only or Vulkan-only issue
+- the cached GGUF contains LLM attention tensors named `attn.q.weight`, `attn.k.weight`, and `attn.v.weight`, while the runtime requests `attn.q_proj.weight`, `attn.k_proj.weight`, and `attn.v_proj.weight`
+- the Gemma4-E2B LLM tensor shapes are not homogeneous across layers; some layers have doubled Q/K/V projection widths, while the runtime assumes one global `8Q/1KV * 256` layout
+- `ple_gate.weight` also appears inverted relative to the runtime's first PLE matmul
+
+Operational takeaway:
+
+- do not spend pipeline integration time on CrispASR Gemma4-E2B until the Gemma runtime/converter path is fixed upstream or locally
+- use CrispASR first for stable GGUF comparison targets: Whisper large-v3, Qwen3-ASR variants, and other backends that already complete a smoke chunk
+- if Gemma remains interesting, treat it as a runtime implementation project, not a model-download or GPU-backend choice
+
+### NVIDIA Parakeet Japanese NeMo runs on ROCm, but is not competitive on `Killah Kuts S01E01`
+
+Validated on `2026-04-28` against `Killah Kuts S01E01`.
+
+What worked:
+
+- `.venv-nemo` can run `nvidia/parakeet-tdt_ctc-0.6b-ja` on ROCm when launched outside the Codex sandbox with `LD_LIBRARY_PATH=/opt/rocm/lib`
+- the model restored from the Hugging Face cache at `/mnt/models/huggingface/models--nvidia--parakeet-tdt_ctc-0.6b-ja`
+- both TDT and CTC produced a strong smoke result on `chunk_0000_6s.wav`:
+  `あの防犯グッズスタンガンがまさかの競技化今宵新世代武器術が誕生いたしますスポーツスタンガン!`
+- this correctly captured `防犯グッズ`, which the small CrispASR Whisper/Qwen GGUF smoke models misheard
+- a reusable runner now exists at `scripts/experiments/transcribe_parakeet_nemo.py`
+
+Full-episode result:
+
+- final artifacts:
+  - `samples/episodes/killah_kuts_s01e01/transcription/killah_kuts_s01e01_parakeet_tdt_separate_raw.json`
+  - `samples/episodes/killah_kuts_s01e01/transcription/killah_kuts_s01e01_parakeet_ctc_b1_raw.json`
+  - `samples/episodes/killah_kuts_s01e01/transcription/killah_kuts_s01e01_parakeet_comparison.json`
+- on the 24-clip oracle comparison, the best Parakeet run was still below the existing local ASR baselines:
+  - `parakeet_ctc_b1`: `14/34` keyword hits, `7/16` name hits, but with visible garbage spans and `⁇` tokens
+  - `parakeet_tdt_b1`: `7/34` keyword hits, `10/16` name hits, but `63/131` chunks were blank
+  - `parakeet_tdt_separate`: no unknown-token loops, but `72/131` chunks were blank and keyword recall fell to `3/34`
+  - `whisper_large_v3`: `22/34` keyword hits
+  - `e4b_v2`: `23/34` keyword hits
+- the coarse 10-chunk Gemini video transcript hit all oracle keywords/names, but that overlap score is inflated by very large chunk windows and is not directly comparable to the 131 local-ASR chunks
+
+Operational notes:
+
+- use `.venv-nemo/bin/python`, not system `python3.12`, because system Python has ROCm PyTorch but not NeMo
+- set `MPLCONFIGDIR=/tmp/matplotlib-parakeet` to avoid Matplotlib cache warnings from the sandboxed home config path
+- both decoders have a first-call warmup failure on this ROCm/NeMo stack; discard one transcription after decoder setup before trusting the output
+- TDT emits a CUDA graph compilation warning and falls back to native PyTorch CUDA graphs
+- TDT list-mode/batch behavior is unstable:
+  - `--batch-size 8` produced two catastrophic `⁇` loops
+  - `--batch-size 1` avoided loops but blanked many chunks
+  - `--separate-calls` recovered some individually probed chunks but blanked even more of the full episode
+
+Operational takeaway:
+
+- do not use Parakeet as the primary local ASR path for noisy Japanese variety-show episodes yet
+- keep the runner as a useful probe for clean speech and future NeMo/decoder updates, but prefer Whisper large-v3 / E4B / Gemini for current production transcription
+
+### Killah Kuts S01E02 holdout weakens the S01E01-only E4B config recommendation
+
+Validated on `2026-04-28` with `google/gemma-4-E4B-it` bf16 via vLLM against
+`scripts/experiments/vllm_gemma4_harness/eval_specs/killah_kuts_s01e02_n24.json`.
+
+Result:
+
+- `K_video_sysrole_oracle_names` remains the best quality/latency compromise, but it is no longer the strict winner
+- `N_vision_sysrole_oracle_names_1fps560` won the held-out episode on kata recall and mean LCS:
+  `16/18` kata, `15/18` names, `0.585` mean LCS
+- `I_vision_sysrole_oracle_names_1fps280` tied K/N on name recall and nearly matched N on LCS:
+  `14/18` kata, `15/18` names, `0.582` mean LCS
+- static fight-oriented primes underfit the episode-2 medical mystery format; `P_audio_sysrole_minimal` missed several episode-specific names that oracle configs recovered
+
+Operational takeaway:
+
+- do not collapse the E4B path to K-only yet
+- keep I/N in the candidate set for visually/text-heavy or non-fight episode formats
+- invest next in per-episode prime/OCR text selection, because same-show episodes can have very different vocabulary surfaces
+
+### Unprimed E4B frames beat unprimed audio/video on `Killah Kuts S01E02`
+
+Validated on `2026-04-28` with `google/gemma-4-E4B-it` bf16 via vLLM against
+the same S01E02 n24 spec. This run used no system message, no show
+domain text, no vocabulary list, no cast list, and no oracle names.
+
+Result:
+
+- `A_audio_base`: `9/18` kata, `4/18` names, `0.484` mean LCS
+- `Q_vision_base_1fps280`: `12/18` kata, `6/18` names, `0.583` mean LCS
+- `R_video_base`: `9/18` kata, `4/18` names, `0.498` mean LCS
+- `S_vision_base_1fps560`: `13/18` kata, `6/18` names, `0.574` mean LCS
+
+Operational takeaway:
+
+- establish no-prime modality baselines before attributing gains to prompt text
+- for S01E02, still frames carry useful clue/name signal even without any show-specific priming
+- `video_url` alone is not the same as visual grounding; its S01E01 win depends on the oracle prompt interaction
+- `mst560` is not clearly worth the latency unprimed; `1fps280` is the better default image baseline
+- oracle/name priming still has real headroom over the no-prime floor
 
 ## Next High-Value Work
 

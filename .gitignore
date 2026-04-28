@@ -32,9 +32,19 @@ ctranslate2_issue_materials/
 .vscode/
 .claude/
 .codex/
+.codex
 
 # Experiment archive
 _archive/
+
+# Local model weights and generated experiment artifacts
+models/
+scripts/experiments/vllm_gemma4_harness/local_artifacts/
+scripts/experiments/vllm_gemma4_harness/eval_specs/*_cache/
+scripts/experiments/vllm_gemma4_harness/results/*_ocr_frames*/
+scripts/experiments/vllm_gemma4_harness/results/oracle_compare/
+scripts/experiments/vllm_gemma4_harness/results/*.json
+scripts/experiments/vllm_gemma4_harness/results/*.raw.txt
 
 # NeMo outputs
 nemo_output*/

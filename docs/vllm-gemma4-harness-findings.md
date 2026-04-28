@@ -4,10 +4,11 @@ Running log of the experiment in `scripts/experiments/vllm_gemma4_harness/`.
 Started 2026-04-11. Keep this doc in sync whenever a bench run changes
 the headline numbers or reveals a new failure mode.
 
-Status: **early / exploratory**. The harness beats a pure audio-only
-baseline on E2B by a meaningful margin on katakana recall, but name
-recall is still weak and priming has surprising failure modes. Nothing
-is ready to ship into the pipeline yet.
+Status: **early / exploratory**. The harness can exploit visual context
+and oracle-style name hints, but the 2026-04-28 no-show-prime baseline
+shows that faster-whisper large-v3 still beats unprimed E4B on the same
+hard clip windows across Killah Kuts S01E01-S01E04. Nothing is ready to
+ship into the pipeline yet.
 
 ## Goal
 
@@ -89,6 +90,12 @@ Defined in `scripts/experiments/vllm_gemma4_harness/configs.py`:
   beats D, the OCR pre-pass plan is viable; if not, the audio
   tower itself is the ceiling.
 - **I_vision_sysrole_oracle_names_1fps280** — H plus vision frames.
+- **Q_vision_base_1fps280** — no system prime and no glossary/cast
+  text; same base prompt as A, plus 1 fps frames at `mst=280`.
+- **R_video_base** — no system prime and no glossary/cast text; same
+  base prompt as A, plus `video_url` input.
+- **S_vision_base_1fps560** — no system prime and no glossary/cast
+  text; same base prompt as A, plus 1 fps frames at `mst=560`.
 
 ## Baseline results
 
@@ -196,15 +203,206 @@ failure seen across many configs). Not things K can fix.
    is not vision grounding; it's oracle hints + dense-ish style. The
    combination wins; each component alone loses.
 
-**Production rec for E4B bf16: K_video_sysrole_oracle_names.** Faster
-than I, cleaner kata than H, best LCS. The remaining gap to I_FP8's
-91% is the audio-tower ceiling plus seg03-style kanji preference.
+**Episode-1 production rec for E4B bf16:
+K_video_sysrole_oracle_names.** Faster than I, cleaner kata than H,
+best LCS. The remaining gap to I_FP8's 91% is the audio-tower ceiling
+plus seg03-style kanji preference. The episode-2 holdout below weakens
+this from a global recommendation to an episode-1 result: K is still
+efficient, but image-path oracle configs recover more katakana on the
+medical-mystery episode.
 
 On the I-FP8→I-bf16 regression puzzle: I-bf16 on n=24 is 81% name /
 0.443 LCS. The n=8 dip to 73% was a single-segment noise spike
 (seg04). The broader pattern is that I-FP8's 91% on n=8 is the
 outlier, likely an FP8-quantization-specific tie-break that happened
 to nail seg03/seg04. Not a reliable advantage.
+
+### Second-episode n=24 holdout — 2026-04-28
+
+Built a held-out spec from Killah Kuts S01E02
+(`eval_specs/killah_kuts_s01e02_n24.json`) using the same CTC-gold
+hard-segment picker, with episode-2 names from
+`samples/episodes/killah_kuts_s01e02/glossary/episode_context.json`.
+Results file:
+`results/killah_kuts_s01e02_n24__e4b_bf16_20260428.json`.
+
+| Config | Kata | Name | LCS | Wall |
+|---|---|---|---|---|
+| D_audio_sysrole_primed | 10/18 (56%) | 6/18 (33%) | 0.498 | ~0.4 s |
+| H_audio_sysrole_oracle | 13/18 (72%) | 14/18 (78%) | 0.512 | ~0.4 s |
+| I_vision_sysrole_oracle_mst280 | 14/18 (78%) | **15/18 (83%)** | 0.582 | ~1.3 s |
+| J_video_sysrole_primed | 10/18 (56%) | 4/18 (22%) | 0.522 | ~1.5 s |
+| K_video_sysrole_oracle | 13/18 (72%) | **15/18 (83%)** | 0.569 | ~0.8 s |
+| **N_vision_sysrole_oracle_mst560** | **16/18 (89%)** | **15/18 (83%)** | **0.585** | ~2.4 s |
+| P_audio_sysrole_minimal | 11/18 (61%) | 5/18 (28%) | 0.489 | ~0.4 s |
+
+The episode-2 holdout changes the conclusion:
+
+1. **Oracle hints generalize.** D/P without per-clip names are weak
+   on episode-2 proper nouns; H/I/K/N all jump to 78-83% name recall.
+2. **K is no longer the strict winner.** K remains the best
+   quality/latency compromise, but N wins kata and LCS, and I nearly
+   matches N at lower latency. The S01E01 "video_url suppresses the
+   oracle spacing artifact" finding is not enough to make K globally
+   best.
+3. **The static Killah Kuts fight prime is mismatched for episode 2.**
+   S01E02 is a medical mystery format with clues, suspects, and written
+   dying messages. `P_audio_sysrole_minimal` is cheap but under-primes
+   this episode: it misses `ともしげ`, `ニシダ`, `モグライダー`, and
+   several suspect names that oracle configs recover.
+4. **Image frames help clue terms.** The strongest N gains are on
+   visual/text-heavy clue phrases like `アフロ` / `メガネ`, where
+   video_url/audio paths often collapse to kanji or homophones.
+
+Working recommendation after the holdout: keep K as the efficient
+oracle-enabled candidate, but do not retire I/N. For non-fight formats
+inside the same show, per-episode prime/OCR text is more important
+than the video_url-vs-frame packing choice.
+
+### S01E02 unprimed modality baseline — 2026-04-28
+
+To separate raw model/media capability from show-specific prompting,
+ran the same S01E02 n24 spec with no system message, no domain text,
+no vocabulary list, no cast list, and no oracle names. The only user
+instruction was the base transcription prompt. Results file:
+`results/killah_kuts_s01e02_n24__e4b_bf16_unprimed_20260428.json`.
+
+| Config | Media | Kata | Name | LCS | Wall |
+|---|---|---|---|---|---|
+| A_audio_base | audio | 9/18 (50%) | 4/18 (22%) | 0.484 | ~0.4 s |
+| Q_vision_base_1fps280 | frames, mst280 | 12/18 (67%) | 6/18 (33%) | **0.583** | ~1.2 s |
+| R_video_base | video_url | 9/18 (50%) | 4/18 (22%) | 0.498 | ~1.4 s |
+| S_vision_base_1fps560 | frames, mst560 | **13/18 (72%)** | 6/18 (33%) | 0.574 | ~2.2 s |
+
+Takeaways:
+
+1. **Frames help even without priming.** Image-path configs lifted
+   kata recall, name recall, and LCS over audio-only. On this episode,
+   visible clue text is useful before any glossary/oracle injection.
+2. **video_url is not a free visual baseline.** R barely moved LCS and
+   did not improve kata/name recall over A. The S01E01 K win came from
+   video_url + oracle packing, not from video_url alone.
+3. **mst560 costs more than it earns unprimed.** S improved kata by one
+   target over Q, but Q had the higher LCS at roughly half the latency.
+4. **Unprimed name recall is the real floor.** 4-6/18 name hits means
+   the model can hear some easy/common names, but the oracle jump to
+   14-15/18 is still doing real work.
+
+### Killah Kuts S01E01-S01E04 no-prime baseline vs Whisper — 2026-04-28
+
+Ran the no-show-specific baseline on four Killah Kuts episodes using
+the same n24 hard-window methodology, then compared against
+faster-whisper `large-v3` on the exact same cached 8 s WAV windows.
+E4B configs had no system message, no domain text, no vocabulary list,
+no cast list, and no oracle names. Results files:
+
+- `results/killah_kuts_s01e01_n24__e4b_bf16_unprimed_20260428.json`
+- `results/killah_kuts_s01e02_n24__e4b_bf16_unprimed_20260428.json`
+- `results/killah_kuts_s01e03_n24__e4b_bf16_unprimed_20260428.json`
+- `results/killah_kuts_s01e04_n24__e4b_bf16_unprimed_20260428.json`
+- `results/killah_kuts_s01e01_n24__whisper_large_v3_20260428.json`
+- `results/killah_kuts_s01e02_n24__whisper_large_v3_20260428.json`
+- `results/killah_kuts_s01e03_n24__whisper_large_v3_20260428.json`
+- `results/killah_kuts_s01e04_n24__whisper_large_v3_20260428.json`
+
+Best unprimed E4B by LCS per episode versus Whisper:
+
+| Episode | Best unprimed E4B | E4B Kata | E4B Name | E4B LCS | Whisper Kata | Whisper Name | Whisper LCS |
+|---|---|---:|---:|---:|---:|---:|---:|
+| S01E01 | Q_vision_base_1fps280 | 21/34 (61.8%) | 2/16 (12.5%) | 0.417 | 24/34 (70.6%) | 1/16 (6.2%) | **0.497** |
+| S01E02 | Q_vision_base_1fps280 | 12/18 (66.7%) | 6/18 (33.3%) | 0.583 | 16/18 (88.9%) | 11/18 (61.1%) | **0.591** |
+| S01E03 | R_video_base | 17/25 (68.0%) | 7/16 (43.8%) | 0.395 | 19/25 (76.0%) | 9/16 (56.2%) | **0.507** |
+| S01E04 | Q_vision_base_1fps280 | 11/17 (64.7%) | 5/22 (22.7%) | 0.408 | 13/17 (76.5%) | 8/22 (36.4%) | **0.469** |
+
+Macro means across the four episode specs:
+
+| Config | Kata | Name | Mean LCS |
+|---|---:|---:|---:|
+| A_audio_base | 58.6% | 24.6% | 0.390 |
+| Q_vision_base_1fps280 | 63.3% | 26.5% | 0.430 |
+| R_video_base | 57.4% | 26.4% | 0.419 |
+| S_vision_base_1fps560 | 66.2% | 31.9% | 0.438 |
+| whisper_large_v3 | **78.0%** | **40.0%** | **0.516** |
+
+Character-count check, with whitespace stripped. The target count is
+only the selected 1-4 s gold segment inside each 8 s eval window, so
+output/target above 1.0x is expected. The useful signal is relative
+verbosity:
+
+| Config | Target chars | Output chars | Output/target |
+|---|---:|---:|---:|
+| A_audio_base | 1965 | 4074 | 2.07x |
+| Q_vision_base_1fps280 | 1965 | 4530 | 2.31x |
+| R_video_base | 1965 | 4146 | 2.11x |
+| S_vision_base_1fps560 | 1965 | 4700 | 2.39x |
+| whisper_large_v3 | 1965 | 3600 | 1.83x |
+
+Takeaways:
+
+1. **Whisper is the no-prime floor to beat.** It wins LCS on every
+   episode and has the best macro katakana/name recall despite some
+   visible proper-noun normalization misses.
+2. **Whisper is also less verbose.** Because the windows contain
+   surrounding dialogue, some over-target output is normal, but E4B
+   produces more extra text than Whisper in every no-prime config.
+3. **Raw E4B visual grounding helps, but not enough.** Frame inputs
+   usually beat audio-only E4B, and `mst560` has the best E4B macro
+   recall, but the gap to Whisper remains large.
+4. **`video_url` is not consistently better without hints.** It is
+   best E4B by LCS only on S01E03; on S01E02/S01E04 image frames win,
+   and on S01E01 `video_url` trails Q/S.
+5. **Do not spend time tuning show-specific primes until this baseline
+   is tracked.** Prime/oracle experiments remain useful, but every new
+   prompt path should report against this no-show-prime + Whisper
+   comparison so we can separate real ASR improvement from prompt
+   memorization or episode leakage.
+
+### Local Gemma 26B OCR sweeps for S01E02-S01E04 — 2026-04-28
+
+Ran local frame OCR with `bartowski/google_gemma-4-26B-A4B-it-GGUF:IQ4_XS`
+via `llama-server` / llama.cpp, using the existing `ocr_sweep.py`
+frame-batch path: `fps=0.5`, `height=720`, `batch_size=15`,
+`backend=llama-cpp`, model alias `gemma-4-26B-A4B-it-IQ4_XS`. Existing
+S01E01 comparison artifact:
+`results/killah_kuts_s01e01_ocr_sweep_26bmoe_hip_fps05_20260426.json`.
+New artifacts:
+
+- `results/killah_kuts_s01e02_ocr_sweep_26bmoe_hip_fps05_20260428.json`
+- `results/killah_kuts_s01e03_ocr_sweep_26bmoe_hip_fps05_20260428.json`
+- `results/killah_kuts_s01e04_ocr_sweep_26bmoe_hip_fps05_20260428.json`
+
+| Episode | Batches | Raw lines | Unique lines | Wall |
+|---|---:|---:|---:|---:|
+| S01E01 | 87 | 737 | 311 | 533.5 s |
+| S01E02 | 97 | 886 | 625 | 568.8 s |
+| S01E03 | 67 | 1355 | 715 | 446.9 s |
+| S01E04 | 123 | 2399 | 486 | 769.8 s |
+
+Operational findings:
+
+1. **Local 26B OCR is strong enough to support transcript repair.**
+   It recovered the large structured surfaces that matter for context:
+   S01E02 suspect/name cards and clue boards, S01E03 rule/map/route
+   overlays, and S01E04 contestant names, ages, experience counts, and
+   round cards.
+2. **The raw sweep is noisy and should not be injected wholesale.**
+   It also captures subtitle-like captions, repeated persistent headers,
+   map labels, credits, and occasional OCR hallucinations. The next
+   repair pass needs a filtering/indexing layer before correction.
+3. **`llama-server -np 1` was required for stability.** With the
+   default auto parallelism, the 26B multimodal server crashed on E02
+   batch 2 with `failed to find a memory slot for batch of size 264`.
+   Restarting with one slot completed E02-E04.
+4. **`ocr_sweep.py` now saves incrementally and resumes completed
+   batches.** This is necessary for long local OCR jobs; a server crash
+   should not lose hundreds of processed frames.
+
+Design implication for transcript repair: an LLM correction pass makes
+sense if it is constrained to line-preserving edits and is fed only
+time-local, filtered OCR candidates. It should fix proper nouns,
+visible rule terms, contestant metadata, and obvious homophones, not
+rewrite timing, add missing dialogue freely, or turn OCR captions into
+spoken transcript.
 
 Priming nails katakana recall to 100% on this set. The A→B→C chain
 adds ~9 pp on names and lifts LCS modestly. **Moving the prime into a
@@ -465,11 +663,12 @@ Not in priority order — each is roughly 0.5–2 hours of focused work.
    the same system prime, report p50/p95 wall time, compare against
    30 cold runs with randomized primes. Quantify the throughput
    upside of a stable prime.
-7. **Cohere/Whisper comparison.** Current Cohere pre-pass produces
-   10,966 chars in 67 s on the full episode. Run the full harness
-   (eventually — not 8 segments) against the same 43.5-min episode
-   and compare char counts, kata recall on the full CTC gold, and
-   name recall. This is the actual "should we ship this" number.
+7. **Cohere/Whisper comparison.** Partially answered 2026-04-28 for
+   hard 8 s eval windows: faster-whisper `large-v3` beats unprimed E4B
+   on S01E01-S01E04 by LCS and macro katakana/name recall. Still open
+   for the full-episode shipping question: compare char counts,
+   coverage, kata recall on full CTC gold, and name recall against the
+   same 43.5-min episode.
 8. ~~**E4B unlock.**~~ **Answered 2026-04-12.** Local FP8 dynamic
    quantization via llm-compressor (`quantize_e4b_fp8.py`) + clean
    tokenizer from google's upload (leon-se's had a poisoned
