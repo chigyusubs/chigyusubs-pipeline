@@ -65,12 +65,17 @@ def resolve_system(cfg: dict, seg: dict) -> str | None:
 
     Configs may provide either a static ``system`` string or a
     ``system_template`` with ``{oracle_names}`` style placeholders. The
-    template path is how the "oracle OCR pre-pass" configs (H, I) get
-    per-segment cast-name injections from CTC gold.
+    template is filled from ``seg["oracle_names"]`` when present (the
+    OCR-derived per-clip oracle from build_per_clip_oracle.py — the
+    real production path), and falls back to ``seg["names"]`` (CTC gold)
+    so legacy specs still measure the cheating upper bound.
     """
     template = cfg.get("system_template")
     if template:
-        oracle_names = ", ".join(seg.get("names") or []) or "(none)"
+        source = seg.get("oracle_names")
+        if source is None:
+            source = seg.get("names") or []
+        oracle_names = ", ".join(source) or "(none)"
         return template.format(oracle_names=oracle_names)
     return cfg.get("system") or None
 

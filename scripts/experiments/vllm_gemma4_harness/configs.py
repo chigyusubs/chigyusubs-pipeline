@@ -59,8 +59,26 @@ _DEFAULT_VOCAB = [
 ]
 
 _DEFAULT_CAST = [
-    "みなみかわ", "お見送り芸人しんいち", "大崎", "設楽統",
-    "道尾", "道雄", "バナナマン", "アンガールズ",
+    # Bare-canonical fighter names — verified via 2026-04-27 full-episode
+    # E4B run: names in this list landed at 60-100% CTC recall, names
+    # missing dropped to 0-20%. The prime is the bottleneck for kana
+    # fighter names the audio tower has no other handle on. Use bare
+    # forms (しんいち, 大崎) not team-prefixed canonicals — feeding the
+    # team-prefixed form actively hurt recall in the K-oracle eval
+    # (model truncated mid-name or reverted to kanji transliteration).
+    "みなみかわ", "しんいち", "谷拓哉", "みちお", "ショーゴ",
+    "山根良顕", "大崎", "津田篤宏",
+    "設楽統", "清野茂樹",
+    "バナナマン", "アンガールズ", "ダイアン", "トム・ブラウン",
+    "パンプキンポテトフライ", "東京ホテイソン", "ちゃんぴおんず",
+]
+
+# Minimal cast — only the names that gained from being primed in the
+# 2026-04-27 v2 run (0% unprimed → non-zero primed). Excludes names
+# already at 70%+ unprimed; per `feedback_e4b_prime_budget.md`, adding
+# them to the prime cost recall on 大崎 / みなみかわ.
+_DEFAULT_CAST_MINIMAL = [
+    "ショーゴ", "みちお", "ダイアン", "しんいち",
 ]
 
 PRIMED_PROMPT = (
@@ -97,6 +115,20 @@ PRIMED_SYSTEM = (
     f"unless actually spoken): {', '.join(_DEFAULT_VOCAB)}.\n"
     f"Reference cast names (may appear in dialogue, do NOT output "
     f"unless actually spoken): {', '.join(_DEFAULT_CAST)}."
+)
+
+# 2026-04-28 prime-trim variant — the production default. The static
+# 17-name PRIMED_SYSTEM regressed 大崎 (84% → 59%); the 4-name minimal
+# variant ~doubled kana-fighter recall AND partially recovered 大崎. A
+# kana-fallback instruction ("if unsure of kanji, write in kana") was
+# also tested in this round and had no measurable effect — the model
+# defaults strongly to kanji regardless. See feedback_e4b_prime_budget.md.
+MINIMAL_PRIMED_SYSTEM = (
+    f"{_DEFAULT_DOMAIN}\n\n"
+    f"Reference vocabulary (may appear in dialogue, do NOT output "
+    f"unless actually spoken): {', '.join(_DEFAULT_VOCAB)}.\n"
+    f"Reference cast names (may appear in dialogue, do NOT output "
+    f"unless actually spoken): {', '.join(_DEFAULT_CAST_MINIMAL)}."
 )
 
 # Oracle-names variant: simulates a perfect OCR pre-pass by telling the
@@ -241,6 +273,36 @@ CONFIGS: list[HarnessConfig] = [
         "frame_stride": 1,
         "mst": 1120,
         "system_template": ORACLE_SYSTEM_TEMPLATE,
+        "prompt": BASE_PROMPT,
+    },
+    # --- 2026-04-28 prime-trim experiment — production default ---------
+    {
+        "name": "P_audio_sysrole_minimal",
+        "frames": False,
+        "mst": None,
+        "system": MINIMAL_PRIMED_SYSTEM,
+        "prompt": BASE_PROMPT,
+    },
+    # --- no-prime modality baselines ----------------------------------
+    {
+        "name": "Q_vision_base_1fps280",
+        "frames": True,
+        "frame_stride": 1,
+        "mst": 280,
+        "prompt": BASE_PROMPT,
+    },
+    {
+        "name": "R_video_base",
+        "video": True,
+        "frames": False,
+        "mst": None,
+        "prompt": BASE_PROMPT,
+    },
+    {
+        "name": "S_vision_base_1fps560",
+        "frames": True,
+        "frame_stride": 1,
+        "mst": 560,
         "prompt": BASE_PROMPT,
     },
 ]

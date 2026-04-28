@@ -131,6 +131,8 @@ def main() -> None:
     p.add_argument("--episode", required=True,
                    help="episode slug under samples/episodes/")
     p.add_argument("--video", required=True, help="source video path")
+    p.add_argument("--ctc-file", default="",
+                   help="CTC words JSON to use instead of auto-discovery")
     p.add_argument("--out", required=True,
                    help="output eval spec JSON path")
     p.add_argument("--count", type=int, default=10)
@@ -146,7 +148,7 @@ def main() -> None:
     args = p.parse_args()
 
     episode_dir = REPO_ROOT / "samples" / "episodes" / args.episode
-    ctc_file = find_ctc_file(episode_dir)
+    ctc_file = Path(args.ctc_file).resolve() if args.ctc_file else find_ctc_file(episode_dir)
     ctc = json.load(open(ctc_file))
 
     chosen = pick_segments(
