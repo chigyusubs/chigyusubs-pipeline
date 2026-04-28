@@ -237,9 +237,14 @@ def _candidate_words_stems(stem: str) -> list[str]:
     for suffix in ("_reflow_repaired", "_repaired", "_reflow"):
         if stem.endswith(suffix):
             candidates.append(stem[: -len(suffix)])
+    expanded: list[str] = []
+    for item in candidates:
+        expanded.append(item)
+        if item and not item.endswith("_ctc_words"):
+            expanded.append(f"{item}_ctc_words")
     seen = set()
     unique: list[str] = []
-    for item in candidates:
+    for item in expanded:
         if item and item not in seen:
             seen.add(item)
             unique.append(item)
