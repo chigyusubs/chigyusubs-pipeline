@@ -94,27 +94,34 @@ def post(base_url: str, payload: dict, timeout: int = 600) -> tuple[dict, float]
 
 def run_batch(*, base_url: str, model: str, frames: list[Path],
               mst: int, max_tokens: int,
-              frequency_penalty: float) -> tuple[str, dict, float]:
+              temperature: float, top_p: float, top_k: int,
+              frequency_penalty: float,
+              backend: str) -> tuple[str, dict, float]:
     content: list[dict] = [
         {"type": "image_url",
          "image_url": {"url": f"data:image/jpeg;base64,{b64(f)}"}}
         for f in frames
     ]
     content.append({"type": "text", "text": OCR_PROMPT})
-    payload = {
+    payload: dict = {
         "model": model,
         "max_tokens": max_tokens,
-        "temperature": 0.0,
-        # Break repetition loops on static-scene batches. At temp=0 the
-        # model will otherwise emit the same chyron 300+ times until
-        # max_tokens on e.g. a 30-frame title-card sequence.
+        "temperature": temperature,
+        "top_p": top_p,
+        "top_k": top_k,
         "frequency_penalty": frequency_penalty,
         "messages": [
             {"role": "system", "content": OCR_SYSTEM},
             {"role": "user", "content": content},
         ],
-        "mm_processor_kwargs": {"max_soft_tokens": mst},
     }
+    if backend == "vllm":
+        payload["mm_processor_kwargs"] = {"max_soft_tokens": mst}
+    else:
+        # Gemma 4's chat template defaults to thinking-on, which burns
+        # the whole completion budget on a reasoning trace before any
+        # OCR output appears.
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
     body, wall = post(base_url, payload)
     if "error" in body:
         return "", {"error": body["error"], "body": body.get("body", "")}, wall
@@ -141,6 +148,43 @@ def dedupe_lines(lines: list[str]) -> list[str]:
     return out
 
 
+def write_result(
+    *,
+    out_path: Path,
+    video: Path,
+    args: argparse.Namespace,
+    frames: list[Path],
+    batch_results: list[dict],
+    total_wall: float,
+) -> None:
+    all_lines: list[str] = []
+    for batch in batch_results:
+        all_lines.extend(batch.get("lines", []))
+    deduped = dedupe_lines(all_lines)
+    out_path.write_text(
+        json.dumps({
+            "video": str(video),
+            "episode": args.episode,
+            "model": args.model,
+            "fps": args.fps,
+            "height": args.height,
+            "batch_size": args.batch_size,
+            "mst": args.mst,
+            "backend": args.backend,
+            "temperature": args.temperature,
+            "top_p": args.top_p,
+            "top_k": args.top_k,
+            "frequency_penalty": args.frequency_penalty,
+            "n_frames": len(frames),
+            "n_batches": len(batch_results),
+            "total_wall": round(total_wall, 1),
+            "unique_lines": deduped,
+            "batches": batch_results,
+        }, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--video", required=True)
@@ -154,11 +198,20 @@ def main() -> None:
     ap.add_argument("--batch-size", type=int, default=30)
     ap.add_argument("--mst", type=int, default=140)
     ap.add_argument("--max-tokens", type=int, default=800)
-    ap.add_argument("--frequency-penalty", type=float, default=1.0,
-                    help="discourage token repetition (anti-loop). "
-                         "0 = off, 1.0 strong, 2.0 max. Default 1.0.")
+    ap.add_argument("--temperature", type=float, default=1.0,
+                    help="Gemma 4 recommended sampling temperature.")
+    ap.add_argument("--top-p", type=float, default=0.95,
+                    help="Gemma 4 recommended top-p.")
+    ap.add_argument("--top-k", type=int, default=64,
+                    help="Gemma 4 recommended top-k.")
+    ap.add_argument("--frequency-penalty", type=float, default=0.0,
+                    help="Optional anti-loop knob. Gemma 4's recommended "
+                         "sampling (temp=1.0/top_p=0.95/top_k=64) already "
+                         "breaks the static-scene repetition loops we saw "
+                         "at temp=0; only raise this if loops still appear.")
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    ap.add_argument("--backend", choices=["vllm", "llama-cpp"], default="vllm")
     ap.add_argument("--frame-cache-dir", default="",
                     help="where to store extracted frames "
                          "(default: alongside --out under _frames/)")
@@ -196,9 +249,36 @@ def main() -> None:
           f" (mst={args.mst})")
 
     batch_results: list[dict] = []
+    done_batches: set[int] = set()
+    if out_path.exists():
+        existing = json.loads(out_path.read_text(encoding="utf-8"))
+        if (
+            existing.get("episode") == args.episode
+            and existing.get("fps") == args.fps
+            and existing.get("height") == args.height
+            and existing.get("batch_size") == args.batch_size
+        ):
+            batch_results = existing.get("batches", [])
+            done_batches = {
+                int(b["batch_idx"])
+                for b in batch_results
+                if "batch_idx" in b and "error" not in b
+            }
+            if done_batches:
+                print(f"Resuming: {len(done_batches)} completed batches already saved")
+        else:
+            raise SystemExit(
+                f"Refusing to resume {out_path}: settings do not match. "
+                "Move the old output or use a new --out path."
+            )
+
     all_lines: list[str] = []
+    for b in batch_results:
+        all_lines.extend(b.get("lines", []))
     t_sweep = time.monotonic()
     for i, batch in enumerate(batches, 1):
+        if i in done_batches:
+            continue
         # Describe the time range this batch covers (frames are evenly
         # sampled, so frame index → time = index / fps).
         start_idx = frames.index(batch[0])
@@ -212,7 +292,9 @@ def main() -> None:
         text, usage, wall = run_batch(
             base_url=args.base_url, model=args.model,
             frames=batch, mst=args.mst, max_tokens=args.max_tokens,
+            temperature=args.temperature, top_p=args.top_p, top_k=args.top_k,
             frequency_penalty=args.frequency_penalty,
+            backend=args.backend,
         )
         if "error" in usage:
             print(f"  ERROR {usage['error']}  {usage.get('body', '')[:200]}")
@@ -224,6 +306,14 @@ def main() -> None:
                 "error": usage["error"],
                 "wall": wall,
             })
+            write_result(
+                out_path=out_path,
+                video=video,
+                args=args,
+                frames=frames,
+                batch_results=batch_results,
+                total_wall=time.monotonic() - t_sweep,
+            )
             continue
 
         lines = [ln for ln in text.splitlines() if ln.strip()]
@@ -248,6 +338,14 @@ def main() -> None:
             print(f"    | {ln[:120]}")
         if len(lines) > 6:
             print(f"    | ... (+{len(lines) - 6} more)")
+        write_result(
+            out_path=out_path,
+            video=video,
+            args=args,
+            frames=frames,
+            batch_results=batch_results,
+            total_wall=time.monotonic() - t_sweep,
+        )
 
     total_wall = time.monotonic() - t_sweep
     deduped = dedupe_lines(all_lines)
@@ -257,22 +355,13 @@ def main() -> None:
     print(f"  raw lines:      {len(all_lines)}")
     print(f"  unique lines:   {len(deduped)}")
 
-    out_path.write_text(
-        json.dumps({
-            "video": str(video),
-            "episode": args.episode,
-            "model": args.model,
-            "fps": args.fps,
-            "height": args.height,
-            "batch_size": args.batch_size,
-            "mst": args.mst,
-            "n_frames": len(frames),
-            "n_batches": len(batch_results),
-            "total_wall": round(total_wall, 1),
-            "unique_lines": deduped,
-            "batches": batch_results,
-        }, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    write_result(
+        out_path=out_path,
+        video=video,
+        args=args,
+        frames=frames,
+        batch_results=batch_results,
+        total_wall=total_wall,
     )
     print(f"\nWrote {out_path}")
 
