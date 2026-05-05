@@ -565,6 +565,9 @@ def cmd_finalize(args: argparse.Namespace) -> int:
                 else:
                     forced_end = round(start + max_chunk_s, 3)
                     forced_splits += 1
+                if forced_end <= round(start, 3):
+                    forced_end = round(start + max_chunk_s, 3)
+                    forced_splits += 1
                 enforced_chunks.append({
                     "chunk_id": len(enforced_chunks),
                     "start_sec": round(start, 3),
@@ -591,6 +594,55 @@ def cmd_finalize(args: argparse.Namespace) -> int:
                 "to enforce the hard chunk-duration cap.",
                 file=sys.stderr,
             )
+
+        # Only clean up tiny system-inserted artifacts (forced/fallback splits).
+        # User-approved splits represent intentional topical boundaries —
+        # never undo them via coalesce, even if both sides are short.
+        if forced_splits or fallback_splits:
+            min_final_chunk_s = 3.0
+            coalesced = []
+            i = 0
+            merged_tiny = 0
+            while i < len(chunks):
+                current = dict(chunks[i])
+                cur_dur = float(current["end_sec"]) - float(current["start_sec"])
+                if cur_dur < min_final_chunk_s:
+                    if coalesced:
+                        prev = coalesced[-1]
+                        merged_dur = float(current["end_sec"]) - float(prev["start_sec"])
+                        if merged_dur <= max_chunk_s + 0.001:
+                            prev["end_sec"] = current["end_sec"]
+                            prev["duration_sec"] = round(merged_dur, 3)
+                            merged_tiny += 1
+                            i += 1
+                            continue
+                    if i + 1 < len(chunks):
+                        nxt = chunks[i + 1]
+                        merged_dur = float(nxt["end_sec"]) - float(current["start_sec"])
+                        if merged_dur <= max_chunk_s + 0.001:
+                            current["end_sec"] = nxt["end_sec"]
+                            current["duration_sec"] = round(merged_dur, 3)
+                            coalesced.append(current)
+                            merged_tiny += 1
+                            i += 2
+                            continue
+                coalesced.append(current)
+                i += 1
+            if merged_tiny:
+                chunks = [
+                    {
+                        "chunk_id": idx,
+                        "start_sec": round(float(c["start_sec"]), 3),
+                        "end_sec": round(float(c["end_sec"]), 3),
+                        "duration_sec": round(float(c["end_sec"]) - float(c["start_sec"]), 3),
+                    }
+                    for idx, c in enumerate(coalesced)
+                ]
+                print(
+                    f"Merged {merged_tiny} sub-{min_final_chunk_s:.0f}s sliver(s) "
+                    "from forced/fallback splits while preserving max_chunk_s.",
+                    file=sys.stderr,
+                )
 
     # Validate full coverage
     bounds = [(c["start_sec"], c["end_sec"]) for c in chunks]

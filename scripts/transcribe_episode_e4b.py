@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-"""Full-episode E4B ASR driver — Phase A of the harness-to-pipeline path.
+"""Full-episode E4B ASR driver for the subtitle pipeline.
 
-Takes an episode (silero VAD segments + audio), packs the segments into
-ASR-sized chunks (~18 s, capped at 25 s), and runs each chunk through
-the vLLM Gemma 4 E4B server using a config from the harness's
-``configs.py``. Output mirrors the schema downstream alignment expects
-(``[{chunk, chunk_start_s, chunk_end_s, text, ...}]``), so the existing
-CTC alignment / reflow path can pick this up the same way it picks up
-``*_gemini_raw.json``.
+Takes an episode audio/video file plus either a reviewed semantic chunk
+plan or silero VAD segments, then runs each chunk through the vLLM Gemma
+4 E4B server using a config from the harness's ``configs.py``.
 
-This is intentionally minimal — no retries, no fallback to whisper, no
-per-clip oracle. Validation flags bad chunks but doesn't auto-recover.
-The point is to produce a single full-episode artifact we can compare
-head-to-head against whisper-large-v3 and the existing Gemini pre-pass.
+Default output is a Gemini-compatible raw chunk list:
+``[{chunk, chunk_start_s, chunk_end_s, text, ...}]`` where spoken lines
+use the pipeline's ``-- ...`` speaker-turn marker convention. That keeps
+the local Gemma route compatible with raw chunk sanity, CTC alignment,
+reflow, glossary/context review, and translation.
+
+This is intentionally conservative — no fallback to whisper, no per-clip
+oracle. Validation flags bad chunks but doesn't auto-recover. The point
+is to produce a reusable local transcript artifact that fits the same
+pipeline shape as Gemini raw output.
 
 Usage:
     python3 scripts/transcribe_episode_e4b.py \\
@@ -53,6 +55,32 @@ REFUSAL_HINTS = (
     "I cannot transcribe", "I'm sorry", "I cannot", "申し訳",
     "transcribe", "transcription",  # output should never echo prompt vocab
 )
+PIPELINE_FORMAT_INSTRUCTION = (
+    "\n\nPipeline output format:\n"
+    "- Output Japanese transcription only.\n"
+    "- Put each spoken utterance on its own line.\n"
+    "- Prefix every spoken line with `-- `.\n"
+    "- Do not include timestamps, speaker names, explanations, headings, "
+    "markdown, or translation.\n"
+)
+_VISUAL_RE = re.compile(r"^\[画面:.*\]$")
+_SPEAKER_RE = re.compile(r"^--\s*")
+
+
+def _chunks_dir_for_raw(raw_json_path: Path) -> Path:
+    return raw_json_path.parent / f"{raw_json_path.stem}_chunks"
+
+
+def _chunk_file_path(chunks_dir: Path, chunk_index: int) -> Path:
+    return chunks_dir / f"chunk_{chunk_index:03d}.json"
+
+
+def _save_chunk_file(chunks_dir: Path, record: dict) -> None:
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+    _chunk_file_path(chunks_dir, int(record["chunk"])).write_text(
+        json.dumps(record, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 # --- chunk packing ------------------------------------------------------
@@ -119,6 +147,61 @@ def pack_vad_segments(
     ]
 
 
+def load_chunk_plan(path: Path) -> list[dict]:
+    """Load a reviewed chunk plan and normalize it to raw transcript keys."""
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        raise SystemExit(f"chunk JSON must be a list: {path}")
+    chunks: list[dict] = []
+    for i, item in enumerate(payload):
+        if not isinstance(item, dict):
+            raise SystemExit(f"chunk {i} in {path} is not an object")
+        if "chunk_start_s" in item and "chunk_end_s" in item:
+            start = float(item["chunk_start_s"])
+            end = float(item["chunk_end_s"])
+        elif "start_sec" in item and "end_sec" in item:
+            start = float(item["start_sec"])
+            end = float(item["end_sec"])
+        elif "start" in item and "end" in item:
+            start = float(item["start"])
+            end = float(item["end"])
+        else:
+            raise SystemExit(
+                f"chunk {i} in {path} lacks start/end keys "
+                "(expected start_sec/end_sec or chunk_start_s/chunk_end_s)"
+            )
+        if end <= start:
+            raise SystemExit(f"chunk {i} in {path} has non-positive duration")
+        chunk_id = int(item.get("chunk", item.get("chunk_id", i)))
+        chunks.append({
+            "chunk": chunk_id,
+            "chunk_start_s": round(start, 3),
+            "chunk_end_s": round(end, 3),
+            "duration_s": round(end - start, 3),
+        })
+    return chunks
+
+
+def enforce_max_audio_duration(chunks: list[dict], max_audio_s: float) -> None:
+    oversized = [
+        c for c in chunks
+        if float(c["chunk_end_s"]) - float(c["chunk_start_s"]) > max_audio_s + 0.001
+    ]
+    if not oversized:
+        return
+    preview = ", ".join(
+        f"{c['chunk']}:{float(c['chunk_end_s']) - float(c['chunk_start_s']):.1f}s"
+        for c in oversized[:8]
+    )
+    if len(oversized) > 8:
+        preview += f", ... {len(oversized) - 8} more"
+    raise SystemExit(
+        f"chunk plan has {len(oversized)} chunks over Gemma audio limit "
+        f"({max_audio_s:.1f}s): {preview}. Rebuild semantic chunks with "
+        f"`--target-chunk-s 20 --max-chunk-s {max_audio_s:.0f}`."
+    )
+
+
 # --- WAV slice ----------------------------------------------------------
 
 def extract_wav_slice(
@@ -142,10 +225,13 @@ def b64(path: Path) -> str:
 # --- request / validation ----------------------------------------------
 
 def build_payload(model: str, wav: Path, cfg: dict) -> dict:
+    prompt = cfg["prompt"]
+    if "-- " not in prompt:
+        prompt = prompt + PIPELINE_FORMAT_INSTRUCTION
     content: list[dict] = [
         {"type": "input_audio",
          "input_audio": {"data": b64(wav), "format": "wav"}},
-        {"type": "text", "text": cfg["prompt"]},
+        {"type": "text", "text": prompt},
     ]
     messages: list[dict] = []
     sys_msg = cfg.get("system")
@@ -161,6 +247,36 @@ def build_payload(model: str, wav: Path, cfg: dict) -> dict:
     if cfg.get("mst") is not None:
         payload["mm_processor_kwargs"] = {"max_soft_tokens": cfg["mst"]}
     return payload
+
+
+def normalize_pipeline_text(text: str) -> str:
+    """Normalize model output into Gemini-compatible speaker-turn lines."""
+    raw_lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+    cleaned: list[str] = []
+    for line in raw_lines:
+        if line in {"```", "```text", "```txt"}:
+            continue
+        if line.lower().startswith(("transcription:", "transcript:", "japanese:")):
+            line = line.split(":", 1)[1].strip()
+        if not line:
+            continue
+        if _SPEAKER_RE.match(line) or _VISUAL_RE.match(line):
+            cleaned.append(line)
+        else:
+            cleaned.append(f"-- {line}")
+    if not cleaned and text.strip():
+        cleaned.append(f"-- {text.strip()}")
+    return "\n".join(cleaned)
+
+
+def display_text(text: str) -> str:
+    lines = []
+    for line in text.splitlines():
+        line = line.strip()
+        if _SPEAKER_RE.match(line):
+            line = _SPEAKER_RE.sub("", line).strip()
+        lines.append(line)
+    return "\n".join(line for line in lines if line)
 
 
 def post(base_url: str, payload: dict, timeout: int = 300) -> tuple[dict, float]:
@@ -223,7 +339,7 @@ def write_vtt(records: list[dict], out_path: Path) -> None:
     with out_path.open("w", encoding="utf-8") as f:
         f.write("WEBVTT\n\n")
         for r in records:
-            text = (r.get("text") or "").strip()
+            text = display_text(r.get("text") or "").strip()
             if not text:
                 continue
             f.write(f"{fmt_ts(r['chunk_start_s'])} --> "
@@ -240,12 +356,30 @@ def main() -> None:
     ap.add_argument("--out", required=True, help="output transcript JSON")
     ap.add_argument("--vtt", default="",
                     help="optional VTT output (default: derive from --out)")
+    ap.add_argument(
+        "--chunk-json",
+        default="",
+        help=(
+            "Reviewed semantic chunk JSON. Accepts start_sec/end_sec or "
+            "chunk_start_s/chunk_end_s. If omitted, silero VAD is packed "
+            "into short harness chunks."
+        ),
+    )
     ap.add_argument("--config", default=DEFAULT_CONFIG,
                     help=f"harness config name (default {DEFAULT_CONFIG})")
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--base-url", default=DEFAULT_BASE_URL)
     ap.add_argument("--target-dur", type=float, default=18.0)
     ap.add_argument("--max-dur", type=float, default=25.0)
+    ap.add_argument(
+        "--max-audio-s",
+        type=float,
+        default=30.0,
+        help=(
+            "Hard maximum audio duration per model request. Gemma 4 audio "
+            "accepts at most about 30s; chunk plans over this limit are rejected."
+        ),
+    )
     ap.add_argument("--max-gap", type=float, default=1.5)
     ap.add_argument("--min-dur", type=float, default=10.0,
                     help="force-merge across long gaps until chunk is at "
@@ -263,6 +397,14 @@ def main() -> None:
     ap.add_argument("--dump-chunks", default="",
                     help="if set, write the packed chunk plan here and exit "
                          "without calling the model")
+    ap.add_argument(
+        "--legacy-dict-output",
+        action="store_true",
+        help=(
+            "Write the older E4B dict wrapper instead of the pipeline-native "
+            "bare chunk list. Not recommended for downstream alignment."
+        ),
+    )
     args = ap.parse_args()
 
     cfg = next((c for c in CONFIGS if c["name"] == args.config), None)
@@ -279,17 +421,25 @@ def main() -> None:
 
     episode_dir = REPO / "samples" / "episodes" / args.episode
     vad_path = episode_dir / "transcription" / "silero_vad_segments.json"
-    if not vad_path.exists():
-        raise SystemExit(f"silero VAD not found at {vad_path}")
-    vad = json.loads(vad_path.read_text(encoding="utf-8"))
-    chunks = pack_vad_segments(
-        vad, target_dur=args.target_dur,
-        max_dur=args.max_dur, max_gap=args.max_gap,
-        min_dur=args.min_dur,
-    )
-    print(f"VAD segments:    {len(vad)}")
-    print(f"Packed chunks:   {len(chunks)}  "
-          f"(target={args.target_dur}s max={args.max_dur}s)")
+    chunk_source = "vad_pack"
+    if args.chunk_json:
+        chunk_json_path = Path(args.chunk_json)
+        chunks = load_chunk_plan(chunk_json_path)
+        enforce_max_audio_duration(chunks, args.max_audio_s)
+        chunk_source = str(chunk_json_path)
+        print(f"Chunks:          {len(chunks)} from {chunk_json_path}")
+    else:
+        if not vad_path.exists():
+            raise SystemExit(f"silero VAD not found at {vad_path}")
+        vad = json.loads(vad_path.read_text(encoding="utf-8"))
+        chunks = pack_vad_segments(
+            vad, target_dur=args.target_dur,
+            max_dur=min(args.max_dur, args.max_audio_s), max_gap=args.max_gap,
+            min_dur=args.min_dur,
+        )
+        print(f"VAD segments:    {len(vad)}")
+        print(f"Packed chunks:   {len(chunks)}  "
+              f"(target={args.target_dur}s max={args.max_dur}s)")
     durs = [c["duration_s"] for c in chunks]
     print(f"  duration min/mean/max: "
           f"{min(durs):.1f}s / {sum(durs)/len(durs):.1f}s / {max(durs):.1f}s")
@@ -303,6 +453,7 @@ def main() -> None:
         return
 
     out_path = Path(args.out).resolve()
+    chunks_dir = _chunks_dir_for_raw(out_path)
     cache_dir = (Path(args.cache_dir).resolve() if args.cache_dir
                  else out_path.parent / f"{args.episode}_e4b_chunks_cache")
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -343,18 +494,23 @@ def main() -> None:
                             "error": body["error"], "flags": ["error"]})
             n_flagged += 1
             continue
-        text = body["choices"][0]["message"]["content"]
+        raw_text = body["choices"][0]["message"]["content"]
+        text = normalize_pipeline_text(raw_text)
         v = validate(text)
         usage = body.get("usage", {})
         rec = {
             **c,
             "text": text,
+            "raw_text": raw_text,
             "wall": round(wall, 2),
             "prompt_tokens": usage.get("prompt_tokens"),
             "completion_tokens": usage.get("completion_tokens"),
+            "model_used": args.model,
+            "config": args.config,
             **v,
         }
         records.append(rec)
+        _save_chunk_file(chunks_dir, rec)
         if v["flags"]:
             n_flagged += 1
         flag_str = f"  ⚠ {','.join(v['flags'])}" if v["flags"] else ""
@@ -374,22 +530,31 @@ def main() -> None:
     print(f"  total chars:     {sum(len((r.get('text') or '').strip()) for r in records)}")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(
-        json.dumps({
+    summary = {
             "episode": args.episode,
             "video": str(video),
             "model": args.model,
             "config": args.config,
-            "vad_path": str(vad_path),
+            "chunk_source": chunk_source,
+            "vad_path": str(vad_path) if vad_path.exists() else "",
+            "output_format": "legacy_dict" if args.legacy_dict_output else "pipeline_raw_list",
             "n_chunks": len(records),
             "n_flagged": n_flagged,
             "total_audio_s": round(total_audio, 1),
             "total_wall_s": round(total_wall, 1),
-            "chunks": records,
-        }, ensure_ascii=False, indent=2) + "\n",
+    }
+    payload = {**summary, "chunks": records} if args.legacy_dict_output else records
+    out_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
     print(f"\nWrote {out_path}")
+    meta_path = out_path.with_suffix(out_path.suffix + ".meta.json")
+    meta_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(f"Wrote {meta_path}")
 
     vtt_path = Path(args.vtt) if args.vtt else out_path.with_suffix(".vtt")
     write_vtt(records, vtt_path)
