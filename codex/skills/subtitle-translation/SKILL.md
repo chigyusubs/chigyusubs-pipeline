@@ -83,7 +83,7 @@ Repeat this cycle:
 
 Do NOT stop after a single batch. Do NOT wait for user confirmation between batches unless the review is `red`. A `yellow` review means continue with the next batch. A `green` review means continue normally.
 
-Yellow reviews are classified: `cps_only` yellow (short-cue CPS pressure only) does NOT downgrade the batch tier. Only `structural` yellow (line-count violations) triggers a tier downgrade.
+Yellow reviews are classified with optional `review_class`: `quality_note` is the default for ambiguity or translation-quality notes and does NOT downgrade the batch tier, `cps_only` does NOT downgrade, and only `structural` yellow triggers a tier downgrade.
 
 Batch settings:
 
@@ -159,6 +159,7 @@ Do not extract frames for every batch. Use this selectively when translation qua
 - Let the helper regenerate the partial VTT and diagnostics.
 - Keep reruns resumable from the last completed batch.
 - `apply-batch` validates source cue identity as well as cue IDs, so do not strip `source_text_hash` from the batch payload when preparing the translations JSON.
+- If marking a batch `yellow`, include `review_class` only when the class matters: use `structural` for line-count or structural subtitle problems, `cps_only` for acceptable CPS pressure, and omit it or use `quality_note` for ordinary translation notes.
 - If `prepare` finds a sibling `ocr/*_flash_lite_chunk_ocr.json`, expect `next-batch` to auto-include filtered visual cue context from that sidecar.
 - If `prepare` auto-discovers an alignment diagnostics sidecar, expect `next-batch` payloads and diagnostics to carry advisory warnings for cues whose source timing was locally interpolated during alignment.
 - If the aligned words JSON preserves Gemini turn metadata, expect `next-batch` payloads and diagnostics to carry advisory turn-boundary context for cues that span multiple source turns.
@@ -171,14 +172,14 @@ Do not extract frames for every batch. Use this selectively when translation qua
 After translation:
 
 - verify cue count/order/timings still match
-- review the helper's deterministic batch summary and hard CPS outliers
+- review the helper's deterministic batch summary and `cps_cleanup_report.top_fixable`
 - review very short cues that became awkward in English
 - review named entities and recurring terms
 - summarize any risky regions for the user
 
 Important:
 
-- hard CPS diagnostics are useful, but in this repo they are still noisy on short cues — `cps_only` yellow does not trigger tier downgrades
+- hard CPS diagnostics are useful, but in this repo they are still noisy on short cues — `cps_only` and `quality_note` yellow do not trigger tier downgrades
 - do not stop a whole Codex-interactive run on CPS or ordinary warning-level issues when the actual subtitle quality is still acceptable
 
 ## When To Use The Script Instead

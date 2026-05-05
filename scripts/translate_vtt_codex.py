@@ -425,6 +425,118 @@ def _render_final(session: dict, cues: list[Cue]) -> list[Cue]:
     return final_cues
 
 
+def _normalized_cps_text(text: str) -> str:
+    folded = []
+    for char in text.replace("\n", " ").lower():
+        folded.append(char if char.isalnum() or char.isspace() or char == "'" else " ")
+    return " ".join("".join(folded).split())
+
+
+def _classify_cps_cleanup_entry(
+    source: Cue,
+    translated_text: str,
+    *,
+    duration: float,
+    translated_chars: int,
+    over_budget_chars: int,
+    max_line_length: int,
+) -> tuple[str, str]:
+    normalized = _normalized_cps_text(translated_text)
+    word_count = len(normalized.split()) if normalized else 0
+    source_line_count = len([line for line in source.text.splitlines() if line.strip()])
+    translated_line_count = len([line for line in translated_text.splitlines() if line.strip()])
+
+    if duration <= 1.2 and translated_chars <= 24 and word_count <= 4:
+        return "short_reaction", "Very short cue; often acceptable if the English is natural."
+    if duration <= 1.8 and translated_chars <= 18 and word_count <= 3:
+        return "short_reaction", "Brief reaction cue; trim only if it reads awkwardly."
+    if translated_line_count > 2:
+        return "line_count", "Translated cue exceeds two lines; rewrap or compress."
+    if source_line_count > 1:
+        return "multi_source_line", "Source cue spans multiple lines; check whether the exchange needs merging or compression."
+    if translated_chars > max_line_length or over_budget_chars >= 10:
+        return "wordy_fixable", "Likely fixable by shortening the English."
+    return "review", "Read in playback context before changing; CPS alone may be noisy."
+
+
+def _build_cps_cleanup_report(session: dict, cues: list[Cue]) -> dict:
+    translations = _translated_map(session)
+    hard_cps = float(session.get("hard_cps", DEFAULT_HARD_CPS))
+    target_cps = float(session.get("target_cps", DEFAULT_TARGET_CPS))
+    max_line_length = int(session.get("max_line_length", DEFAULT_MAX_LINE_LENGTH))
+    entries: list[dict] = []
+    category_counts: dict[str, int] = {}
+    fixable_categories = {"wordy_fixable", "line_count", "multi_source_line"}
+
+    for cue_id, source in enumerate(cues, 1):
+        translated_text = translations.get(cue_id, "").strip()
+        if not translated_text:
+            continue
+        duration = max(source.end - source.start, 0.001)
+        translated_cps = text_cps(translated_text, duration)
+        if translated_cps <= hard_cps:
+            continue
+        translated_chars = text_char_count(translated_text)
+        over_budget_chars = translated_chars - int(hard_cps * duration)
+        category, action = _classify_cps_cleanup_entry(
+            source,
+            translated_text,
+            duration=duration,
+            translated_chars=translated_chars,
+            over_budget_chars=over_budget_chars,
+            max_line_length=max_line_length,
+        )
+        category_counts[category] = category_counts.get(category, 0) + 1
+        entries.append(
+            {
+                "cue_id": cue_id,
+                "start": seconds_to_time(source.start),
+                "end": seconds_to_time(source.end),
+                "duration": round(duration, 3),
+                "translated_cps": round(translated_cps, 3),
+                "target_cps": target_cps,
+                "hard_cps": hard_cps,
+                "translated_chars": translated_chars,
+                "hard_budget_chars": int(hard_cps * duration),
+                "over_budget_chars": over_budget_chars,
+                "category": category,
+                "recommended_action": action,
+                "text": translated_text,
+                "source_text": source.text,
+            }
+        )
+
+    entries.sort(key=lambda item: (float(item["translated_cps"]), int(item["over_budget_chars"])), reverse=True)
+    fixable = [entry for entry in entries if entry["category"] in fixable_categories]
+    likely_noise = [entry for entry in entries if entry["category"] == "short_reaction"]
+    return {
+        "summary": {
+            "hard_cps": hard_cps,
+            "target_cps": target_cps,
+            "total_over_hard_cps": len(entries),
+            "fixable_count": len(fixable),
+            "likely_short_reaction_noise_count": len(likely_noise),
+            "category_counts": dict(sorted(category_counts.items())),
+        },
+        "top_fixable": fixable[:30],
+        "top_all": entries[:50],
+        "category_policy": {
+            "wordy_fixable": "Prioritize shortening these.",
+            "line_count": "Structural subtitle cleanup; should be fixed.",
+            "multi_source_line": "Check whether source fragmentation made the cue too dense.",
+            "short_reaction": "Usually warning noise unless the wording is awkward.",
+            "review": "Context-dependent CPS spike.",
+        },
+    }
+
+
+def _diagnostic_yellow_class(batch: dict) -> str:
+    value = str(batch.get("yellow_class") or "")
+    if value == "user":
+        return "quality_note"
+    return value
+
+
 def _session_diagnostics(session: dict, cues: list[Cue]) -> dict:
     translations = _translated_map(session)
     completed = len(translations)
@@ -478,10 +590,13 @@ def _session_diagnostics(session: dict, cues: list[Cue]) -> dict:
             "review_counts": batch_review_counts,
             "warning_batches": warning_batches,
             "cps_only_yellow_batches": sum(
-                1 for batch in batch_diags if batch.get("yellow_class") == "cps_only"
+                1 for batch in batch_diags if _diagnostic_yellow_class(batch) == "cps_only"
+            ),
+            "quality_note_yellow_batches": sum(
+                1 for batch in batch_diags if _diagnostic_yellow_class(batch) == "quality_note"
             ),
             "structural_yellow_batches": sum(
-                1 for batch in batch_diags if batch.get("yellow_class") == "structural"
+                1 for batch in batch_diags if _diagnostic_yellow_class(batch) == "structural"
             ),
             "structural_red_batches": structural_red_batches,
             "alignment_warning_batches": alignment_warning_batches,
@@ -495,6 +610,7 @@ def _session_diagnostics(session: dict, cues: list[Cue]) -> dict:
             "line_violations_total": line_violations_total,
         },
         "batch_diagnostics": batch_diags,
+        "cps_cleanup_report": _build_cps_cleanup_report(session, cues),
         "preflight": session.get("preflight", {}),
     }
 
@@ -515,6 +631,7 @@ def _review_rank(review: str) -> int:
 def _merge_review(
     user_review: str,
     *,
+    user_review_class: str,
     hard_cps_violations: int,
     line_violations: int,
     structural_error: bool,
@@ -525,9 +642,8 @@ def _merge_review(
 
     yellow_class is one of:
       - "cps_only"    — only hard CPS violations, no line/structural issues (no tier downgrade)
+      - "quality_note" — operator quality note or ambiguity warning (no tier downgrade)
       - "structural"  — line-count violations, possibly with CPS too (triggers tier downgrade)
-      - "user"        — user explicitly marked yellow, with or without cps-only objective warnings
-                          (triggers tier downgrade)
       - None          — not yellow
     """
     if structural_error:
@@ -547,17 +663,13 @@ def _merge_review(
 
     yellow_reasons = list(objective_yellow_reasons)
     if user_review == "yellow":
-        yellow_reasons.append("user_review")
+        yellow_reasons.append(f"user_review:{user_review_class or 'quality_note'}")
 
-    # Classify the yellow source
-    if line_violations:
+    if line_violations or user_review_class == "structural":
         yellow_class = "structural"
     elif user_review == "yellow":
-        # User forced yellow should keep its operator intent even if CPS-only
-        # objective warnings are also present.
-        yellow_class = "user"
+        yellow_class = user_review_class or "quality_note"
     else:
-        # Objective yellow from CPS only
         yellow_class = "cps_only"
 
     auto_reason = "objective subtitle constraints exceeded" if objective == "yellow" else ""
@@ -692,9 +804,15 @@ def cmd_next_batch(args) -> int:
         "speaker_context": _batch_speaker_payload(target_speaker_context, context_speaker_context),
         "review_policy": {
             "allowed_reviews": ["green", "yellow", "red"],
+            "allowed_review_classes": ["quality_note", "structural", "cps_only"],
             "green": "apply batch and continue",
             "yellow": "apply batch, warn, and continue",
             "red": "apply batch and stop episode",
+            "review_class": {
+                "quality_note": "default yellow class for translation concerns, ambiguity, or ordinary quality notes; does not downgrade the batch tier",
+                "structural": "use only for structural subtitle problems such as line-count violations; downgrades the next batch tier",
+                "cps_only": "use for hard-CPS pressure that is otherwise acceptable; does not downgrade the batch tier",
+            },
         },
         "turn_policy": _build_turn_policy(target_turn_context),
     }
@@ -721,9 +839,14 @@ def cmd_apply_batch(args) -> int:
     payload = json.loads(Path(args.translations_json).read_text(encoding="utf-8"))
     items = payload.get("translations", [])
     user_review = payload.get("review", "green")
+    user_review_class = str(payload.get("review_class") or payload.get("yellow_class") or "").strip().lower()
     notes = payload.get("notes", "")
     if user_review not in {"green", "yellow", "red"}:
         raise ValueError("review must be one of: green, yellow, red")
+    if user_review_class not in {"", "quality_note", "structural", "cps_only"}:
+        raise ValueError("review_class must be one of: quality_note, structural, cps_only")
+    if user_review != "yellow" and user_review_class:
+        raise ValueError("review_class is only valid when review is yellow")
     if not isinstance(items, list):
         raise ValueError("translations must be a list")
 
@@ -759,6 +882,7 @@ def cmd_apply_batch(args) -> int:
 
     final_review, auto_reason, yellow_class, yellow_reasons = _merge_review(
         user_review,
+        user_review_class=user_review_class,
         hard_cps_violations=hard_cps_violations,
         line_violations=line_violations,
         structural_error=False,
@@ -778,6 +902,7 @@ def cmd_apply_batch(args) -> int:
         "cue_count": len(expected_ids),
         "review": final_review,
         "user_review": user_review,
+        "user_review_class": user_review_class,
         "auto_reason": auto_reason,
         "yellow_class": yellow_class,
         "yellow_reasons": yellow_reasons,
@@ -794,7 +919,7 @@ def cmd_apply_batch(args) -> int:
         "cues": cue_diags,
     }
 
-    if final_review == "yellow" and yellow_class != "cps_only":
+    if final_review == "yellow" and yellow_class == "structural":
         tiers = session["batch_tiers"]
         current = int(session["current_batch_tier"])
         for tier in tiers:
