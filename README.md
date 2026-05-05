@@ -13,6 +13,7 @@ Video file
   │
   ├─ Optional OCR-like side artifacts
   │     ├─ chunkwise Gemini Flash-Lite OCR sidecar
+  │     ├─ local Gemma 26B llama.cpp OCR sidecar fallback
   │     └─ older local Qwen-VL OCR → spans → context
   │
   ├─ Raw transcript → glossary/context extraction
@@ -35,7 +36,7 @@ Manual benchmark packs for site-driven experiments can live separately under `sa
 
 ## Translation Paths
 
-**Interactive (primary)** — `translate_vtt_codex.py`. Codex translates batch-by-batch with human review, checkpointed session state, and automatic batch-tier fallback. Best quality.
+**Interactive (primary)** — `translate_vtt_codex.py`. Codex translates batch-by-batch with human review, checkpointed session state, structural-only batch-tier fallback, and ranked CPS cleanup diagnostics. Best quality.
 
 **Unattended (API)** — `translate_vtt_api.py`. Sends batches to Vertex Gemini or any OpenAI-compatible API. Good for benchmarking, testing model capability, or fully local pipelines.
 
@@ -77,6 +78,7 @@ The current repo is optimized around this setup:
 Recommended named Gemini presets:
 
 - transcript production on `2.5-flash`: `--preset flash25_free_default`
+- request-budget-conservative `2.5-flash` resume: `--preset flash25_quota_sweep` (use `--skip-chunks` for known-bad chunks)
 - transcript experiments: `--preset flash_free_default`
 - visual-rich transcript comparison: `--preset flash_visual_artifact`
 - cheap resumable debug transcript probes: `--preset flashlite_debug_transcript`
@@ -137,7 +139,21 @@ python scripts/check_raw_chunk_sanity.py \
 # Optional structured OCR sidecar for the same chunk plan
 python scripts/extract_gemini_chunk_ocr.py \
   --video samples/episodes/<slug>/source/<video>.mp4 \
-  --chunk-json samples/episodes/<slug>/transcription/vad_chunks.json
+  --chunk-json samples/episodes/<slug>/transcription/vad_chunks.json \
+  --concurrency 5 \
+  --rpm 15
+
+# Local OCR sidecar fallback when Flash Lite is unavailable
+scripts/start_gemma26_ocr_server.sh
+PYTHONPATH=. python3 scripts/extract_gemini_chunk_ocr.py \
+  --video samples/episodes/<slug>/source/<video>.mp4 \
+  --chunk-json samples/episodes/<slug>/transcription/vad_chunks_semantic_90.json \
+  --backend llama-cpp \
+  --model gemma-4-26B-A4B-it-IQ4_XS \
+  --concurrency 1 \
+  --local-frame-fps 0.5 \
+  --local-frame-height 720 \
+  --local-max-frames 15
 
 # Cheap one-chunk Flash Lite debug smoke test
 python scripts/transcribe_gemini_video.py \
@@ -154,12 +170,24 @@ Common chunk plan names:
 
 - `transcription/vad_chunks.json` — default full-coverage VAD plan
 - `transcription/vad_chunks_semantic_90.json` — reviewed semantic plan targeting about `90s`
+- `transcription/vad_chunks_semantic_20_max30.json` — Gemma/E4B semantic plan targeting about `20s` with a hard `30s` audio cap
 - `transcription/*_repair*.json` — follow-up repair plan that only resplits failed chunks
 - `transcription/probes/*exact_chunks_60s*.json` — strict debug probe plan, usually for Flash Lite
 
 Chunking defaults now treat `target + 30s` as a hard max, but they prefer a
 shorter real silence gap (down to `0.75s`) before falling back to a true
 mid-speech forced split.
+
+For local Gemma 4 E4B audio transcription, do not use the 90s Gemini semantic
+plan. Gemma audio accepts roughly 30s per request, so build a dedicated plan:
+
+```bash
+PYTHONPATH=. python3 scripts/build_semantic_chunks.py prepare \
+  --video samples/episodes/<slug>/source/<video> \
+  --target-chunk-s 20 \
+  --max-chunk-s 30 \
+  --output samples/episodes/<slug>/transcription/vad_chunks_semantic_20_max30.json
+```
 
 Current free-tier production rule:
 

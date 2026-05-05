@@ -22,7 +22,7 @@ source video
   -> Gemini transcription
   -> raw transcript chunk QA
   -> optional Flash Lite audio augment (recover missing reactions/interjections)
-  -> optional chunkwise Flash Lite OCR sidecar
+  -> optional chunkwise OCR sidecar (Flash Lite or local Gemma 26B llama.cpp)
   -> CTC forced alignment
   -> faster-whisper second opinion
      -> coverage-gap report
@@ -46,6 +46,7 @@ The main current transcription default is:
 Named preset:
 
 - `flash25_free_default` for `gemini-2.5-flash` production runs with `spoken_only`, `media_resolution=high`, and no thinking override
+- `flash25_quota_sweep` for request-budget-conservative `gemini-2.5-flash` resumes: sequential, low RPM, no immediate per-chunk retries, and a streamed-character ceiling for loop control
 - `flash_free_default`
 - `flashlite_debug_transcript` for cheap bounded debug passes
 
@@ -56,6 +57,7 @@ Current free-tier production policy:
 - each chunk gets one attempt + one retry (transient=same settings, quality/timeout=temp bump)
 - complete a full first pass before investing more retries
 - on quota exhaustion, automatically fall back to `gemini-2.5-flash` for remaining chunks
+- for request-limited sweep resumes, skip known-bad chunks explicitly and spend the remaining requests on untouched chunks first
 - per-chunk results are saved to individual files in a run-ID folder under `transcription/chunks/`; assembled JSON is built at the end
 - hard failures are recorded; other chunks proceed independently
 
@@ -100,6 +102,7 @@ Chunk-plan filenames should also stay legible because operators routinely swap t
 
 - `vad_chunks.json` means the default full-coverage VAD plan
 - `vad_chunks_semantic_<target>.json` means a reviewed semantic plan at that target size
+- `vad_chunks_semantic_20_max30.json` is the local Gemma/E4B audio plan: reviewed semantic chunking with a `20s` target and hard `30s` request cap
 - `*_repair*.json` means a follow-up repair plan that resplits only a failed region
 - `probes/*exact_chunks_<target>s*.json` means a debug-only exact-duration probe plan
 
@@ -250,6 +253,11 @@ Important:
 - this is for review/glossary/translation support
 - it is not automatically injected back into transcription by default
 - Codex glossary/translation helpers may auto-discover it later as supporting context
+- OCR sidecar supports concurrent workers with shared RPM limiting; use this when Flash Lite quota is plentiful, but treat repeated `503 UNAVAILABLE` as service availability rather than chunk difficulty
+- when Flash Lite is unavailable, the same sidecar schema can be filled by
+  local Gemma 4 26B through llama.cpp with `--backend llama-cpp`; the validated
+  shape samples up to 15 frames per chunk at `0.5 FPS`, `720px` height, and
+  uses a one-slot server (`-np 1`)
 
 Named preset:
 
@@ -303,6 +311,11 @@ Optional repair step:
 Maintained interactive path:
 
 - `scripts/translate_vtt_codex.py`
+
+The interactive helper batches cues with checkpoint/resume state, validates
+source hashes on apply, downgrades batch tier only for structural yellow
+reviews, and writes deterministic diagnostics including a ranked CPS cleanup
+report.
 
 Draft English lineage artifacts in `translation/` follow the same short run-ID pattern and update `translation/preferred.json`.
 

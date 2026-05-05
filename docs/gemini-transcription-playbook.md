@@ -41,18 +41,22 @@ Current free-tier production behavior:
 - rolling context is disabled in concurrent mode (chunks run out of order)
 - each chunk gets one normal attempt, then one retry (transient=same settings, quality/timeout=temp bump to 0.1)
 - each request attempt has a first-token watchdog (`60s` by default); a blocked request fails as `no_progress` instead of hanging indefinitely
+- fragile resume presets should also set a streamed raw-character ceiling so one repetition loop cannot run indefinitely after the first token arrives
 - complete a full pass across all chunks before spending more effort
 - if Flash 3 quota is exhausted, automatically continue remaining unsaved chunks on `gemini-2.5-flash`
+- when daily request count is the limiting resource, use `--retry-policy sweep` or `flash25_quota_sweep` so empty/red/transient chunks are recorded and revisited later instead of immediately spending extra requests on the same chunk
+- if one chunk is known-bad during a quota sweep, use `--skip-chunks` for the next pass and spend the remaining daily requests on untouched chunks first
 - per-chunk results are saved to individual files in a run-ID folder under `transcription/chunks/`; assembled JSON is built at the end
 - resume should key off the requested output anchor, not only `preferred.json`, so one-off debug runs do not strand the main lineage
 - hard failures (loop, red QA, persistent timeout) are recorded but do not block other chunks
-- if the initial worker wave all hits `no_progress` before any real chunk response arrives, abort the whole run and fix the environment instead of letting the process sit half-dead
+- in standard mode, if the initial worker wave all hits `no_progress` before any real chunk response arrives, abort the whole run and fix the environment instead of letting the process sit half-dead; in sweep mode, record the failed chunk and continue
 - do not resume or roll over onto an existing raw lineage that already contains
   chunk-level `red` QA failures
 
 Named presets worth remembering:
 
 - `flash25_free_default` — maintained `2.5-flash` production baseline with no thinking override
+- `flash25_quota_sweep` — conservative `2.5-flash` resume preset for strict request-per-day budgets
 - `flash_free_default` — maintained free-tier real-run baseline
 - `flashlite_debug_transcript` — cheap debug transcript preset with no rolling context and bounded retries
 - `pro_quality_video` — higher-quality paid reference baseline

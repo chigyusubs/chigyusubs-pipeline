@@ -121,7 +121,10 @@ Concurrency and retry behavior:
 - `--concurrency N` (default 5): run N chunk workers simultaneously. Use `--concurrency 1` for sequential mode.
 - `--rpm N` (default 5): RPM rate limiter enforcing the free-tier ceiling of 5 requests/minute per model. Workers block on the rate limiter before each API call.
 - `--first-token-timeout-s N` (default 60): per-attempt watchdog. If no first token arrives within `N` seconds, the attempt fails as `no_progress`.
+- `--max-stream-chars N`: abort a streaming response after `N` raw characters. Use this to cap repetition loops that start streaming normally and would otherwise only be detected after completion.
+- `--skip-chunks 18,22-24`: leave specific zero-based chunks untouched on this run. This is useful after observing a known-bad chunk during a quota-limited sweep.
 - `--fallback-models`: comma-separated model chain for quota exhaustion (e.g. `gemini-3-flash-preview,gemini-2.5-flash`). When the primary model's quota is exhausted, remaining unsaved chunks automatically continue on the next model.
+- `--retry-policy {standard,sweep}`: `standard` keeps the normal immediate retry behavior. `sweep` sends at most one request for a chunk, records empty/red/loop/transient failures, and moves on to other chunks first. Use `sweep` when daily request quota is the bottleneck.
 - Per-chunk results are saved to individual files in a run-ID folder under `transcription/chunks/<run_id>/`; the assembled JSON is built at the end. This makes concurrent writes safe and resume trivial (each chunk is independently resumable).
 - Rolling context (`--rolling-context-chunks`) is automatically disabled when concurrency > 1 since chunks run out of order.
 - Retry policy per chunk: one normal attempt, then one retry. Transient errors (network, 500) retry with the same settings. Quality/timeout errors (loop, red QA, DEADLINE_EXCEEDED) retry with `retry_temperature`. Quota errors (429/RESOURCE_EXHAUSTED) are not retried — they trigger the fallback model chain instead.
@@ -130,6 +133,7 @@ Concurrency and retry behavior:
 Named presets:
 
 - `flash25_free_default` — maintained `2.5-flash` transcript preset with `spoken_only`, `media_resolution=high`, concurrent, with `gemini-3-flash-preview` fallback
+- `flash25_quota_sweep` — request-budget-conservative `2.5-flash` resume preset: sequential, low RPM, `--retry-policy sweep`, and a streamed-character ceiling for loop control
 - `flash_free_default` — maintained free-tier transcript preset with concurrent, `gemini-2.5-flash` fallback
 - `flash_visual_artifact` — same model family, but keeps selective visual `[画面: ...]` lines
 - `flashlite_debug_transcript` — cheap Flash Lite debug transcript preset with `spoken_only`, `media_resolution=high`, `rolling_context_chunks=0`, and bounded retries
@@ -157,6 +161,7 @@ Common chunk-plan names:
 
 - `vad_chunks.json` — default full-coverage VAD plan from `build_vad_chunks.py`
 - `vad_chunks_semantic_90.json` — reviewed semantic plan with a `90s` target
+- `vad_chunks_semantic_20_max30.json` — reviewed semantic plan for local Gemma/E4B audio, targeting `20s` with a hard `30s` cap
 - `*_repair*.json` — repair split plan generated after a chunk failed and needed local resplitting
 - `probes/*exact_chunks_60s*.json` — strict debug probe plan, mainly for Flash Lite survivability tests
 
@@ -167,12 +172,67 @@ Operational guardrails:
 - failed chunks are recorded with full `attempt_history` (model used, temperature, error class, timing) for inspectability
 - after code changes or a model switch, prefer `--stop-after-chunks 1` first to confirm the raw JSON is being checkpointed correctly before spending a full-episode run
 
+Local Gemma/E4B audio route:
+
+```bash
+PYTHONPATH=. python3 scripts/build_semantic_chunks.py prepare \
+  --video samples/episodes/<slug>/source/<video> \
+  --target-chunk-s 20 \
+  --max-chunk-s 30 \
+  --output samples/episodes/<slug>/transcription/vad_chunks_semantic_20_max30.json
+
+PYTHONPATH=. python3 scripts/build_semantic_chunks.py finalize \
+  --session samples/episodes/<slug>/transcription/vad_chunks_semantic_20_max30.json.checkpoint.json
+
+PYTHONPATH=. python3 scripts/transcribe_episode_e4b.py \
+  --episode <slug> \
+  --video samples/episodes/<slug>/source/<video> \
+  --out samples/episodes/<slug>/transcription/<slug>_e4b_raw.json \
+  --chunk-json samples/episodes/<slug>/transcription/vad_chunks_semantic_20_max30.json
+```
+
+Guardrails:
+- Gemma audio requests are capped at roughly `30s`; the E4B runner rejects any `--chunk-json` with longer chunks.
+- E4B raw output is a bare chunk list with `-- ` speaker-turn markers, matching the Gemini raw contract for sanity/alignment/reflow.
+
 Important limitation:
 - Gemini API `count_tokens` does not currently accept generation-config overrides such as `media_resolution` or thinking settings. Exact preflight counts for those configurations require Vertex AI, or a real generation request followed by inspection of `usage_metadata.prompt_token_count`.
 
 `extract_gemini_chunk_ocr.py` is the separate OCR sidecar path. It does not feed OCR back into the main transcript call automatically; it writes a reusable chunk-scoped artifact instead.
 
 Like the main Gemini video transcription path, OCR sidecar chunk encoding now preserves source width by default and only downscales when `--width` is explicitly passed.
+
+The same script can also use a local llama.cpp multimodal server as a drop-in
+sidecar backend:
+
+```bash
+scripts/start_gemma26_ocr_server.sh
+
+PYTHONPATH=. python3 scripts/extract_gemini_chunk_ocr.py \
+  --video samples/episodes/<slug>/source/<video>.mp4 \
+  --chunk-json samples/episodes/<slug>/transcription/vad_chunks_semantic_90.json \
+  --backend llama-cpp \
+  --model gemma-4-26B-A4B-it-IQ4_XS \
+  --base-url http://127.0.0.1:8000/v1/chat/completions \
+  --concurrency 1 \
+  --local-frame-fps 0.5 \
+  --local-frame-height 720 \
+  --local-max-frames 15
+```
+
+The llama.cpp path samples still frames per chunk and writes the same
+chunk-scoped `items` records as the Gemini path. Keep client concurrency at
+`1` unless the server is started with more slots and validated; the validated
+Gemma 26B server setting is `-np 1`.
+
+OCR sidecar concurrency:
+
+- `--concurrency N` runs up to N chunk workers.
+- `--rpm N` rate-limits Gemini request attempts across all workers.
+- `--max-request-retries N` controls per-chunk retry attempts.
+- The output JSON is checkpointed after each successful chunk; failed chunks are saved as error records and are retried on the next run.
+- `--only-chunks`, `--force-chunks`, and `--stop-after-chunks` support small
+  smoke tests and targeted retries without hand-editing the sidecar.
 
 ROCm operational note:
 
@@ -249,6 +309,7 @@ Chunk coverage rule:
 | Script | Purpose | Status |
 |---|---|---|
 | `start_qwen_ocr_server.sh` | llama-server for Qwen-VL OCR | Maintained |
+| `start_gemma26_ocr_server.sh` | llama-server for Gemma 4 26B multimodal chunk OCR sidecar fallback | Maintained |
 | `start_gemma_ocr_filter_server.sh` | llama-server for Gemma OCR span classification | Maintained |
 | `start_gemma_cue_repair_server.sh` | llama-server for Gemma cue-boundary repair | Alternative |
 | `start_qwen_cue_repair_server.sh` | llama-server for Qwen cue-boundary repair | Alternative |
@@ -470,9 +531,10 @@ python scripts/translate_vtt_codex.py apply-batch \
 # cue-ID-only semantic drift.
 
 # `translate_vtt_codex.py` writes a session/checkpoint JSON, a partial VTT in
-# `translation/`, a deterministic diagnostics rollup, surfaces advisory
-# alignment-warning context for affected batches, and automatically reduces the
-# batch tier 84 -> 60 -> 48 when a batch is reviewed as yellow.
+# `translation/`, a deterministic diagnostics rollup with a ranked
+# `cps_cleanup_report`, surfaces advisory alignment-warning context for
+# affected batches, and automatically reduces the batch tier 84 -> 60 -> 48
+# only when a batch is reviewed as structural yellow.
 # Restart with `prepare --force` to clear stale session/output/diagnostics
 # artifacts before beginning a fresh run.
 

@@ -66,6 +66,44 @@ Spoken-only Gemini chunks can occasionally volunteer visual prompt text even whe
 - but it is important to remember during transcript review, because one leaked visual line can become a bad English subtitle later if nobody catches it
 - treat this as a manual review watchpoint, especially around obvious on-screen prompt cards and quiz text
 
+Flash-tier free quotas need request-budget-aware retry behavior.
+
+- on `zone05_ep1`, `gemini-3-flash-preview` produced 18 good chunks and then hit the free-tier daily request cap for that model
+- a follow-up `gemini-2.5-flash` resume at concurrency 5 was the wrong shape for a 20-RPD model: repeated `503 UNAVAILABLE` responses and immediate same-chunk retries burned requests without producing many saved chunks
+- the 2.5 Flash failures were service/quota behavior, not evidence that those chunks were intrinsically too hard; the one chunk that survived a QA retry produced a usable transcript
+- when using 2.5 Flash as a request-limited fallback, prefer a sequential sweep: `concurrency=1`, low RPM, and no immediate per-chunk retries for empty/red/transient responses
+- failed chunks should be recorded and revisited in a later sweep or with a stronger model instead of spending multiple daily requests on the same chunk while many untouched chunks remain
+- use `--retry-policy sweep` or the `flash25_quota_sweep` preset for this conservative pass
+
+Follow-up on `2026-05-01` after the 2.5 Flash quota reset:
+
+- one known-bad resumed chunk streamed past `50k` raw characters before manual stop, so first-token timeout alone is not enough loop protection
+- `flash25_quota_sweep` now includes a streamed-character ceiling, and `transcribe_gemini_video.py` exposes `--max-stream-chars`
+- a single `no_progress` chunk should not abort a sweep-mode run; record it and continue to later chunks
+- `--skip-chunks` is useful when a chunk has already proved bad during a request-limited day, because the next pass can spend requests on untouched chunks first
+- when 2.5 Flash starts returning repeated `503 UNAVAILABLE`, stop the sweep and resume later instead of letting high-demand service errors consume the reset window
+
+Flash Lite OCR sidecar can be concurrency-limited by service availability rather than quota.
+
+- on `zone05_ep1`, `gemini-3.1-flash-lite-preview` had a large daily request budget, but chunkwise OCR repeatedly returned `503 UNAVAILABLE`
+- `extract_gemini_chunk_ocr.py` now supports `--concurrency`, `--rpm`, and `--max-request-retries`; request attempts are shared-RPM-limited across workers
+- higher concurrency improved checkpointing throughput when some chunks succeeded, but it did not fix sustained model high-demand periods
+- OCR sidecar output is checkpointed after each successful chunk, and failed chunks are retried on the next run rather than treated as final evidence
+
+Local Gemma 26B via llama.cpp is viable as a drop-in chunk OCR sidecar fallback.
+
+- on `zone05_ep1`, after Flash Lite service errors left 27 chunks incomplete,
+  `gemma-4-26B-A4B-it-IQ4_XS` through local `llama-server` filled the remaining
+  chunks in the same `extract_gemini_chunk_ocr.py` artifact
+- validated settings were `0.5 FPS`, `720px` frame height, up to `15` frames per
+  chunk, `temperature=1.0`, `top_p=0.95`, `top_k=64`, and one server slot
+  (`-np 1`)
+- the completed sidecar had 41/41 successful chunks, 0 parse-warning chunks, and
+  290 OCR items; 14 chunks came from Gemini Flash Lite and 27 from llama.cpp
+- the local path should still be treated as side evidence, not transcript truth:
+  it captures persistent promotional overlays and repeated labels, so downstream
+  glossary/translation use should filter by local relevance
+
 ### 2. CTC forced alignment replaced stable-ts and nearly eliminated stranded words
 
 stable-ts uses Whisper's cross-attention for alignment, which is a byproduct of the generative model. This caused 13.4% of words to get zero-duration timestamps on `oni_no_dokkiri_de_namida_ep2`, even with chunked alignment.
@@ -1280,11 +1318,13 @@ Follow-up correction:
 
 Yellow review classification (implemented):
 
-- batch diagnostics now include `yellow_class` (`"cps_only"` or `"structural"`) and `yellow_reasons` (list of `"hard_cps"`, `"line_count"`)
+- batch diagnostics now include `yellow_class` (`"cps_only"`, `"quality_note"`, or `"structural"`) and `yellow_reasons` (list of `"hard_cps"`, `"line_count"`, and/or a user review class)
 - `cps_only` yellow does NOT trigger batch-tier downgrade — short-cue CPS pressure alone is not a structural risk
+- `quality_note` yellow does NOT trigger batch-tier downgrade — operator notes about ambiguity or ordinary translation quality should not shrink later batches
 - `structural` yellow (line-count violations, with or without CPS) still triggers tier downgrade
-- session diagnostics aggregate `cps_only_yellow_batches` and `structural_yellow_batches` separately
+- session diagnostics aggregate `cps_only_yellow_batches`, `quality_note_yellow_batches`, and `structural_yellow_batches` separately
 - the top-level `review` field stays `green`/`yellow`/`red` for backward compatibility
+- session diagnostics include a ranked `cps_cleanup_report` with `top_fixable`, `top_all`, and category counts so final QA can prioritize likely real subtitle problems over short-reaction CPS noise
 
 ### 9. Codex-interactive reflow repair should be the default skill fallback, not local LLM repair
 
@@ -1865,6 +1905,79 @@ Operational takeaway:
 - oracle/name priming still has real headroom over the no-prime floor
 
 ## Next High-Value Work
+
+### Micro-splitting can rescue pathological Gemini loops, but keep the repair lineage explicit
+
+Validated on `2026-05-02` with `comedy_proof_jinnai_oogiri`.
+
+Finding:
+
+- The reviewed `90s` semantic plan produced a clean 29-chunk full-coverage
+  plan, but dense late-episode talk/joke-review chunks still triggered Gemini
+  loop and timeout failures.
+- `gemini-3-flash-preview` completed `20/29` chunks before free-tier quota
+  exhaustion; `gemini-2.5-flash` recovered `6` more chunks, leaving three
+  loop/timeout spans.
+- Surgical repair plans worked better than rerunning the episode:
+  splitting the failed spans to roughly `40-55s` recovered several spans with
+  Flash-Lite, and splitting one remaining bad span down to `5-16s` recovered
+  all but a `3.5s` tail.
+- One `3.5s` Gemini loop was safer to fill from the saved local whisper
+  pre-pass than to keep spending API requests. Mark that provenance in the
+  merged raw artifact instead of hiding it.
+- The merged repaired raw transcript passed chunk sanity as `green=40
+  yellow=0 red=0`, aligned with CTC at `0` zero-duration segments/words, and
+  only needed a small text-only VTT cleanup for token-spaced Japanese from the
+  repair chunks.
+
+Operational takeaway:
+
+- keep failed production chunks in the raw lineage, but assemble a separate
+  repaired raw JSON from successful production chunks plus repair-subsplit
+  records
+- for repeated Gemini loops, shrink only the failing span and preserve
+  `repair_of_original_chunk` / repair provenance fields
+- if a sub-5s span still loops across Gemini models and the pre-pass clearly
+  covers it, a marked local pre-pass fill is acceptable before CTC alignment
+- review repair-subsplit reflow for token-spaced Japanese and prompt fragments
+  before translation
+
+### Gemma/E4B needs its own semantic chunk plan, not Gemini's 90s plan
+
+Validated on `2026-05-01` with `zone05_ep1` after testing the local
+`google/gemma-4-E4B-it` vLLM route.
+
+Finding:
+
+- Gemma 4 audio accepts roughly `30s` per request, so the normal
+  `vad_chunks_semantic_90.json` plan is invalid for E4B even though it is
+  right for Gemini video.
+- `scripts/build_semantic_chunks.py` can produce the right plan directly:
+  `--target-chunk-s 20 --max-chunk-s 30`.
+- On `zone05_ep1`, that produced `148` full-coverage chunks with
+  `min=2.3s`, `avg=22.8s`, `max=30.0s`; only one tiny chunk remained
+  because both neighbors were already near the hard cap.
+- The E4B runner now rejects any `--chunk-json` containing chunks over
+  the configured `--max-audio-s` instead of silently sending invalid audio.
+
+Operational takeaway:
+
+- keep semantic chunking as the boundary source for E4B, but build a
+  dedicated `vad_chunks_semantic_20_max30.json` plan
+- do not subdivide 90s semantic chunks after the fact; that loses the
+  sentence-boundary review signal
+- after any forced-cap finalize path, inspect min/avg/max durations and
+  tiny chunks before spending a full vLLM run
+
+Command:
+
+```bash
+PYTHONPATH=. python3 scripts/build_semantic_chunks.py prepare \
+  --video <ep>/source/<video> \
+  --target-chunk-s 20 \
+  --max-chunk-s 30 \
+  --output <ep>/transcription/vad_chunks_semantic_20_max30.json
+```
 
 1. Finish one full `oni_no_dokkiri_de_namida_ep2` translation run with checkpointing.
 2. Make translation diagnostics less noisy on very short cues.
