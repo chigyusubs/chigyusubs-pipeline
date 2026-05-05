@@ -318,6 +318,26 @@ def _max_line_length(text: str) -> int:
     return max((len(ln) for ln in lines), default=0)
 
 
+def _parse_chunk_indices(spec: str | None) -> set[int]:
+    if not spec:
+        return set()
+    out: set[int] = set()
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            start_s, end_s = part.split("-", 1)
+            start = int(start_s)
+            end = int(end_s)
+            if end < start:
+                raise ValueError(f"Invalid chunk range: {part}")
+            out.update(range(start, end + 1))
+        else:
+            out.add(int(part))
+    return out
+
+
 def _detect_loop_issue(text: str, max_line_length: int) -> dict | None:
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if len(text) > 4000:
@@ -421,6 +441,8 @@ def _classify_api_error(e: Exception) -> str:
         return "quota"
     if "rate-limit errors" in lower or "rate limit" in lower:
         return "quota"
+    if "STREAM_CHAR_LIMIT" in upper:
+        return "stream_limit"
     if "NO_PROGRESS_TIMEOUT" in upper:
         return "no_progress"
     if (
@@ -471,6 +493,8 @@ def _transcribe_single_chunk(
     input_price_per_million: float | None,
     rate_limiter_acquire,
     first_token_timeout_s: float,
+    max_stream_chars: int | None,
+    retry_policy: str,
 ) -> dict:
     """Transcribe a single chunk with the maintained retry policy.
 
@@ -480,6 +504,8 @@ def _transcribe_single_chunk(
     - If quota (429/RESOURCE_EXHAUSTED): no retry, return quota error immediately.
     - If loop/red QA/timeout: one retry with retry_temperature, no rolling context.
     - If still bad after retry: return the failure record without raising.
+    - In sweep mode, do not spend an immediate retry on the same chunk; record
+      the failure and let the run try other chunks first.
 
     Returns a chunk record dict.  On unrecoverable failure the record includes
     an 'error' key with structured failure details.
@@ -563,6 +589,7 @@ def _transcribe_single_chunk(
                 max_timeout_errors=1,
                 max_rate_limit_errors=3,
                 first_token_timeout_s=first_token_timeout_s,
+                max_stream_chars=max_stream_chars,
             )
             elapsed = time.time() - t0
             text = result["text"]
@@ -621,6 +648,14 @@ def _transcribe_single_chunk(
                 thinking_level, thinking_budget, token_preview,
                 attempt_history=attempt_history,
                 error={"type": "no_progress", "reason": a1["error_message"], "model": model},
+            )
+
+        if retry_policy == "sweep":
+            return _build_chunk_record(
+                i, c_start, c_end, chunk_size_mb, media_resolution,
+                thinking_level, thinking_budget, token_preview,
+                attempt_history=attempt_history,
+                error={"type": err_class, "reason": a1["error_message"], "model": model},
             )
 
         if err_class == "transient":
@@ -692,6 +727,13 @@ def _transcribe_single_chunk(
     # Loop detection
     loop_issue = _detect_loop_issue(text, loop_max_line_length)
     if loop_issue:
+        if retry_policy == "sweep":
+            return _build_chunk_record(
+                i, c_start, c_end, chunk_size_mb, media_resolution,
+                thinking_level, thinking_budget, token_preview,
+                attempt_history=attempt_history,
+                error={"type": "loop", "reason": loop_issue["reason"], "model": model, "details": loop_issue},
+            )
         log(f"{label} Loop detected ({loop_issue['reason']}); retrying with temp={retry_temperature}...")
         retry_prompt = build_prompt([], prev_context=None, include_visual_brackets=not spoken_only) + "\n\n" + _retry_prompt()
         a2 = _do_attempt(
@@ -726,6 +768,13 @@ def _transcribe_single_chunk(
     }
     qa_red = _red_chunk_report(temp_record)
     if qa_red is not None:
+        if retry_policy == "sweep":
+            return _build_chunk_record(
+                i, c_start, c_end, chunk_size_mb, media_resolution,
+                thinking_level, thinking_budget, token_preview,
+                attempt_history=attempt_history,
+                error={"type": "qa_red", "reason": ", ".join(qa_red["issue_codes"]), "model": model, "details": qa_red},
+            )
         log(f"{label} Red QA ({', '.join(qa_red['issue_codes'])}); retrying with temp={retry_temperature}...")
         retry_prompt = build_prompt([], prev_context=None, include_visual_brackets=not spoken_only) + "\n\n" + _qa_retry_prompt(spoken_only=spoken_only)
         a2 = _do_attempt(
@@ -860,6 +909,9 @@ def run_video_transcription(
     fallback_models: list[str] | None = None,
     rpm: int = 5,
     first_token_timeout_s: float = 60.0,
+    max_stream_chars: int | None = None,
+    retry_policy: str = "standard",
+    skip_chunks: set[int] | None = None,
 ):
     run = start_run("transcribe_gemini_video")
     requested_output = Path(output_path)
@@ -1016,7 +1068,10 @@ def run_video_transcription(
         log(f"Resuming: {len(done_indices)} chunks already completed, {len(chunk_bounds) - len(done_indices)} remaining")
 
     # Figure out which chunks still need work
-    pending_indices = [i for i in range(len(chunk_bounds)) if i not in done_indices]
+    skip_indices = set(skip_chunks or set())
+    if skip_indices:
+        log(f"Skipping chunks by request: {sorted(skip_indices)}")
+    pending_indices = [i for i in range(len(chunk_bounds)) if i not in done_indices and i not in skip_indices]
     if stop_after_chunks > 0:
         pending_indices = pending_indices[:stop_after_chunks]
 
@@ -1062,6 +1117,8 @@ def run_video_transcription(
                 rpm=rpm,
                 chunks_dir=chunks_dir,
                 first_token_timeout_s=first_token_timeout_s,
+                max_stream_chars=max_stream_chars,
+                retry_policy=retry_policy,
             )
 
             succeeded = []
@@ -1133,6 +1190,9 @@ def run_video_transcription(
             "concurrency": effective_concurrency,
             "rpm": rpm,
             "first_token_timeout_s": first_token_timeout_s,
+            "max_stream_chars": max_stream_chars,
+            "retry_policy": retry_policy,
+            "skip_chunks": sorted(skip_indices),
             "stop_after_chunks": stop_after_chunks,
             "spoken_only": spoken_only,
             "preset": preset_name,
@@ -1205,6 +1265,8 @@ def _run_concurrent_pass(
     rpm: int,
     chunks_dir: Path,
     first_token_timeout_s: float,
+    max_stream_chars: int | None,
+    retry_policy: str,
 ) -> list[dict]:
     """Run a concurrent transcription pass over the given chunk indices.
 
@@ -1277,6 +1339,8 @@ def _run_concurrent_pass(
                 input_price_per_million=input_price_per_million,
                 rate_limiter_acquire=sync_acquire,
                 first_token_timeout_s=first_token_timeout_s,
+                max_stream_chars=max_stream_chars,
+                retry_policy=retry_policy,
             )
 
             # Save immediately to per-chunk file
@@ -1343,7 +1407,8 @@ def _run_concurrent_pass(
                     if err and err.get("type") == "no_progress":
                         initial_no_progress.add(idx)
                     if (
-                        not saw_real_response
+                        retry_policy != "sweep"
+                        and not saw_real_response
                         and initial_finished == initial_indices
                         and initial_no_progress == initial_indices
                     ):
@@ -1595,6 +1660,27 @@ def main():
         help="Abort a request attempt if no first token arrives within this many seconds (default: 60).",
     )
     parser.add_argument(
+        "--max-stream-chars",
+        type=int,
+        default=None,
+        help="Abort a streaming response after this many raw characters. Use this to cap repetition loops.",
+    )
+    parser.add_argument(
+        "--skip-chunks",
+        default=None,
+        help="Comma-separated zero-based chunk indices or ranges to leave untouched on this run, e.g. 18,22-24.",
+    )
+    parser.add_argument(
+        "--retry-policy",
+        choices=["standard", "sweep"],
+        default=None,
+        help=(
+            "Per-chunk retry behavior. 'standard' retries transient/red chunks immediately. "
+            "'sweep' records a failed/empty/looping chunk after one attempt and moves on, "
+            "which is better for strict request-per-day quotas."
+        ),
+    )
+    parser.add_argument(
         "--fallback-models",
         default=None,
         help="Comma-separated fallback model chain for quota exhaustion (e.g. 'gemini-3-flash-preview,gemini-2.5-flash').",
@@ -1665,6 +1751,7 @@ def main():
     fallback_models_override = None
     if args.fallback_models is not None:
         fallback_models_override = [m.strip() for m in args.fallback_models.split(",") if m.strip()]
+    skip_chunks = _parse_chunk_indices(args.skip_chunks)
 
     resolved, chosen_preset = resolve_settings(
         "transcribe_gemini_video",
@@ -1685,6 +1772,8 @@ def main():
             "fallback_models": fallback_models_override,
             "rpm": args.rpm,
             "first_token_timeout_s": args.first_token_timeout_s,
+            "max_stream_chars": args.max_stream_chars,
+            "retry_policy": args.retry_policy,
         },
     )
 
@@ -1729,6 +1818,9 @@ def main():
         fallback_models=resolved["fallback_models"],
         rpm=resolved["rpm"],
         first_token_timeout_s=resolved["first_token_timeout_s"],
+        max_stream_chars=resolved["max_stream_chars"],
+        retry_policy=resolved["retry_policy"],
+        skip_chunks=skip_chunks,
     )
     if not complete:
         sys.exit(75)  # EX_TEMPFAIL — incomplete, resumable

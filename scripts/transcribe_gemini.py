@@ -346,6 +346,7 @@ def transcribe_chunk_result(
     max_timeout_errors: int = 3,
     max_rate_limit_errors: int = 4,
     first_token_timeout_s: float | None = 60.0,
+    max_stream_chars: int | None = None,
 ) -> dict[str, Any]:
     """Send a media chunk to Gemini via streaming, return plain transcript text."""
     from google.genai import types
@@ -395,11 +396,22 @@ def transcribe_chunk_result(
 
             def _stream_request() -> None:
                 try:
+                    streamed_chars = 0
                     for chunk in client.models.generate_content_stream(
                         model=model,
                         contents=parts,
                         config=config,
                     ):
+                        streamed_chars += len(chunk.text or "")
+                        if max_stream_chars is not None and max_stream_chars > 0 and streamed_chars > max_stream_chars:
+                            event_queue.put((
+                                "error",
+                                RuntimeError(
+                                    f"STREAM_CHAR_LIMIT: response exceeded {max_stream_chars} raw chars; "
+                                    "likely repetition loop."
+                                ),
+                            ))
+                            return
                         event_queue.put(("chunk", chunk))
                     event_queue.put(("done", None))
                 except BaseException as exc:
