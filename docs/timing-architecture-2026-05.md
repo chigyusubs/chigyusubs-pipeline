@@ -216,10 +216,39 @@ valuable next investment.
   expansion incorrectly.
 
 #### Outputs
-- `<input>_drift_corrected.json` — corrected ctc_words
+- `<input>_drift_corrected.json` — corrected ctc_words (standalone tool)
 - `<output>.diagnostics.json` — per-seg actions, params, summary
 - Run `scripts/reflow_words.py --line-level` against the corrected json to
   produce a parallel reflow VTT for A/B comparison.
+
+#### Pipeline integration (SHIPPED 2026-05-06)
+
+Drift correction is now folded into `scripts/align_ctc.py` as a post-pass and
+runs on every alignment by default. Rationale:
+
+- **Drift is a CTC failure mode.** wav2vec2 must place every transcript token
+  somewhere on the audio; where the blank-token posterior collapses (pre-roll
+  music, BGM-masked passages) tokens smear across silence. The fix conceptually
+  belongs to the same step that produced the broken timestamps — splitting it
+  into a separate pipeline phase advertises a problem the user shouldn't need
+  to know about.
+- **Gross-drift only, false-positive rate ~0.** With `min_intra_gap_s = 3.0s`,
+  san-nomi triggers on exactly the 2 segments confirmed by listen-test (seg 0
+  pre-roll, seg 17 BGM gap). Other 827/829 segments untouched. Always-on is
+  safe at this threshold.
+- **Clean phase count.** Pipeline stays at 6 phases. No new `preferred` keys,
+  no branching consumer logic in reflow / second opinion.
+- **Audit trail preserved.** When any modification fires, the pre-correction
+  segments are saved as `*_ctc_words_raw.json` alongside the corrected output.
+  Drift diagnostics fold into the existing `*.diagnostics.json` under a
+  `"drift"` key (status, params, per-segment actions, summary). Metadata stats
+  carry `drift_status`, `drift_segments_modified`, `drift_max_abs_shift_s`.
+- **Opt-out path.** `--no-drift-correction` disables; `--vad-segments PATH`
+  overrides VAD location; `--min-intra-gap-s` tunes the threshold. Graceful
+  skip with a logged reason if VAD JSON is absent.
+- **Standalone tool retained.** `scripts/correct_ctc_drift.py` still works for
+  re-running correction with different params on cached CTC output without a
+  full re-alignment.
 
 #### Anomalies surfaced (separate from drift, Gemini-text concerns)
 - san-nomi: `おお、よしよし` appears twice in the transcript (seg 0 at 19.4s

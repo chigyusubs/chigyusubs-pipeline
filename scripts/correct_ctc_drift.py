@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Correct CTC drift in `ctc_words.json` against VAD speech regions.
 
+NOTE: As of 2026-05, drift correction is built into `scripts/align_ctc.py`
+and runs by default at the end of CTC alignment. This standalone script is
+retained for debugging and for re-running the correction on cached CTC output
+with different parameters (no full re-alignment needed).
+
 CTC forced alignment must place every transcript token somewhere; in regions
 where the model's posterior over blank collapses (pre-roll music, BGM-masked
 speech, domain-mismatch pockets) tokens leak across silence and downstream
 reflow inherits massively wrong timings (san-nomi cue 0: 12s pre-speech drift).
 
-This pre-pass clusters words by intra-word gap, validates each cluster against
+This pass clusters words by intra-word gap, validates each cluster against
 Silero VAD, and either trims the segment to the real-cluster span or
 relocates an entirely-ghost segment near the nearest unclaimed VAD onset.
 

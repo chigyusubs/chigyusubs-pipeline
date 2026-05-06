@@ -5,6 +5,15 @@ Uses torchaudio.functional.forced_align for character-level CTC alignment,
 which is more robust than stable-ts cross-attention alignment for short
 utterances and chunk edges.
 
+Includes a built-in drift correction post-pass: CTC must place every transcript
+token somewhere on the audio, and where blank-token posterior collapses
+(pre-roll music, BGM-masked passages) tokens leak across silence. After
+alignment, segments are validated against Silero VAD; gross-drift cases
+(>=3s intra-word gap by default) are re-timed in place. Pass
+--no-drift-correction to disable, or --vad-segments to override the VAD path.
+The pre-correction segment list is preserved alongside as *_ctc_words_raw.json
+when any modification fires.
+
 Usage:
   python scripts/align_ctc.py \
     --video samples/episodes/oni_no_dokkiri_de_namida_ep2/source/oni_no_dokkiri_de_namida_ep2.webm \
@@ -36,6 +45,20 @@ from chigyusubs.metadata import (
     update_preferred_manifest,
     write_metadata,
 )
+from chigyusubs.ctc_drift import (
+    DEFAULT_CLUSTER_GAP_S,
+    DEFAULT_GHOST_VAD_OVERLAP_S,
+    DEFAULT_MAX_PRE_SPEECH_LEAD_S,
+    DEFAULT_MIN_CUE_S,
+    DEFAULT_MIN_INTRA_GAP_S,
+    DEFAULT_NEAR_VAD_LOOKAHEAD_S,
+    DEFAULT_TARGET_JP_CPS,
+    DEFAULT_VAD_BRIDGE_S,
+    VadRegion,
+    repair_segments,
+    summarize as summarize_drift,
+)
+from dataclasses import asdict
 
 SAMPLE_RATE = 16000
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -92,6 +115,21 @@ def configure_torch_threads() -> None:
 
 def diagnostics_path(output_path: str | Path) -> Path:
     return Path(f"{output_path}.diagnostics.json")
+
+
+def _load_vad_regions(vad_path: Path) -> list[VadRegion]:
+    data = json.loads(vad_path.read_text(encoding="utf-8"))
+    if isinstance(data, dict) and "segments" in data:
+        data = data["segments"]
+    regs = [VadRegion(float(s["start"]), float(s["end"])) for s in data]
+    regs.sort(key=lambda r: r.start)
+    return regs
+
+
+def _raw_words_path(output_words: str | Path) -> Path:
+    """Sibling path for the pre-drift-correction audit copy."""
+    p = Path(output_words)
+    return p.with_name(p.stem + "_raw" + p.suffix)
 
 
 def extract_audio_slice(video_path, start_s, duration_s, out_path):
@@ -765,6 +803,19 @@ def main():
         help="Start a new lineage root for this alignment run while preserving the chunk JSON as lineage_source.",
     )
     parser.add_argument("--no-rescue", action="store_true", help="Skip stable-ts rescue pass for weak-anchor segments.")
+    parser.add_argument(
+        "--no-drift-correction", action="store_true",
+        help="Skip post-alignment drift correction against Silero VAD "
+             "(default: on; requires silero_vad_segments.json next to output).",
+    )
+    parser.add_argument(
+        "--vad-segments", default="",
+        help="Override path to Silero VAD segments JSON (default: <output_dir>/silero_vad_segments.json).",
+    )
+    parser.add_argument(
+        "--min-intra-gap-s", type=float, default=DEFAULT_MIN_INTRA_GAP_S,
+        help=f"Min intra-word gap for drift suspect classification (default {DEFAULT_MIN_INTRA_GAP_S}s).",
+    )
     args = parser.parse_args()
     if args.fresh_run_id:
         run["lineage_source"] = str(args.chunks)
@@ -952,6 +1003,66 @@ def main():
     if rescue_details:
         print(f"Weak-anchor rescue: {rescued_count} rescued, {rescue_failed_count} failed")
 
+    # Drift correction: post-alignment pass against Silero VAD. CTC must place
+    # every transcript token somewhere, and where blank-token posterior collapses
+    # (pre-roll music, BGM-masked passages) tokens smear across silence. We
+    # cluster words on intra-word gaps, validate against VAD, and re-time the
+    # cue. Only fires on the gross-drift signature (>=3s intra-word gap by
+    # default) — sub-3s spacing is left alone to avoid VAD-vs-Whisper jitter
+    # regressions. See docs/timing-architecture-2026-05.md.
+    drift_summary: dict | None = None
+    drift_diag_payload: dict | None = None
+    drift_status = "skipped"
+    drift_skip_reason: str | None = None
+
+    if args.no_drift_correction:
+        drift_skip_reason = "disabled via --no-drift-correction"
+    else:
+        vad_path = Path(args.vad_segments) if args.vad_segments else (
+            Path(args.output_words).parent / "silero_vad_segments.json"
+        )
+        if not vad_path.exists():
+            drift_skip_reason = f"VAD segments not found at {vad_path}"
+            print(f"\nDrift correction skipped: {drift_skip_reason}")
+        else:
+            print(f"\nDrift correction: validating against {vad_path.name}")
+            vad = _load_vad_regions(vad_path)
+            raw_segments = json.loads(json.dumps(all_segments, ensure_ascii=False))
+            corrected, drift_diags = repair_segments(
+                raw_segments, vad, min_intra_gap_s=args.min_intra_gap_s,
+            )
+            drift_summary = summarize_drift(drift_diags)
+            n_modified = drift_summary.get("n_modified", 0)
+            print(f"  Modified {n_modified}/{len(all_segments)} segments "
+                  f"(actions: {drift_summary.get('counts', {})})")
+            if n_modified > 0:
+                # Save raw audit copy alongside corrected output.
+                raw_path = _raw_words_path(args.output_words)
+                Path(args.output_words).parent.mkdir(parents=True, exist_ok=True)
+                with open(raw_path, "w", encoding="utf-8") as f:
+                    json.dump(all_segments, f, ensure_ascii=False, indent=2)
+                print(f"  Pre-correction audit copy: {raw_path}")
+                all_segments = corrected
+                drift_status = "applied"
+            else:
+                drift_status = "no_modifications"
+            drift_diag_payload = {
+                "status": drift_status,
+                "vad_path": str(vad_path),
+                "params": {
+                    "cluster_gap_s": DEFAULT_CLUSTER_GAP_S,
+                    "max_pre_speech_lead_s": DEFAULT_MAX_PRE_SPEECH_LEAD_S,
+                    "min_cue_s": DEFAULT_MIN_CUE_S,
+                    "target_jp_cps": DEFAULT_TARGET_JP_CPS,
+                    "ghost_vad_overlap_s": DEFAULT_GHOST_VAD_OVERLAP_S,
+                    "vad_bridge_s": DEFAULT_VAD_BRIDGE_S,
+                    "near_vad_lookahead_s": DEFAULT_NEAR_VAD_LOOKAHEAD_S,
+                    "min_intra_gap_s": args.min_intra_gap_s,
+                },
+                "summary": drift_summary,
+                "segments": [asdict(d) for d in drift_diags],
+            }
+
     Path(args.output_words).parent.mkdir(parents=True, exist_ok=True)
     with open(args.output_words, "w", encoding="utf-8") as f:
         json.dump(all_segments, f, ensure_ascii=False, indent=2)
@@ -960,6 +1071,10 @@ def main():
     full_diagnostics = {
         "chunks": all_chunk_diagnostics,
     }
+    if drift_diag_payload is not None:
+        full_diagnostics["drift"] = drift_diag_payload
+    elif drift_skip_reason is not None:
+        full_diagnostics["drift"] = {"status": "skipped", "reason": drift_skip_reason}
     if rescue_details:
         full_diagnostics["rescue"] = {
             "model": RESCUE_MODEL_NAME,
@@ -982,6 +1097,8 @@ def main():
             "cpu_threads": CPU_THREADS,
             "rescue_model": None if args.no_rescue else RESCUE_MODEL_NAME,
             "weak_anchor_threshold": _WEAK_ANCHOR_VOCAB_THRESHOLD,
+            "drift_correction_enabled": not args.no_drift_correction,
+            "drift_min_intra_gap_s": args.min_intra_gap_s,
         },
         stats={
             "chunks_loaded": len(chunks_data),
@@ -996,6 +1113,9 @@ def main():
             "weak_anchor_segments": weak_anchor_count,
             "weak_anchor_rescued": rescued_count,
             "weak_anchor_rescue_failed": rescue_failed_count,
+            "drift_status": drift_status if not args.no_drift_correction else "disabled",
+            "drift_segments_modified": (drift_summary or {}).get("n_modified", 0) if drift_summary else 0,
+            "drift_max_abs_shift_s": (drift_summary or {}).get("max_abs_shift_s", 0.0) if drift_summary else 0.0,
         },
     )
     write_metadata(args.output_words, metadata)

@@ -26,7 +26,7 @@ Key artifacts per episode:
 
 ## Architecture notes
 
-- CTC alignment (`align_ctc.py`) is the default. Uses `NTQAI/wav2vec2-large-japanese` + `torchaudio.functional.forced_align`.
+- CTC alignment (`align_ctc.py`) is the default. Uses `NTQAI/wav2vec2-large-japanese` + `torchaudio.functional.forced_align`. Includes a built-in drift-correction post-pass against Silero VAD (gross-drift only, ≥3s intra-word gap by default) — see `docs/timing-architecture-2026-05.md`. Pre-correction segments saved as `*_ctc_words_raw.json` when any modification fires; `--no-drift-correction` to disable.
 - When filtering CTC segments per chunk, assign by **start time** (`seg.start >= chunk_start and seg.start < chunk_end`), not by overlap. Overlap-based filtering causes segment leak across chunk boundaries.
 - Whisper pre-pass uses openai-whisper (not faster-whisper — faster-whisper silently stops producing segments partway through long files). Uses `condition_on_previous_text=False` with a consecutive-dupe strip as safety net.
 - Shared transcript comparison utilities live in `chigyusubs/transcript_comparison.py`.
