@@ -151,6 +151,7 @@ def reflow_lines(
             "end": end,
             "text": text,
             "starts_new_turn": bool(seg.get("starts_new_turn", False)),
+            "words": list(seg.get("words") or []),
         }
         if end <= start:
             zero_lines.append(entry)
@@ -413,20 +414,21 @@ def _split_long_single_lines(
 
         # Single line that's too long — try to split at punctuation
         line = lines[0]
-        candidates = segs_by_text.get(line["text"], [])
-        seg = min(
-            candidates,
-            key=lambda cand: (
-                abs(float(cand.get("start", 0.0)) - float(line.get("start", 0.0))),
-                abs(float(cand.get("end", 0.0)) - float(line.get("end", 0.0))),
-            ),
-            default=None,
-        )
-        if not seg or not seg.get("words"):
-            result.append(cue)
-            continue
-
-        words = seg["words"]
+        words = line.get("words") or []
+        if not words:
+            candidates = segs_by_text.get(line["text"], [])
+            seg = min(
+                candidates,
+                key=lambda cand: (
+                    abs(float(cand.get("start", 0.0)) - float(line.get("start", 0.0))),
+                    abs(float(cand.get("end", 0.0)) - float(line.get("end", 0.0))),
+                ),
+                default=None,
+            )
+            if not seg or not seg.get("words"):
+                result.append(cue)
+                continue
+            words = seg["words"]
         # Find sentence-ending punctuation in the word list
         split_points = []
         for wi, w in enumerate(words[:-1]):  # don't split after last word
@@ -457,13 +459,23 @@ def _split_long_single_lines(
             "start": left_words[0]["start"],
             "end": left_words[-1]["end"],
             "text": left_text,
-            "lines": [{"start": left_words[0]["start"], "end": left_words[-1]["end"], "text": left_text}],
+            "lines": [{
+                "start": left_words[0]["start"],
+                "end": left_words[-1]["end"],
+                "text": left_text,
+                "words": left_words,
+            }],
         }
         right_cue = {
             "start": right_words[0]["start"],
             "end": right_words[-1]["end"],
             "text": right_text,
-            "lines": [{"start": right_words[0]["start"], "end": right_words[-1]["end"], "text": right_text}],
+            "lines": [{
+                "start": right_words[0]["start"],
+                "end": right_words[-1]["end"],
+                "text": right_text,
+                "words": right_words,
+            }],
         }
         # Recursively split if still too long
         result.extend(_split_long_single_lines([left_cue], segments, max_cue_s=max_cue_s, max_cue_chars=max_cue_chars))
