@@ -204,9 +204,23 @@ def wrap_english_text(text: str, max_line_length: int, max_lines: int = 2) -> st
     if len(wrapped) <= max_lines:
         return "\n".join(wrapped)
 
-    first = wrapped[0]
-    second = " ".join(wrapped[1:])
-    return "\n".join([first, second])
+    if max_lines == 2:
+        words = " ".join(raw_lines).split()
+        best: tuple[int, str, str] | None = None
+        for split_idx in range(1, len(words)):
+            first = " ".join(words[:split_idx])
+            second = " ".join(words[split_idx:])
+            if not first or not second:
+                continue
+            overflow = max(0, len(first) - max_line_length) + max(0, len(second) - max_line_length)
+            balance = abs(len(first) - len(second))
+            score = overflow * 1000 + balance
+            if best is None or score < best[0]:
+                best = (score, first, second)
+        if best is not None:
+            return "\n".join([best[1], best[2]])
+
+    return "\n".join(wrapped[:max_lines])
 
 
 def checkpoint_path(output_path: str) -> str:
