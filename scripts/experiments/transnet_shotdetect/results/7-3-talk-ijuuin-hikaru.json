@@ -1,0 +1,1061 @@
+{
+  "stats": {
+    "cues": 686,
+    "cuts": 114,
+    "shots_per_min": 3.153451369538397,
+    "cut_gap_p50": 10.876999999999953,
+    "cut_gap_p10": 5.505000000000109,
+    "cut_gap_p90": 47.513999999999896,
+    "starts_in_window": 70,
+    "ends_in_window": 49,
+    "starts_aligned": 5,
+    "ends_aligned": 3,
+    "near_miss_starts": 65,
+    "near_miss_ends": 46,
+    "cue_spans_cut": 72,
+    "snap_window_s": 0.5,
+    "aligned_thresh_s": 0.041666666666666664,
+    "video": "samples/episodes/7-3-talk-ijuuin-hikaru_vaHhmR6IRFs/source/7-3-talk-ijuuin-hikaru_vaHhmR6IRFs.webm",
+    "reflow": "samples/episodes/7-3-talk-ijuuin-hikaru_vaHhmR6IRFs/transcription/ra0962094_reflow.vtt",
+    "threshold": 0.5,
+    "detect_seconds": 280.0222496986389
+  },
+  "cuts": [
+    25.859,
+    45.145,
+    57.524,
+    72.139,
+    78.612,
+    90.09,
+    97.164,
+    150.15,
+    157.057,
+    183.316,
+    188.922,
+    200.767,
+    223.79,
+    235.335,
+    266.967,
+    272.539,
+    303.17,
+    312.045,
+    318.885,
+    327.16,
+    346.413,
+    353.42,
+    359.226,
+    434.301,
+    441.641,
+    466.099,
+    472.272,
+    489.756,
+    492.759,
+    506.506,
+    517.017,
+    538.104,
+    545.879,
+    587.887,
+    591.558,
+    595.428,
+    635.768,
+    646.579,
+    705.205,
+    716.082,
+    765.164,
+    771.037,
+    779.646,
+    803.87,
+    808.408,
+    877.31,
+    885.952,
+    904.437,
+    911.577,
+    963.563,
+    974.407,
+    981.814,
+    990.656,
+    1050.883,
+    1062.128,
+    1093.159,
+    1099.699,
+    1133.566,
+    1139.739,
+    1162.795,
+    1168.868,
+    1182.915,
+    1190.856,
+    1235.034,
+    1240.639,
+    1259.925,
+    1263.329,
+    1270.636,
+    1276.976,
+    1301.5,
+    1330.863,
+    1341.607,
+    1357.79,
+    1361.894,
+    1385.684,
+    1392.725,
+    1403.302,
+    1408.807,
+    1427.359,
+    1433.832,
+    1453.452,
+    1461.126,
+    1470.636,
+    1508.507,
+    1527.159,
+    1572.404,
+    1580.179,
+    1633.265,
+    1642.841,
+    1661.727,
+    1669.501,
+    1701.533,
+    1715.314,
+    1779.177,
+    1791.957,
+    1851.416,
+    1865.53,
+    1907.739,
+    1912.11,
+    1979.211,
+    1985.283,
+    1987.285,
+    1991.69,
+    1997.762,
+    2007.372,
+    2035.901,
+    2040.372,
+    2087.886,
+    2095.994,
+    2130.395,
+    2137.235,
+    2151.082,
+    2157.322,
+    2161.926
+  ],
+  "shots": [
+    {
+      "shot_id": 1,
+      "start_frame": 0,
+      "end_frame": 775,
+      "probability": 0.9592669010162354,
+      "start_time": "0.000",
+      "end_time": "25.859"
+    },
+    {
+      "shot_id": 2,
+      "start_frame": 776,
+      "end_frame": 1353,
+      "probability": 0.8806341886520386,
+      "start_time": "25.893",
+      "end_time": "45.145"
+    },
+    {
+      "shot_id": 3,
+      "start_frame": 1354,
+      "end_frame": 1724,
+      "probability": 0.9262049794197083,
+      "start_time": "45.178",
+      "end_time": "57.524"
+    },
+    {
+      "shot_id": 4,
+      "start_frame": 1725,
+      "end_frame": 2162,
+      "probability": 0.9045277237892151,
+      "start_time": "57.558",
+      "end_time": "72.139"
+    },
+    {
+      "shot_id": 5,
+      "start_frame": 2163,
+      "end_frame": 2356,
+      "probability": 0.9153689742088318,
+      "start_time": "72.172",
+      "end_time": "78.612"
+    },
+    {
+      "shot_id": 6,
+      "start_frame": 2357,
+      "end_frame": 2700,
+      "probability": 0.8307954668998718,
+      "start_time": "78.645",
+      "end_time": "90.090"
+    },
+    {
+      "shot_id": 7,
+      "start_frame": 2701,
+      "end_frame": 2912,
+      "probability": 0.9157652258872986,
+      "start_time": "90.123",
+      "end_time": "97.164"
+    },
+    {
+      "shot_id": 8,
+      "start_frame": 2913,
+      "end_frame": 4500,
+      "probability": 0.6506830453872681,
+      "start_time": "97.197",
+      "end_time": "150.150"
+    },
+    {
+      "shot_id": 9,
+      "start_frame": 4501,
+      "end_frame": 4707,
+      "probability": 0.6789958477020264,
+      "start_time": "150.183",
+      "end_time": "157.057"
+    },
+    {
+      "shot_id": 10,
+      "start_frame": 4708,
+      "end_frame": 5494,
+      "probability": 0.7489297389984131,
+      "start_time": "157.090",
+      "end_time": "183.316"
+    },
+    {
+      "shot_id": 11,
+      "start_frame": 5495,
+      "end_frame": 5662,
+      "probability": 0.8916504383087158,
+      "start_time": "183.350",
+      "end_time": "188.922"
+    },
+    {
+      "shot_id": 12,
+      "start_frame": 5663,
+      "end_frame": 6017,
+      "probability": 0.9128236174583435,
+      "start_time": "188.955",
+      "end_time": "200.767"
+    },
+    {
+      "shot_id": 13,
+      "start_frame": 6018,
+      "end_frame": 6707,
+      "probability": 0.8764483332633972,
+      "start_time": "200.801",
+      "end_time": "223.790"
+    },
+    {
+      "shot_id": 14,
+      "start_frame": 6708,
+      "end_frame": 7053,
+      "probability": 0.9143534898757935,
+      "start_time": "223.824",
+      "end_time": "235.335"
+    },
+    {
+      "shot_id": 15,
+      "start_frame": 7054,
+      "end_frame": 8001,
+      "probability": 0.663338303565979,
+      "start_time": "235.368",
+      "end_time": "266.967"
+    },
+    {
+      "shot_id": 16,
+      "start_frame": 8002,
+      "end_frame": 8168,
+      "probability": 0.7227715849876404,
+      "start_time": "267.000",
+      "end_time": "272.539"
+    },
+    {
+      "shot_id": 17,
+      "start_frame": 8169,
+      "end_frame": 9086,
+      "probability": 0.8306431770324707,
+      "start_time": "272.572",
+      "end_time": "303.170"
+    },
+    {
+      "shot_id": 18,
+      "start_frame": 9087,
+      "end_frame": 9352,
+      "probability": 0.89195317029953,
+      "start_time": "303.203",
+      "end_time": "312.045"
+    },
+    {
+      "shot_id": 19,
+      "start_frame": 9353,
+      "end_frame": 9557,
+      "probability": 0.8492560386657715,
+      "start_time": "312.078",
+      "end_time": "318.885"
+    },
+    {
+      "shot_id": 20,
+      "start_frame": 9558,
+      "end_frame": 9805,
+      "probability": 0.902704119682312,
+      "start_time": "318.919",
+      "end_time": "327.160"
+    },
+    {
+      "shot_id": 21,
+      "start_frame": 9806,
+      "end_frame": 10382,
+      "probability": 0.7825914025306702,
+      "start_time": "327.194",
+      "end_time": "346.413"
+    },
+    {
+      "shot_id": 22,
+      "start_frame": 10383,
+      "end_frame": 10592,
+      "probability": 0.9122980833053589,
+      "start_time": "346.446",
+      "end_time": "353.420"
+    },
+    {
+      "shot_id": 23,
+      "start_frame": 10593,
+      "end_frame": 10766,
+      "probability": 0.8830193877220154,
+      "start_time": "353.453",
+      "end_time": "359.226"
+    },
+    {
+      "shot_id": 24,
+      "start_frame": 10767,
+      "end_frame": 13016,
+      "probability": 0.8546027541160583,
+      "start_time": "359.259",
+      "end_time": "434.301"
+    },
+    {
+      "shot_id": 25,
+      "start_frame": 13017,
+      "end_frame": 13236,
+      "probability": 0.8250954151153564,
+      "start_time": "434.334",
+      "end_time": "441.641"
+    },
+    {
+      "shot_id": 26,
+      "start_frame": 13237,
+      "end_frame": 13969,
+      "probability": 0.7456581592559814,
+      "start_time": "441.675",
+      "end_time": "466.099"
+    },
+    {
+      "shot_id": 27,
+      "start_frame": 13970,
+      "end_frame": 14154,
+      "probability": 0.7619906067848206,
+      "start_time": "466.132",
+      "end_time": "472.272"
+    },
+    {
+      "shot_id": 28,
+      "start_frame": 14155,
+      "end_frame": 14678,
+      "probability": 0.8815948963165283,
+      "start_time": "472.305",
+      "end_time": "489.756"
+    },
+    {
+      "shot_id": 29,
+      "start_frame": 14679,
+      "end_frame": 14768,
+      "probability": 0.8307210803031921,
+      "start_time": "489.789",
+      "end_time": "492.759"
+    },
+    {
+      "shot_id": 30,
+      "start_frame": 14769,
+      "end_frame": 15180,
+      "probability": 0.8821539282798767,
+      "start_time": "492.792",
+      "end_time": "506.506"
+    },
+    {
+      "shot_id": 31,
+      "start_frame": 15181,
+      "end_frame": 15495,
+      "probability": 0.9038494825363159,
+      "start_time": "506.539",
+      "end_time": "517.017"
+    },
+    {
+      "shot_id": 32,
+      "start_frame": 15496,
+      "end_frame": 16127,
+      "probability": 0.8541558980941772,
+      "start_time": "517.050",
+      "end_time": "538.104"
+    },
+    {
+      "shot_id": 33,
+      "start_frame": 16128,
+      "end_frame": 16360,
+      "probability": 0.8331552743911743,
+      "start_time": "538.138",
+      "end_time": "545.879"
+    },
+    {
+      "shot_id": 34,
+      "start_frame": 16361,
+      "end_frame": 17619,
+      "probability": 0.8757785558700562,
+      "start_time": "545.912",
+      "end_time": "587.887"
+    },
+    {
+      "shot_id": 35,
+      "start_frame": 17620,
+      "end_frame": 17729,
+      "probability": 0.7626002430915833,
+      "start_time": "587.921",
+      "end_time": "591.558"
+    },
+    {
+      "shot_id": 36,
+      "start_frame": 17730,
+      "end_frame": 17845,
+      "probability": 0.8498116135597229,
+      "start_time": "591.591",
+      "end_time": "595.428"
+    },
+    {
+      "shot_id": 37,
+      "start_frame": 17846,
+      "end_frame": 19054,
+      "probability": 0.8217599987983704,
+      "start_time": "595.462",
+      "end_time": "635.768"
+    },
+    {
+      "shot_id": 38,
+      "start_frame": 19055,
+      "end_frame": 19378,
+      "probability": 0.9071611166000366,
+      "start_time": "635.802",
+      "end_time": "646.579"
+    },
+    {
+      "shot_id": 39,
+      "start_frame": 19379,
+      "end_frame": 21135,
+      "probability": 0.8458988666534424,
+      "start_time": "646.613",
+      "end_time": "705.205"
+    },
+    {
+      "shot_id": 40,
+      "start_frame": 21136,
+      "end_frame": 21461,
+      "probability": 0.8892896771430969,
+      "start_time": "705.238",
+      "end_time": "716.082"
+    },
+    {
+      "shot_id": 41,
+      "start_frame": 21462,
+      "end_frame": 22932,
+      "probability": 0.9426540732383728,
+      "start_time": "716.115",
+      "end_time": "765.164"
+    },
+    {
+      "shot_id": 42,
+      "start_frame": 22933,
+      "end_frame": 23108,
+      "probability": 0.8651981949806213,
+      "start_time": "765.198",
+      "end_time": "771.037"
+    },
+    {
+      "shot_id": 43,
+      "start_frame": 23109,
+      "end_frame": 23366,
+      "probability": 0.705475926399231,
+      "start_time": "771.070",
+      "end_time": "779.646"
+    },
+    {
+      "shot_id": 44,
+      "start_frame": 23367,
+      "end_frame": 24092,
+      "probability": 0.5453147292137146,
+      "start_time": "779.679",
+      "end_time": "803.870"
+    },
+    {
+      "shot_id": 45,
+      "start_frame": 24093,
+      "end_frame": 24228,
+      "probability": 0.8129791021347046,
+      "start_time": "803.903",
+      "end_time": "808.408"
+    },
+    {
+      "shot_id": 46,
+      "start_frame": 24229,
+      "end_frame": 26293,
+      "probability": 0.8698791861534119,
+      "start_time": "808.441",
+      "end_time": "877.310"
+    },
+    {
+      "shot_id": 47,
+      "start_frame": 26294,
+      "end_frame": 26552,
+      "probability": 0.7765161991119385,
+      "start_time": "877.343",
+      "end_time": "885.952"
+    },
+    {
+      "shot_id": 48,
+      "start_frame": 26553,
+      "end_frame": 27106,
+      "probability": 0.8449064493179321,
+      "start_time": "885.985",
+      "end_time": "904.437"
+    },
+    {
+      "shot_id": 49,
+      "start_frame": 27107,
+      "end_frame": 27320,
+      "probability": 0.8684792518615723,
+      "start_time": "904.470",
+      "end_time": "911.577"
+    },
+    {
+      "shot_id": 50,
+      "start_frame": 27321,
+      "end_frame": 28878,
+      "probability": 0.883624255657196,
+      "start_time": "911.611",
+      "end_time": "963.563"
+    },
+    {
+      "shot_id": 51,
+      "start_frame": 28879,
+      "end_frame": 29203,
+      "probability": 0.7737320065498352,
+      "start_time": "963.596",
+      "end_time": "974.407"
+    },
+    {
+      "shot_id": 52,
+      "start_frame": 29204,
+      "end_frame": 29425,
+      "probability": 0.9155749082565308,
+      "start_time": "974.440",
+      "end_time": "981.814"
+    },
+    {
+      "shot_id": 53,
+      "start_frame": 29426,
+      "end_frame": 29690,
+      "probability": 0.8997949361801147,
+      "start_time": "981.848",
+      "end_time": "990.656"
+    },
+    {
+      "shot_id": 54,
+      "start_frame": 29691,
+      "end_frame": 31495,
+      "probability": 0.9128908514976501,
+      "start_time": "990.690",
+      "end_time": "1050.883"
+    },
+    {
+      "shot_id": 55,
+      "start_frame": 31496,
+      "end_frame": 31832,
+      "probability": 0.8935986161231995,
+      "start_time": "1050.917",
+      "end_time": "1062.128"
+    },
+    {
+      "shot_id": 56,
+      "start_frame": 31833,
+      "end_frame": 32762,
+      "probability": 0.8898316025733948,
+      "start_time": "1062.161",
+      "end_time": "1093.159"
+    },
+    {
+      "shot_id": 57,
+      "start_frame": 32763,
+      "end_frame": 32958,
+      "probability": 0.8122000694274902,
+      "start_time": "1093.192",
+      "end_time": "1099.699"
+    },
+    {
+      "shot_id": 58,
+      "start_frame": 32959,
+      "end_frame": 33973,
+      "probability": 0.9046002626419067,
+      "start_time": "1099.732",
+      "end_time": "1133.566"
+    },
+    {
+      "shot_id": 59,
+      "start_frame": 33974,
+      "end_frame": 34158,
+      "probability": 0.9214960336685181,
+      "start_time": "1133.599",
+      "end_time": "1139.739"
+    },
+    {
+      "shot_id": 60,
+      "start_frame": 34159,
+      "end_frame": 34849,
+      "probability": 0.8594240546226501,
+      "start_time": "1139.772",
+      "end_time": "1162.795"
+    },
+    {
+      "shot_id": 61,
+      "start_frame": 34850,
+      "end_frame": 35031,
+      "probability": 0.941110372543335,
+      "start_time": "1162.828",
+      "end_time": "1168.868"
+    },
+    {
+      "shot_id": 62,
+      "start_frame": 35032,
+      "end_frame": 35452,
+      "probability": 0.8377160429954529,
+      "start_time": "1168.901",
+      "end_time": "1182.915"
+    },
+    {
+      "shot_id": 63,
+      "start_frame": 35453,
+      "end_frame": 35690,
+      "probability": 0.8329397439956665,
+      "start_time": "1182.948",
+      "end_time": "1190.856"
+    },
+    {
+      "shot_id": 64,
+      "start_frame": 35691,
+      "end_frame": 37014,
+      "probability": 0.8769920468330383,
+      "start_time": "1190.890",
+      "end_time": "1235.034"
+    },
+    {
+      "shot_id": 65,
+      "start_frame": 37015,
+      "end_frame": 37182,
+      "probability": 0.8287925720214844,
+      "start_time": "1235.067",
+      "end_time": "1240.639"
+    },
+    {
+      "shot_id": 66,
+      "start_frame": 37183,
+      "end_frame": 37760,
+      "probability": 0.857481062412262,
+      "start_time": "1240.673",
+      "end_time": "1259.925"
+    },
+    {
+      "shot_id": 67,
+      "start_frame": 37761,
+      "end_frame": 37862,
+      "probability": 0.8223666548728943,
+      "start_time": "1259.959",
+      "end_time": "1263.329"
+    },
+    {
+      "shot_id": 68,
+      "start_frame": 37863,
+      "end_frame": 38081,
+      "probability": 0.9067861437797546,
+      "start_time": "1263.362",
+      "end_time": "1270.636"
+    },
+    {
+      "shot_id": 69,
+      "start_frame": 38082,
+      "end_frame": 38271,
+      "probability": 0.8833531141281128,
+      "start_time": "1270.669",
+      "end_time": "1276.976"
+    },
+    {
+      "shot_id": 70,
+      "start_frame": 38272,
+      "end_frame": 39006,
+      "probability": 0.7219911813735962,
+      "start_time": "1277.009",
+      "end_time": "1301.500"
+    },
+    {
+      "shot_id": 71,
+      "start_frame": 39007,
+      "end_frame": 39886,
+      "probability": 0.9191746115684509,
+      "start_time": "1301.534",
+      "end_time": "1330.863"
+    },
+    {
+      "shot_id": 72,
+      "start_frame": 39887,
+      "end_frame": 40208,
+      "probability": 0.9031135439872742,
+      "start_time": "1330.896",
+      "end_time": "1341.607"
+    },
+    {
+      "shot_id": 73,
+      "start_frame": 40209,
+      "end_frame": 40693,
+      "probability": 0.8466340899467468,
+      "start_time": "1341.640",
+      "end_time": "1357.790"
+    },
+    {
+      "shot_id": 74,
+      "start_frame": 40694,
+      "end_frame": 40816,
+      "probability": 0.7973076105117798,
+      "start_time": "1357.823",
+      "end_time": "1361.894"
+    },
+    {
+      "shot_id": 75,
+      "start_frame": 40817,
+      "end_frame": 41529,
+      "probability": 0.7164095640182495,
+      "start_time": "1361.927",
+      "end_time": "1385.684"
+    },
+    {
+      "shot_id": 76,
+      "start_frame": 41530,
+      "end_frame": 41740,
+      "probability": 0.8276329040527344,
+      "start_time": "1385.718",
+      "end_time": "1392.725"
+    },
+    {
+      "shot_id": 77,
+      "start_frame": 41741,
+      "end_frame": 42057,
+      "probability": 0.8930357694625854,
+      "start_time": "1392.758",
+      "end_time": "1403.302"
+    },
+    {
+      "shot_id": 78,
+      "start_frame": 42058,
+      "end_frame": 42222,
+      "probability": 0.9079996347427368,
+      "start_time": "1403.335",
+      "end_time": "1408.807"
+    },
+    {
+      "shot_id": 79,
+      "start_frame": 42223,
+      "end_frame": 42778,
+      "probability": 0.8854379057884216,
+      "start_time": "1408.841",
+      "end_time": "1427.359"
+    },
+    {
+      "shot_id": 80,
+      "start_frame": 42779,
+      "end_frame": 42972,
+      "probability": 0.8152395486831665,
+      "start_time": "1427.393",
+      "end_time": "1433.832"
+    },
+    {
+      "shot_id": 81,
+      "start_frame": 42973,
+      "end_frame": 43560,
+      "probability": 0.8592049479484558,
+      "start_time": "1433.866",
+      "end_time": "1453.452"
+    },
+    {
+      "shot_id": 82,
+      "start_frame": 43561,
+      "end_frame": 43790,
+      "probability": 0.9112337231636047,
+      "start_time": "1453.485",
+      "end_time": "1461.126"
+    },
+    {
+      "shot_id": 83,
+      "start_frame": 43791,
+      "end_frame": 44075,
+      "probability": 0.8170728087425232,
+      "start_time": "1461.160",
+      "end_time": "1470.636"
+    },
+    {
+      "shot_id": 84,
+      "start_frame": 44076,
+      "end_frame": 45210,
+      "probability": 0.8707613348960876,
+      "start_time": "1470.669",
+      "end_time": "1508.507"
+    },
+    {
+      "shot_id": 85,
+      "start_frame": 45211,
+      "end_frame": 45769,
+      "probability": 0.9197840690612793,
+      "start_time": "1508.540",
+      "end_time": "1527.159"
+    },
+    {
+      "shot_id": 86,
+      "start_frame": 45770,
+      "end_frame": 47125,
+      "probability": 0.9283044338226318,
+      "start_time": "1527.192",
+      "end_time": "1572.404"
+    },
+    {
+      "shot_id": 87,
+      "start_frame": 47126,
+      "end_frame": 47358,
+      "probability": 0.9027848243713379,
+      "start_time": "1572.438",
+      "end_time": "1580.179"
+    },
+    {
+      "shot_id": 88,
+      "start_frame": 47359,
+      "end_frame": 48949,
+      "probability": 0.6234615445137024,
+      "start_time": "1580.212",
+      "end_time": "1633.265"
+    },
+    {
+      "shot_id": 89,
+      "start_frame": 48950,
+      "end_frame": 49236,
+      "probability": 0.8084345459938049,
+      "start_time": "1633.298",
+      "end_time": "1642.841"
+    },
+    {
+      "shot_id": 90,
+      "start_frame": 49237,
+      "end_frame": 49802,
+      "probability": 0.7452432513237,
+      "start_time": "1642.875",
+      "end_time": "1661.727"
+    },
+    {
+      "shot_id": 91,
+      "start_frame": 49803,
+      "end_frame": 50035,
+      "probability": 0.8918180465698242,
+      "start_time": "1661.760",
+      "end_time": "1669.501"
+    },
+    {
+      "shot_id": 92,
+      "start_frame": 50036,
+      "end_frame": 50995,
+      "probability": 0.7302194237709045,
+      "start_time": "1669.535",
+      "end_time": "1701.533"
+    },
+    {
+      "shot_id": 93,
+      "start_frame": 50996,
+      "end_frame": 51408,
+      "probability": 0.8846310973167419,
+      "start_time": "1701.567",
+      "end_time": "1715.314"
+    },
+    {
+      "shot_id": 94,
+      "start_frame": 51409,
+      "end_frame": 53322,
+      "probability": 0.9227561354637146,
+      "start_time": "1715.347",
+      "end_time": "1779.177"
+    },
+    {
+      "shot_id": 95,
+      "start_frame": 53323,
+      "end_frame": 53705,
+      "probability": 0.8658627271652222,
+      "start_time": "1779.211",
+      "end_time": "1791.957"
+    },
+    {
+      "shot_id": 96,
+      "start_frame": 53706,
+      "end_frame": 55487,
+      "probability": 0.7941240668296814,
+      "start_time": "1791.990",
+      "end_time": "1851.416"
+    },
+    {
+      "shot_id": 97,
+      "start_frame": 55488,
+      "end_frame": 55910,
+      "probability": 0.9026759266853333,
+      "start_time": "1851.450",
+      "end_time": "1865.530"
+    },
+    {
+      "shot_id": 98,
+      "start_frame": 55911,
+      "end_frame": 57175,
+      "probability": 0.8904895186424255,
+      "start_time": "1865.564",
+      "end_time": "1907.739"
+    },
+    {
+      "shot_id": 99,
+      "start_frame": 57176,
+      "end_frame": 57306,
+      "probability": 0.8323843479156494,
+      "start_time": "1907.773",
+      "end_time": "1912.110"
+    },
+    {
+      "shot_id": 100,
+      "start_frame": 57307,
+      "end_frame": 59317,
+      "probability": 0.733363151550293,
+      "start_time": "1912.144",
+      "end_time": "1979.211"
+    },
+    {
+      "shot_id": 101,
+      "start_frame": 59318,
+      "end_frame": 59499,
+      "probability": 0.7325688004493713,
+      "start_time": "1979.244",
+      "end_time": "1985.283"
+    },
+    {
+      "shot_id": 102,
+      "start_frame": 59500,
+      "end_frame": 59559,
+      "probability": 0.85513836145401,
+      "start_time": "1985.317",
+      "end_time": "1987.285"
+    },
+    {
+      "shot_id": 103,
+      "start_frame": 59560,
+      "end_frame": 59691,
+      "probability": 0.8443428874015808,
+      "start_time": "1987.319",
+      "end_time": "1991.690"
+    },
+    {
+      "shot_id": 104,
+      "start_frame": 59692,
+      "end_frame": 59873,
+      "probability": 0.8719595074653625,
+      "start_time": "1991.723",
+      "end_time": "1997.762"
+    },
+    {
+      "shot_id": 105,
+      "start_frame": 59874,
+      "end_frame": 60161,
+      "probability": 0.902009904384613,
+      "start_time": "1997.796",
+      "end_time": "2007.372"
+    },
+    {
+      "shot_id": 106,
+      "start_frame": 60162,
+      "end_frame": 61016,
+      "probability": 0.6896135210990906,
+      "start_time": "2007.405",
+      "end_time": "2035.901"
+    },
+    {
+      "shot_id": 107,
+      "start_frame": 61017,
+      "end_frame": 61150,
+      "probability": 0.7290462851524353,
+      "start_time": "2035.934",
+      "end_time": "2040.372"
+    },
+    {
+      "shot_id": 108,
+      "start_frame": 61151,
+      "end_frame": 62574,
+      "probability": 0.7380460500717163,
+      "start_time": "2040.405",
+      "end_time": "2087.886"
+    },
+    {
+      "shot_id": 109,
+      "start_frame": 62575,
+      "end_frame": 62817,
+      "probability": 0.7914287447929382,
+      "start_time": "2087.919",
+      "end_time": "2095.994"
+    },
+    {
+      "shot_id": 110,
+      "start_frame": 62818,
+      "end_frame": 63848,
+      "probability": 0.8755763173103333,
+      "start_time": "2096.027",
+      "end_time": "2130.395"
+    },
+    {
+      "shot_id": 111,
+      "start_frame": 63849,
+      "end_frame": 64053,
+      "probability": 0.892625629901886,
+      "start_time": "2130.428",
+      "end_time": "2137.235"
+    },
+    {
+      "shot_id": 112,
+      "start_frame": 64054,
+      "end_frame": 64468,
+      "probability": 0.8799136877059937,
+      "start_time": "2137.268",
+      "end_time": "2151.082"
+    },
+    {
+      "shot_id": 113,
+      "start_frame": 64469,
+      "end_frame": 64655,
+      "probability": 0.7961874604225159,
+      "start_time": "2151.116",
+      "end_time": "2157.322"
+    },
+    {
+      "shot_id": 114,
+      "start_frame": 64656,
+      "end_frame": 64793,
+      "probability": 0.980767011642456,
+      "start_time": "2157.355",
+      "end_time": "2161.926"
+    },
+    {
+      "shot_id": 115,
+      "start_frame": 64794,
+      "end_frame": 65034,
+      "probability": 0.02343313954770565,
+      "start_time": "2161.960",
+      "end_time": "2169.968"
+    }
+  ]
+}
