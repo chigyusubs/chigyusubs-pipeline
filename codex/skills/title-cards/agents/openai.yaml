@@ -1,0 +1,4 @@
+interface:
+  display_name: "Title Cards"
+  short_description: "Insert title-card cues (segment intros, round markers, location stamps) into a translated VTT using shot boundaries + OCR"
+  default_prompt: "Use $title-cards to review and add title-card cues to the translated VTT for this episode."

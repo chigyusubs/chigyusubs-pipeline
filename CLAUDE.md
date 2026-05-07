@@ -6,13 +6,14 @@ Japanese variety show subtitle pipeline. Scripts in `scripts/`, episode data in 
 
 ```
 whisper pre-pass → semantic chunking → gemini transcription → [audio augment] → OCR → glossary
-→ CTC alignment → second opinion → reflow → [repair] → translation
+→ CTC alignment → second opinion → reflow → [repair] → translation → [title cards]
 ```
 
 Key artifacts per episode:
-- `*_gemini_raw.json` → (`*_augmented.json`) → `*_ctc_words.json` → `*_reflow.vtt` → `*_en.vtt`
+- `*_gemini_raw.json` → (`*_augmented.json`) → `*_ctc_words.json` → `*_reflow.vtt` → `*_en.vtt` → (`*_en_with_cards.vtt`)
 - Second opinion reports live in `transcription/diagnostics/`
 - Pre-pass transcript doubles as second-opinion source (no redundant whisper run)
+- Shot detection (`scripts/detect_shots.py`, TransNetV2) caches `*.shots.json` under `samples/episodes/<slug>/shots/` — used by the title-cards stage.
 
 ## Environment
 
@@ -32,3 +33,4 @@ Key artifacts per episode:
 - Shared transcript comparison utilities live in `chigyusubs/transcript_comparison.py`.
 - Audio augmentation (`correct_transcript_flash_lite.py` + `augment_transcript_codex.py`) is an optional step between Gemini transcription and CTC alignment. Flash Lite re-transcribes from audio to recover missing reactions/interjections, then Codex merges additions into the original transcript. Updates `preferred.json` so alignment picks up the augmented file.
 - Translation uses Codex (OpenAI) interactively via `translate_vtt_codex.py`. Turn context from alignment provides anonymous speaker boundaries for pronoun tracking.
+- Title cards (`scripts/title_cards_codex.py`, optional after translation) augment the EN VTT with cues for unnarrated full-screen cards (segment intros, round markers, location stamps). Cross-references TransNetV2 shot brackets with Flash Lite chunk OCR's title/name/info-card menu; Codex applies the policy in `codex/skills/title-cards/`. Conservative by default — most candidates are skipped. Output `*_en_with_cards.vtt` lands beside the EN VTT and registers under the `en_with_cards` key in `translation/preferred.json`.
