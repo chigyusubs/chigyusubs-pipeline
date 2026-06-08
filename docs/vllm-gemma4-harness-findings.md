@@ -478,6 +478,73 @@ specifically want to suppress kanji transliteration of name tokens.
   dominate the selection. Without that fix they crowded out more
   interesting cases.
 
+### Gemma 4 12B "unified" (encoder-free, native audio) — 2026-06-08
+
+Tried `google/gemma-4-12B-it-qat-w4a16-ct`, the dense encoder-free
+"unified" Gemma 4 with **native audio ASR** (not the E2B/E4B tower
+models this harness usually drives). Goal: see if the bigger dense model
+transcribes Killah Kuts audio better. **Conclusion: it does not — it is
+less robust than E4B-with-the-encoder on this content, and not viable
+as-is.**
+
+**Serving.** The existing E2B/E4B image can't load it (April vLLM +
+transformers 5.5.3 predate the `gemma4_unified` arch). Built a new image
+`vllm-rocm-gemma4u:nightly` FROM the newer `vllm-openai-rocm:nightly`
+(vLLM 0.22.1rc1, transformers 5.10.2) — see
+`scripts/experiments/vllm_gemma4_harness/server/Dockerfile.unified`.
+Runs on the RX 7900 XTX (gfx1100, `ROCR_VISIBLE_DEVICES=1`), ~8.1 GiB
+weights, w4a16 loads cleanly on ROCm. Two version-skew patches baked
+into the Dockerfile (vLLM nightly reads config fields released
+transformers 5.10.2 / the checkpoint don't expose):
+`vision_config.num_soft_tokens` and the dummy-audio
+`feature_extractor.fft_length` → getattr fallbacks. Serve audio-only
+with `--limit-mm-per-prompt '{"image":0,"video":0,"audio":1}'
+--attention-backend TRITON_ATTN`.
+
+**Flaws found (the headline).**
+
+1. **Greedy decoding loops.** Its `generation_config` wants sampling
+   (`temperature=1.0, top_p=0.95, top_k=64`); the harness default
+   `temperature=0.0` produces degenerate repetition (`マジで マジで …`,
+   `thought thought …`). Any use needs a per-model sampling override.
+2. **Confabulates on anything but clean single-speaker speech.** On a
+   clean one-sentence clip it nails it and is deterministic across runs
+   ("今回は南川と新一の対戦…"). On short noisy/combat clips it invents
+   fluent unrelated dialogue (gossip, shopping, game-show rules) or
+   loops. It pattern-completes toward generic Japanese chat when the
+   acoustic signal is thin, even reusing correctly-heard names as
+   characters in the invented scene.
+3. **Real-chunk test failed outright.** Three real e4b chunks (12–29 s
+   of actual overlapping commentary + crowd + music), best config
+   (neutral prompt, thinking off, temp 1.0): one confabulated AND leaked
+   the prompt back verbatim; one collapsed into `いや、いや、いや…` to the
+   token cap; one started plausibly then collapsed into `え、え、え…`.
+   None matched the gemini-2.5-pro+video reference. So the dividing line
+   is audio **clarity**, not length — and busy multi-speaker
+   variety-show audio (most of the episode) breaks it.
+
+**Guards that don't help.** `repetition_penalty` garbles Japanese (legit
+token repeats) and makes it leak the system prompt back. Naming the
+domain in the prompt just flavors the hallucination (a combat clip
+confabulated a *martial-arts history lecture*) — same lesson as
+`feedback_e4b_prime_budget`. Thinking off
+(`chat_template_kwargs={"enable_thinking":false}`, needed because a
+system message auto-enables thinking) cleans up token leakage but does
+NOT fix the loops. **VAD-gating won't save it either** — the hard chunks
+ARE speech, just dense.
+
+**Read.** The encoder-free architecture appears to be the weakness:
+E4B *with* its audio encoder is more robust on this content than the
+larger dense unified model whose audio embedder is a thin raw-waveform
+projection (and is 4-bit quantized here — the recipe ignore-list keeps
+vision/audio *towers* in higher precision, but this model has none).
+Untested confounders before a final verdict: bf16 (vs w4a16) and giving
+it video grounding. But the failure is severe enough that the practical
+conclusion stands — it would likely take ~an order of magnitude more
+parameters to reach a useful place on dense JP variety audio. **Shelved;
+not pursuing further for now.** Image `vllm-rocm-gemma4u:nightly` and the
+Dockerfile are kept for any future re-test.
+
 ## Key observations
 
 ### 1. Priming is the biggest single-knob win (+20+ pp katakana)

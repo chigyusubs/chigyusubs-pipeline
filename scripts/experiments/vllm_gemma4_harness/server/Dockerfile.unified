@@ -1,0 +1,43 @@
+# Gemma 4 12B "unified" (dense, encoder-free, native audio) on ROCm.
+#
+# Unlike ../Dockerfile (E2B/E4B path), this builds on a NEWER nightly that
+# already ships:
+#   - vLLM >= 0.22 registering Gemma4UnifiedForConditionalGeneration
+#   - transformers >= 5.10 recognizing model_type=gemma4_unified
+#
+# The April nightly + transformers 5.5.3 in ../Dockerfile predate the unified
+# arch (PR vllm#44429) and fail at config validation with
+# "Transformers does not recognize this architecture: gemma4_unified".
+#
+# We add ONLY the audio runtime libs. Do NOT use `pip install vllm[audio]` here:
+# that extra re-pins transformers<5 and downgrades 5.10.2, re-breaking
+# gemma4_unified. Installing the libs directly leaves vllm/transformers intact.
+FROM vllm/vllm-openai-rocm:nightly
+
+RUN pip install --no-cache-dir librosa soundfile av soxr resampy
+
+# Version-skew patch (2026-06): this vLLM nightly's gemma4_unified.py reads
+# `vision_config.num_soft_tokens`, but the newest released transformers
+# (5.10.2) Gemma4UnifiedVisionConfig — and the checkpoint's config.json —
+# don't define that field (it exposes mm_posemb_size/output_proj_dims). The
+# field is only used to size the IMAGE multimodal budget, which we don't use
+# for audio-only ASR, so a getattr fallback lets the server boot. Drop this
+# once a transformers release / vllm nightly realign on the field name.
+RUN F=/usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/gemma4_unified.py \
+ && sed -i \
+    -e 's/config\.vision_config\.num_soft_tokens/getattr(config.vision_config, "num_soft_tokens", 256)/' \
+    -e 's/= vision_cfg\.num_soft_tokens/= getattr(vision_cfg, "num_soft_tokens", 256)/' \
+    "$F" \
+ && grep -n 'num_soft_tokens' "$F"
+
+# Second skew: gemma4_mm.py's dummy-audio profiler reads
+# feature_extractor.fft_length (the STFT tower path). The encoder-free unified
+# feature extractor has no fft_length — it works on raw waveform sized by
+# audio_samples_per_token (640) over audio_seq_length (750) = 480000 samples
+# = 30 s, the documented max clip. Fall back to that worst-case length so the
+# audio modality profiles; keep fft_length for tower-based gemma4 models.
+RUN G=/usr/local/lib/python3.12/dist-packages/vllm/model_executor/models/gemma4_mm.py \
+ && sed -i \
+    -e 's/audio_len = processor\.feature_extractor\.fft_length/audio_len = getattr(processor.feature_extractor, "fft_length", None) or (processor.audio_seq_length * processor.feature_extractor.audio_samples_per_token)/' \
+    "$G" \
+ && grep -n 'audio_len = ' "$G"
